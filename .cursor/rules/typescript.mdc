@@ -1,0 +1,15 @@
+---
+description: TypeScript conventions.
+globs: ["**/*.ts", "**/*.tsx"]
+alwaysApply: true
+---
+
+# TypeScript
+
+- Strict mode is on. Do not loosen `tsconfig.json`.
+- No `any`. Prefer `unknown` at boundaries, narrow with zod.
+- Discriminated unions over class hierarchies. Always include a literal `type` / `kind` discriminator.
+- All agent output is `AsyncIterable<AgentEvent>` — never `Promise<Reply>`.
+- Async functions: always `await` or `return` a promise; no fire-and-forget without an explicit comment explaining why.
+- Imports: external first, then internal (`@/`), then relative. No deep relative paths (`../../../`) — add a path alias instead.
+- Errors: throw `Error` subclasses with structured `cause`. Never throw bare strings.

@@ -1,0 +1,48 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build
+.next/
+out/
+dist/
+build/
+*.tsbuildinfo
+
+# env / secrets
+.env
+.env.local
+.env.*.local
+*.pem
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# editor
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# test / coverage
+coverage/
+.nyc_output/
+
+# runtime data
+.claude/sessions/
+.opencode/
+workspaces/
+tmp/
+
+# db
+*.db
+*.sqlite
+
+# ai-logs runtime artifacts (handoffs are append-only per environment)
+ai-logs/handoffs.local.jsonl
+ai-logs/prompt-history/*.local.md

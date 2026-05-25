@@ -1,0 +1,16 @@
+---
+description: Roundtable repo-wide rules (applies to every file).
+globs: ["**/*"]
+alwaysApply: true
+---
+
+# General rules
+
+- Read `AGENTS.md` once per session before doing meaningful work.
+- English only in repo content (code, docs, commit messages, PR titles). Chat with the human team can be in any language.
+- Prefer editing existing files over creating new ones.
+- Never disable typecheck or lint to make a change land. Fix the root cause.
+- Never add `Co-Authored-By: Claude` or any AI-attribution trailer to commits or PRs.
+- No comments that restate code. Only document the *why* when it is non-obvious.
+- One logical change per commit. No combo commits.
+- When making a load-bearing decision without an existing spec, draft an ADR in `ai-logs/decisions/` in the same PR.

@@ -1,0 +1,15 @@
+---
+description: Next.js 15 App Router conventions.
+globs: ["src/ui/**/*", "src/app/**/*"]
+alwaysApply: false
+---
+
+# Next.js (App Router)
+
+- Server Components by default. Add `'use client'` only when you need state, effects, or browser APIs.
+- Data fetching: prefer server components + Drizzle directly; reach for tRPC only for client-side mutations or streamed subscriptions.
+- Streaming agent output: use Server-Sent Events or a streaming Response, not polling.
+- File layout: `src/app/(group)/page.tsx`, colocate components under the route they belong to; promote to `src/ui/components/` only when reused twice.
+- No `getServerSideProps` / `getStaticProps` — that's Pages Router.
+- Images: `next/image`. Fonts: `next/font`. Don't load fonts in `<head>` manually.
+- Forms: progressive enhancement — actions work without JS, then enhance.

@@ -20,7 +20,11 @@ export async function runReview(
 ): Promise<OrchestratorState> {
   const touchesSensitive =
     TRIGGERS.test(state.userMessage) || state.intake?.risk === 'high';
-  const notes = touchesSensitive ? await reviewer.review(state) : [];
+  const changesCode = state.dispatch.some((record) =>
+    record.events.some((event) => event.type === 'file_change'),
+  );
+  const notes =
+    touchesSensitive || changesCode ? await reviewer.review(state) : [];
   return {
     ...state,
     reviewNotes: [...state.reviewNotes, ...notes],

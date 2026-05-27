@@ -8,6 +8,7 @@ import type {
 import type { AdapterRegistry } from '../../adapters/index.js';
 import type { HandoffLog } from '../handoff-log.js';
 import type { DispatchRecord, OrchestratorState } from '../state.js';
+import { ensureWorkspace } from '../workspace.js';
 
 export interface WorkspaceResolver {
   resolve(chatId: string): string;
@@ -66,38 +67,52 @@ export async function runDispatch(
     cards.push(card);
     await deps.handoffLog.append(card);
 
-    const adapter = deps.registry.resolve(role);
     const cwd = deps.workspaces.resolve(state.chatId);
-    const session = await adapter.createSession({
-      cwd,
-      role,
-      agentMeta: { displayName: adapter.displayName, color: '#888' },
-      systemPrompt: card.taskBrief,
-    });
-
-    const events: AgentEvent[] = [];
     const startedAt = new Date();
-    let status: DispatchRecord['status'] = 'completed';
 
-    for await (const event of session.send({ text: card.taskBrief })) {
-      events.push(event);
-      if (event.type === 'error' && !event.recoverable) {
-        status = 'failed';
-        break;
+    try {
+      await ensureWorkspace(cwd);
+
+      const adapter = deps.registry.resolve(role);
+      const session = await adapter.createSession({
+        cwd,
+        role,
+        agentMeta: { displayName: adapter.displayName, color: '#888' },
+        systemPrompt: card.taskBrief,
+      });
+
+      const events: AgentEvent[] = [];
+      let status: DispatchRecord['status'] = 'completed';
+
+      try {
+        for await (const event of session.send({ text: card.taskBrief })) {
+          events.push(event);
+          if (event.type === 'error' && !event.recoverable) {
+            status = 'failed';
+            break;
+          }
+        }
+      } finally {
+        await session.close();
       }
+
+      records.push({
+        taskId: task.id,
+        handoffCardId: card.id,
+        sessionId: session.id,
+        status,
+        events,
+        startedAt,
+        finishedAt: new Date(),
+      });
+    } catch (error) {
+      records.push(
+        failedRecord(task.id, errorMessage(error), {
+          handoffCardId: card.id,
+          startedAt,
+        }),
+      );
     }
-
-    await session.close();
-
-    records.push({
-      taskId: task.id,
-      handoffCardId: card.id,
-      sessionId: session.id,
-      status,
-      events,
-      startedAt,
-      finishedAt: new Date(),
-    });
   }
 
   const anyCodeWriting = records.some((r) =>
@@ -126,14 +141,22 @@ function parseAssignee(assignee: string): AgentRoleId | undefined {
     : undefined;
 }
 
-function failedRecord(taskId: string, message: string): DispatchRecord {
+function failedRecord(
+  taskId: string,
+  message: string,
+  opts: { handoffCardId?: string; startedAt?: Date } = {},
+): DispatchRecord {
   return {
     taskId,
-    handoffCardId: '',
+    handoffCardId: opts.handoffCardId ?? '',
     sessionId: '',
     status: 'failed',
     events: [{ type: 'error', message, recoverable: false }],
-    startedAt: new Date(),
+    startedAt: opts.startedAt ?? new Date(),
     finishedAt: new Date(),
   };
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'dispatch failed';
 }

@@ -1,5 +1,7 @@
-export { runOrchestrator } from './run.js';
-export type { OrchestratorDeps, RunOptions } from './run.js';
+export { runOrchestrator, resumeOrchestrator } from './run.js';
+export type { OrchestratorDeps, ResumeOptions, RunOptions } from './run.js';
+export { buildOrchestratorGraph } from './graph.js';
+export type { GraphDeps } from './graph.js';
 export { initialState } from './state.js';
 export type {
   AggregateSummary,

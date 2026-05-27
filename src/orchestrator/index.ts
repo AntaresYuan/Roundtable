@@ -19,3 +19,5 @@ export { heuristicIntake } from './nodes/intake.js';
 export { rolePlanner } from './nodes/plan.js';
 export { noopReviewer } from './nodes/review.js';
 export { fallbackClarify } from './nodes/clarify.js';
+export { llmIntake, llmPlanner, defaultOrchestratorModel, requireAnthropicKey } from './llm/index.js';
+export type { LlmIntakeOpts, LlmPlannerOpts } from './llm/index.js';

@@ -1,0 +1,162 @@
+import { randomUUID } from 'node:crypto';
+import type {
+  AgentEvent,
+  AgentRoleId,
+  HandoffCard,
+  PlanTask,
+} from '../../contracts/index.js';
+import type { AdapterRegistry } from '../../adapters/index.js';
+import type { HandoffLog } from '../handoff-log.js';
+import type { DispatchRecord, OrchestratorState } from '../state.js';
+import { ensureWorkspace } from '../workspace.js';
+
+export interface WorkspaceResolver {
+  resolve(chatId: string): string;
+}
+
+export function buildHandoffCard(
+  state: OrchestratorState,
+  task: PlanTask,
+  role: AgentRoleId,
+): HandoffCard {
+  return {
+    id: randomUUID() as string,
+    from: 'orchestrator',
+    to: role,
+    scenario: 'dispatch',
+    userIntent: state.intake?.userVisibleSummary ?? state.userMessage,
+    taskBrief: task.title,
+    pinnedMessages: [],
+    rolesInGroup: [],
+    relevantArtifacts: [],
+    fullHistoryRef: `chat:${state.chatId}`,
+    createdAt: new Date(),
+    generatedBy: 'orchestrator',
+  };
+}
+
+export interface DispatchDeps {
+  registry: AdapterRegistry;
+  workspaces: WorkspaceResolver;
+  handoffLog: HandoffLog;
+}
+
+export async function runDispatch(
+  state: OrchestratorState,
+  deps: DispatchDeps,
+): Promise<OrchestratorState> {
+  if (!state.plan) {
+    return {
+      ...state,
+      stage: 'aggregate',
+      errors: [...state.errors, { stage: 'dispatch', message: 'plan missing' }],
+    };
+  }
+
+  const cards: HandoffCard[] = [];
+  const records: DispatchRecord[] = [];
+
+  for (const task of state.plan.tasks) {
+    const role = parseAssignee(task.assignee);
+    if (!role) {
+      records.push(failedRecord(task.id, `invalid assignee: ${task.assignee}`));
+      continue;
+    }
+
+    const card = buildHandoffCard(state, task, role);
+    cards.push(card);
+    await deps.handoffLog.append(card);
+
+    const cwd = deps.workspaces.resolve(state.chatId);
+    const startedAt = new Date();
+
+    try {
+      await ensureWorkspace(cwd);
+
+      const adapter = deps.registry.resolve(role);
+      const session = await adapter.createSession({
+        cwd,
+        role,
+        agentMeta: { displayName: adapter.displayName, color: '#888' },
+        systemPrompt: card.taskBrief,
+      });
+
+      const events: AgentEvent[] = [];
+      let status: DispatchRecord['status'] = 'completed';
+
+      try {
+        for await (const event of session.send({ text: card.taskBrief })) {
+          events.push(event);
+          if (event.type === 'error' && !event.recoverable) {
+            status = 'failed';
+            break;
+          }
+        }
+      } finally {
+        await session.close();
+      }
+
+      records.push({
+        taskId: task.id,
+        handoffCardId: card.id,
+        sessionId: session.id,
+        status,
+        events,
+        startedAt,
+        finishedAt: new Date(),
+      });
+    } catch (error) {
+      records.push(
+        failedRecord(task.id, errorMessage(error), {
+          handoffCardId: card.id,
+          startedAt,
+        }),
+      );
+    }
+  }
+
+  const anyCodeWriting = records.some((r) =>
+    r.events.some((e) => e.type === 'file_change'),
+  );
+
+  return {
+    ...state,
+    handoffCards: [...state.handoffCards, ...cards],
+    dispatch: [...state.dispatch, ...records],
+    stage: anyCodeWriting ? 'review' : 'aggregate',
+  };
+}
+
+function parseAssignee(assignee: string): AgentRoleId | undefined {
+  const stripped = assignee.replace(/^@/, '');
+  const valid: AgentRoleId[] = [
+    'architect',
+    'planner',
+    'implementer',
+    'reviewer',
+    'fixer',
+  ];
+  return valid.includes(stripped as AgentRoleId)
+    ? (stripped as AgentRoleId)
+    : undefined;
+}
+
+function failedRecord(
+  taskId: string,
+  message: string,
+  opts: { handoffCardId?: string; startedAt?: Date } = {},
+): DispatchRecord {
+  return {
+    taskId,
+    handoffCardId: opts.handoffCardId ?? '',
+    sessionId: '',
+    status: 'failed',
+    events: [{ type: 'error', message, recoverable: false }],
+    startedAt: opts.startedAt ?? new Date(),
+    finishedAt: new Date(),
+  };
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'dispatch failed';
+}

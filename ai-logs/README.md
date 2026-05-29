@@ -6,6 +6,7 @@ The living record of how we collaborate with AI on Roundtable.
 
 ```
 ai-logs/
+├── brainstorms/      # Upstream cowork sessions that produced the current specs
 ├── decisions/        # ADRs (Architecture Decision Records)
 ├── incidents.md      # AI failure modes + lessons learned
 ├── handoffs.jsonl    # Runtime hand-off log (auto-appended by the platform)

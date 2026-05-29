@@ -25,6 +25,7 @@ Next.js 15 (App Router) · TypeScript · LangGraph.js · Vercel AI SDK · Copilo
 | Author a new Skill | `specs/070-skills-system.md` |
 | Debug Claude Code `stream-json` | `skills/debug-stream-json/SKILL.md` |
 | Tune the Orchestrator prompt | `skills/write-orchestrator-prompt/SKILL.md` |
+| Understand *why* a spec is shaped the way it is | `ai-logs/brainstorms/2026-05-21-roundtable-architecture.md` |
 
 ## Hard rules (read before touching code)
 

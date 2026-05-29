@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "prepare": "simple-git-hooks",
     "setup": "docker compose up -d && pnpm db:migrate && pnpm db:seed",
     "dev:services": "docker compose up -d",
     "dev:services:mail": "docker compose --profile mail up -d",
@@ -13,7 +14,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint . --ext .ts,.tsx"
+    "lint": "eslint .",
+    "spec:lint": "node scripts/spec-lint.mjs",
+    "check:console": "node scripts/check-console-log.mjs"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",
@@ -24,9 +27,19 @@
     "@electric-sql/pglite": "^0.4.6",
     "@types/node": "^20.14.0",
     "drizzle-kit": "^0.31.10",
+    "eslint": "^10.4.0",
+    "lint-staged": "^17.0.5",
+    "simple-git-hooks": "^2.13.1",
     "tsx": "^4.22.3",
     "typescript": "^5.5.4",
+    "typescript-eslint": "^8.60.0",
     "vitest": "^2.0.5"
   },
-  "packageManager": "pnpm@9.0.0"
+  "packageManager": "pnpm@9.0.0",
+  "simple-git-hooks": {
+    "pre-commit": "corepack pnpm lint-staged && corepack pnpm typecheck && corepack pnpm check:console"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,mjs,cjs}": "eslint --fix"
+  }
 }

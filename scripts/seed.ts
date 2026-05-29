@@ -231,7 +231,7 @@ async function main() {
       })
       .onConflictDoNothing();
 
-    console.log('Seeded demo Roundtable data.');
+    process.stdout.write('Seeded demo Roundtable data.\n');
   } finally {
     await client.end();
   }

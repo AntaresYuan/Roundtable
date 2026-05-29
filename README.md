@@ -1,5 +1,7 @@
 # Roundtable
 
+[![CI](https://github.com/AntaresYuan/Roundtable/actions/workflows/ci.yml/badge.svg)](https://github.com/AntaresYuan/Roundtable/actions/workflows/ci.yml)
+
 An IM-style multi-agent collaboration platform. Users chat with multiple Coding Agents in single or group rooms; an Orchestrator (PM) dispatches tasks, routes `@mentions`, tracks artifact dependencies, and surfaces hand-offs as first-class product objects.
 
 ## What makes this different

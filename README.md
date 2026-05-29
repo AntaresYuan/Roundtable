@@ -26,3 +26,35 @@ Next.js 15 (App Router) · TypeScript · LangGraph.js · Vercel AI SDK · Copilo
 ## Status
 
 Pre-alpha. 3-week build sprint. See `specs/000-overview.md` for milestone gates.
+
+## Quick Start
+
+Prerequisites:
+
+- Node.js 20+
+- Corepack enabled
+- Docker Desktop or a compatible Docker engine
+
+Install dependencies and start the local backend services:
+
+```bash
+corepack pnpm install --frozen-lockfile
+corepack pnpm setup
+```
+
+`pnpm setup` starts Postgres and Redis with Docker Compose, then runs the
+database migration and seed entrypoints. Until the Drizzle schema from issue
+[#35](https://github.com/AntaresYuan/Roundtable/issues/35) lands, those
+entrypoints are safe no-ops.
+
+Useful local commands:
+
+```bash
+corepack pnpm dev:services       # start Postgres + Redis
+corepack pnpm dev:services:mail  # also start Mailhog for email auth testing
+corepack pnpm db:reset           # drop service volumes, restart, migrate, seed
+corepack pnpm test
+corepack pnpm typecheck
+```
+
+Copy `.env.example` to `.env` before running the full app stack.

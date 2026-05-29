@@ -1,5 +1,7 @@
-export { runOrchestrator } from './run.js';
-export type { OrchestratorDeps, RunOptions } from './run.js';
+export { runOrchestrator, resumeOrchestrator } from './run.js';
+export type { OrchestratorDeps, ResumeOptions, RunOptions } from './run.js';
+export { buildOrchestratorGraph } from './graph.js';
+export type { GraphDeps } from './graph.js';
 export { initialState } from './state.js';
 export type {
   AggregateSummary,
@@ -17,3 +19,5 @@ export { heuristicIntake } from './nodes/intake.js';
 export { rolePlanner } from './nodes/plan.js';
 export { noopReviewer } from './nodes/review.js';
 export { fallbackClarify } from './nodes/clarify.js';
+export { llmIntake, llmPlanner, defaultOrchestratorModel, requireAnthropicKey } from './llm/index.js';
+export type { LlmIntakeOpts, LlmPlannerOpts } from './llm/index.js';

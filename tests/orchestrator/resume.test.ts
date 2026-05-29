@@ -61,4 +61,45 @@ describe('resumeOrchestrator', () => {
     expect(resumed.plan?.tasks.length).toBeGreaterThanOrEqual(1);
     expect(resumed.aggregate?.headline).toMatch(/Done|Partial/);
   });
+
+  it('keeps clarify unresolved when resume answers are incomplete', async () => {
+    const registry = new AdapterRegistry();
+    registry.register(createMockAdapter());
+    registry.bindRole('implementer', 'mock');
+    registry.bindRole('planner', 'mock');
+    registry.bindRole('reviewer', 'mock');
+
+    const checkpointer = new MemorySaver();
+    const deps = {
+      registry,
+      workspaces: workspaceResolver(workDir),
+      checkpointer,
+      clarify: {
+        async generate() {
+          return [
+            { id: 'scope', prompt: 'Scope?', options: [{ id: 'prototype', label: 'Prototype' }] },
+            { id: 'stack', prompt: 'Stack?', options: [{ id: 'web', label: 'Web' }] },
+          ];
+        },
+      },
+    };
+
+    await runOrchestrator(
+      { chatId: 'chat-partial', userMessage: 'idk', threadId: 'thread-partial' },
+      deps,
+    );
+
+    const resumed = await resumeOrchestrator(
+      {
+        chatId: 'chat-partial',
+        threadId: 'thread-partial',
+        clarifyAnswers: { scope: 'prototype' },
+      },
+      deps,
+    );
+
+    expect(resumed.stage).toBe('clarify');
+    expect(resumed.clarify?.resolved).toBe(false);
+    expect(resumed.plan).toBeUndefined();
+  });
 });

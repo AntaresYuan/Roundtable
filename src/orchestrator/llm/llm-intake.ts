@@ -42,7 +42,7 @@ export function llmIntake(opts: LlmIntakeOpts = {}): IntakeClassifier {
           prompt: `User message:\n"""\n${message}\n"""`,
         });
         return object;
-      } catch (err) {
+      } catch {
         // Falling back to the heuristic is safer than failing the whole turn
         // — the heuristic always returns *something* and the worst case is a
         // clarify prompt the user can answer.

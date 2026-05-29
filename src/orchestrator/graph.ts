@@ -100,9 +100,10 @@ export function buildOrchestratorGraph(deps: GraphDeps) {
         questions: s.clarify?.questions ?? [],
       }) as Record<string, string> | undefined;
       if (!answers || !s.clarify) return {};
+      const resolved = s.clarify.questions.every((q) => q.id in answers);
       return {
-        clarify: { ...s.clarify, answers, resolved: true },
-        stage: 'plan' as StageId,
+        clarify: { ...s.clarify, answers, resolved },
+        stage: (resolved ? 'plan' : 'clarify') as StageId,
       };
     })
     .addNode(N.plan, async (s: GraphState) => await runPlan(adapt(s), planner))

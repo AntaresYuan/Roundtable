@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 import type {
   AgentAdapter,
   AgentCapabilities,
@@ -7,7 +9,7 @@ import type {
   SessionOpts,
   UserInput,
 } from '../../contracts/index.js';
-import { normalizeStreamJsonLine } from './normalize.js';
+import { normalizeStreamJsonLine, type NormalizeContext } from './normalize.js';
 import { spawnCli, type CliProcess, type SpawnCliOpts } from './process.js';
 
 export interface ClaudeCodeAdapterConfig {
@@ -68,11 +70,30 @@ function createSession(
   if (opts.allowedTools && opts.allowedTools.length > 0) {
     args.push('--allowed-tools', opts.allowedTools.join(','));
   }
+  if (opts.sessionId) {
+    args.push('--resume', opts.sessionId);
+  }
   args.push(...extraArgs);
 
-  const proc = spawner({ command, args, cwd: opts.cwd });
+  const sessionDir = join(opts.cwd, '.roundtable', 'sessions', adapterId);
+  mkdirSync(sessionDir, { recursive: true });
+
+  const proc = spawner({
+    command,
+    args,
+    cwd: opts.cwd,
+    env: { CLAUDE_CONFIG_DIR: sessionDir },
+  });
   let serverSessionId: string | undefined;
   let started = false;
+  const normalizeCtx: NormalizeContext = {
+    ownerAgentId: adapterId,
+    pendingToolUses: new Map(),
+  };
+  normalizeCtx.onSessionId = (id) => {
+    serverSessionId = id;
+    normalizeCtx.sessionId = id;
+  };
 
   async function* run(input: UserInput): AsyncIterable<AgentEvent> {
     try {
@@ -84,12 +105,8 @@ function createSession(
       started = true;
 
       for await (const line of proc.lines()) {
-        const events = normalizeStreamJsonLine(line, {
-          ...(serverSessionId !== undefined ? { sessionId: serverSessionId } : {}),
-          onSessionId: (id) => {
-            serverSessionId = id;
-          },
-        });
+        if (serverSessionId !== undefined) normalizeCtx.sessionId = serverSessionId;
+        const events = normalizeStreamJsonLine(line, normalizeCtx);
         for (const event of events) {
           yield event;
           if (event.type === 'done' || event.type === 'error') return;

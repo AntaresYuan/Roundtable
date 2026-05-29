@@ -41,12 +41,18 @@ export function spawnCli(opts: SpawnCliOpts): CliProcess {
     }
   });
 
+  const rl: ReadlineInterface = createInterface({ input: proc.stdout });
+
   let exited = false;
+  let spawnError: Error | undefined;
   proc.on('exit', () => {
     exited = true;
   });
-
-  const rl: ReadlineInterface = createInterface({ input: proc.stdout });
+  proc.on('error', (error) => {
+    spawnError = error;
+    exited = true;
+    rl.close();
+  });
 
   return {
     get pid() {
@@ -56,8 +62,10 @@ export function spawnCli(opts: SpawnCliOpts): CliProcess {
       for await (const line of rl) {
         yield line;
       }
+      if (spawnError) throw spawnError;
     },
     async write(payload: string): Promise<void> {
+      if (spawnError) throw spawnError;
       if (exited) throw new Error('CLI process already exited');
       await new Promise<void>((resolve, reject) => {
         proc.stdin.write(payload, (err) => (err ? reject(err) : resolve()));
@@ -73,6 +81,7 @@ export function spawnCli(opts: SpawnCliOpts): CliProcess {
       await new Promise<void>((resolve) => {
         if (exited) return resolve();
         proc.once('exit', () => resolve());
+        proc.once('error', () => resolve());
       });
     },
     stderrSnapshot() {

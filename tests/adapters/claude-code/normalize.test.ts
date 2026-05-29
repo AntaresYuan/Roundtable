@@ -37,8 +37,13 @@ describe('normalizeStreamJsonLine', () => {
     expect(events).toEqual([{ type: 'thinking_delta', delta: 'planning' }]);
   });
 
-  it('maps tool_use Write to tool_use + file_change(create)', () => {
-    const events = normalizeStreamJsonLine(
+  it('waits for successful Write tool_result before emitting file_change and artifact', () => {
+    const ctx = {
+      pendingToolUses: new Map(),
+      ownerAgentId: 'cc',
+      now: () => new Date('2026-05-25T00:00:00Z'),
+    };
+    const toolUseEvents = normalizeStreamJsonLine(
       JSON.stringify({
         type: 'assistant',
         message: {
@@ -52,14 +57,33 @@ describe('normalizeStreamJsonLine', () => {
           ],
         },
       }),
+      ctx,
     );
-    expect(events).toHaveLength(2);
-    expect(events[0]).toMatchObject({ type: 'tool_use', name: 'Write', id: 'tu1' });
-    expect(events[1]).toMatchObject({ type: 'file_change', path: 'src/a.ts', kind: 'create' });
+    expect(toolUseEvents).toEqual([
+      { type: 'tool_use', name: 'Write', id: 'tu1', input: { file_path: 'src/a.ts', content: 'export const x = 1' } },
+    ]);
+
+    const resultEvents = normalizeStreamJsonLine(
+      JSON.stringify({
+        type: 'user',
+        message: {
+          content: [{ type: 'tool_result', tool_use_id: 'tu1', content: 'ok', is_error: false }],
+        },
+      }),
+      ctx,
+    );
+    expect(resultEvents).toHaveLength(3);
+    expect(resultEvents[0]).toMatchObject({ type: 'tool_result', id: 'tu1', isError: false });
+    expect(resultEvents[1]).toMatchObject({ type: 'file_change', path: 'src/a.ts', kind: 'create' });
+    expect(resultEvents[2]).toMatchObject({
+      type: 'artifact',
+      artifact: { kind: 'file', title: 'src/a.ts', uri: 'src/a.ts', ownerAgentId: 'cc' },
+    });
   });
 
-  it('maps tool_use Edit to file_change(edit) with diff', () => {
-    const events = normalizeStreamJsonLine(
+  it('maps successful Edit tool_result to file_change(edit) with diff', () => {
+    const ctx = { pendingToolUses: new Map() };
+    normalizeStreamJsonLine(
       JSON.stringify({
         type: 'assistant',
         message: {
@@ -73,11 +97,53 @@ describe('normalizeStreamJsonLine', () => {
           ],
         },
       }),
+      ctx,
+    );
+    const events = normalizeStreamJsonLine(
+      JSON.stringify({
+        type: 'user',
+        message: {
+          content: [{ type: 'tool_result', tool_use_id: 'tu2', content: 'ok', is_error: false }],
+        },
+      }),
+      ctx,
     );
     const fileChange = events.find((e) => e.type === 'file_change');
     expect(fileChange).toMatchObject({ kind: 'edit', path: 'a.ts' });
     expect(fileChange && 'diff' in fileChange ? fileChange.diff : '').toContain('- foo');
     expect(fileChange && 'diff' in fileChange ? fileChange.diff : '').toContain('+ bar');
+  });
+
+  it('does not emit file_change when Write tool_result is an error', () => {
+    const ctx = { pendingToolUses: new Map() };
+    normalizeStreamJsonLine(
+      JSON.stringify({
+        type: 'assistant',
+        message: {
+          content: [
+            {
+              type: 'tool_use',
+              id: 'tu1',
+              name: 'Write',
+              input: { file_path: 'src/a.ts', content: 'x' },
+            },
+          ],
+        },
+      }),
+      ctx,
+    );
+    const events = normalizeStreamJsonLine(
+      JSON.stringify({
+        type: 'user',
+        message: {
+          content: [{ type: 'tool_result', tool_use_id: 'tu1', content: 'denied', is_error: true }],
+        },
+      }),
+      ctx,
+    );
+    expect(events).toEqual([
+      { type: 'tool_result', id: 'tu1', output: 'denied', isError: true },
+    ]);
   });
 
   it('maps user tool_result to tool_result event', () => {

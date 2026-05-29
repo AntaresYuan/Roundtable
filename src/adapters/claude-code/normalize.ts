@@ -1,4 +1,5 @@
-import type { AgentEvent } from '../../contracts/index.js';
+import type { AgentEvent, Artifact } from '../../contracts/index.js';
+import type { ArtifactId } from '../../contracts/ids.js';
 
 /**
  * Claude Code emits `--output-format stream-json` as NDJSON. The exact envelope
@@ -18,7 +19,16 @@ import type { AgentEvent } from '../../contracts/index.js';
 
 export interface NormalizeContext {
   sessionId?: string;
+  ownerAgentId?: string;
+  pendingToolUses?: Map<string, PendingToolUse>;
+  now?: () => Date;
   onSessionId?: (id: string) => void;
+}
+
+interface PendingToolUse {
+  id: string;
+  name: string;
+  input: unknown;
 }
 
 export function normalizeStreamJsonLine(
@@ -51,7 +61,7 @@ export function normalizeStreamJsonLine(
     if (!isRecord(message)) return [];
     const content = message['content'];
     if (!Array.isArray(content)) return [];
-    return content.flatMap(normalizeContentBlock);
+    return content.flatMap((block) => normalizeContentBlock(block, ctx));
   }
 
   if (type === 'user') {
@@ -63,12 +73,19 @@ export function normalizeStreamJsonLine(
     for (const block of content) {
       if (!isRecord(block)) continue;
       if (block['type'] === 'tool_result' && typeof block['tool_use_id'] === 'string') {
+        const toolUseId = block['tool_use_id'];
+        const isError = block['is_error'] === true;
         events.push({
           type: 'tool_result',
-          id: block['tool_use_id'],
+          id: toolUseId,
           output: block['content'] ?? null,
-          isError: block['is_error'] === true,
+          isError,
         });
+        const pending = ctx.pendingToolUses?.get(toolUseId);
+        if (pending) {
+          ctx.pendingToolUses?.delete(toolUseId);
+          if (!isError) events.push(...confirmedFileEvents(pending, ctx));
+        }
       }
     }
     return events;
@@ -98,7 +115,7 @@ export function normalizeStreamJsonLine(
   return [];
 }
 
-function normalizeContentBlock(block: unknown): AgentEvent[] {
+function normalizeContentBlock(block: unknown, ctx: NormalizeContext): AgentEvent[] {
   if (!isRecord(block)) return [];
   const type = block['type'];
 
@@ -117,14 +134,44 @@ function normalizeContentBlock(block: unknown): AgentEvent[] {
       name: block['name'],
       input: block['input'] ?? {},
     };
-    const fileEvent = maybeFileChangeEvent(block['name'], block['input']);
-    return fileEvent ? [evt, fileEvent] : [evt];
+    if (isFileMutationTool(block['name'], block['input'])) {
+      ctx.pendingToolUses?.set(block['id'], {
+        id: block['id'],
+        name: block['name'],
+        input: block['input'],
+      });
+    }
+    return [evt];
   }
 
   return [];
 }
 
-function maybeFileChangeEvent(name: unknown, input: unknown): AgentEvent | null {
+function confirmedFileEvents(pending: PendingToolUse, ctx: NormalizeContext): AgentEvent[] {
+  const fileChange = maybeFileChangeEvent(pending.name, pending.input);
+  if (!fileChange) return [];
+
+  const artifact: Artifact = {
+    id: artifactIdFor(pending.id, fileChange.path),
+    kind: 'file',
+    title: fileChange.path,
+    ownerAgentId: ctx.ownerAgentId ?? 'claude-code',
+    version: 0,
+    uri: fileChange.path,
+    createdAt: ctx.now?.() ?? new Date(),
+  };
+
+  return [fileChange, { type: 'artifact', artifact }];
+}
+
+function isFileMutationTool(name: unknown, input: unknown): boolean {
+  return maybeFileChangeEvent(name, input) !== null;
+}
+
+function maybeFileChangeEvent(
+  name: unknown,
+  input: unknown,
+): Extract<AgentEvent, { type: 'file_change' }> | null {
   if (typeof name !== 'string' || !isRecord(input)) return null;
   const path = input['file_path'];
   if (typeof path !== 'string') return null;
@@ -144,6 +191,10 @@ function maybeFileChangeEvent(name: unknown, input: unknown): AgentEvent | null 
     };
   }
   return null;
+}
+
+function artifactIdFor(toolUseId: string, path: string): ArtifactId {
+  return `file:${toolUseId}:${path}` as ArtifactId;
 }
 
 function synthDiff(prefix: '+' | '-', body: string): string {

@@ -1,5 +1,6 @@
 import { MockLanguageModelV3 } from 'ai/test';
 import { describe, expect, it } from 'vitest';
+import { llmIntake as publicLlmIntake, llmPlanner as publicLlmPlanner } from '../../src/lib/llm.js';
 import { llmIntake, llmPlanner } from '../../src/orchestrator/llm/index.js';
 import type { IntakeClassifier } from '../../src/orchestrator/nodes/intake.js';
 import { initialState } from '../../src/orchestrator/state.js';
@@ -15,6 +16,11 @@ function mockObjectModel(jsonObject: unknown) {
 }
 
 describe('llmIntake', () => {
+  it('exports the public LLM wrapper entry points', () => {
+    expect(publicLlmIntake).toBe(llmIntake);
+    expect(publicLlmPlanner).toBe(llmPlanner);
+  });
+
   it('returns the model-supplied IntakeResult', async () => {
     const intake = llmIntake({
       model: mockObjectModel({

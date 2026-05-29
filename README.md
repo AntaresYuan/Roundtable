@@ -43,9 +43,7 @@ corepack pnpm setup
 ```
 
 `pnpm setup` starts Postgres and Redis with Docker Compose, then runs the
-database migration and seed entrypoints. Until the Drizzle schema from issue
-[#35](https://github.com/AntaresYuan/Roundtable/issues/35) lands, those
-entrypoints are safe no-ops.
+Drizzle migrations and demo seed data.
 
 Useful local commands:
 

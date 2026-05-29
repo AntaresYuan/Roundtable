@@ -3,12 +3,15 @@
 // Responsibility: own the live connection / subprocess for one session, and
 // translate the vendor's event stream into AgentEvent via event-mapper.ts.
 
-import type { AgentEvent, AgentSession, SessionOpts, UserInput } from '../../contracts/adapter';
-import { mapVendorEventToAgentEvent } from './event-mapper';
+import type {
+  AgentEvent,
+  AgentSession,
+  SessionOpts,
+  UserInput,
+} from '../../contracts/adapter';
 
-export interface YourAgentSessionOptions extends SessionOpts {
-  // TODO(template): add vendor-specific options if any.
-}
+// TODO(template): replace this alias with a vendor-specific options shape if needed.
+export type YourAgentSessionOptions = SessionOpts;
 
 export class YourAgentSession implements AgentSession {
   readonly id: string;

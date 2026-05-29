@@ -2,7 +2,9 @@ import { existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 
 if (!existsSync('scripts/seed.ts') && !existsSync('scripts/seed.mjs')) {
-  console.log('No seed script found yet; skipping seed data until issue #35 lands.');
+  process.stdout.write(
+    'No seed script found yet; skipping seed data until issue #35 lands.\n',
+  );
   process.exit(0);
 }
 

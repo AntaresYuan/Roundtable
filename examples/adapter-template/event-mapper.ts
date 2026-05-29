@@ -8,6 +8,7 @@ import type { AgentEvent } from '../../contracts/adapter';
 
 // TODO(template): replace `unknown` with the vendor's event union type.
 export function mapVendorEventToAgentEvent(raw: unknown): AgentEvent {
+  void raw;
   // TODO(template): switch on raw.type and return the right AgentEvent.
   //
   // Example skeleton:

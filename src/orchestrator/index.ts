@@ -21,3 +21,21 @@ export { noopReviewer } from './nodes/review.js';
 export { fallbackClarify } from './nodes/clarify.js';
 export { llmIntake, llmPlanner, defaultOrchestratorModel, requireAnthropicKey } from './llm/index.js';
 export type { LlmIntakeOpts, LlmPlannerOpts } from './llm/index.js';
+export { DependencyGraph, MAX_NOTICE_HOPS } from './dependency-graph.js';
+export type {
+  ArtifactNode,
+  DependencyEdge,
+  DepChangedNotice,
+  RecordArtifactResult,
+} from './dependency-graph.js';
+export {
+  buildDepChangedMessage,
+  buildSyncHandoffCard,
+} from './dependency-broadcast.js';
+export type { BuildSyncHandoffOptions } from './dependency-broadcast.js';
+export {
+  inMemoryDependencyStore,
+  hydrateDependencyGraph,
+  persistDependency,
+} from './dependency-store.js';
+export type { DependencyEdgeRow, DependencyStore } from './dependency-store.js';

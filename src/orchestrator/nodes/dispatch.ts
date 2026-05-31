@@ -1,11 +1,14 @@
-import { randomUUID } from 'node:crypto';
 import type {
   AgentEvent,
   AgentRoleId,
   HandoffCard,
-  PlanTask,
 } from '../../contracts/index.js';
 import type { AdapterRegistry } from '../../adapters/index.js';
+import {
+  buildHandoffSystemPrompt,
+  generateHandoffCard,
+  type HandoffGeneratorOptions,
+} from '../handoff.js';
 import type { HandoffLog } from '../handoff-log.js';
 import type { DispatchRecord, OrchestratorState } from '../state.js';
 import { ensureWorkspace } from '../workspace.js';
@@ -14,31 +17,11 @@ export interface WorkspaceResolver {
   resolve(chatId: string): string;
 }
 
-export function buildHandoffCard(
-  state: OrchestratorState,
-  task: PlanTask,
-  role: AgentRoleId,
-): HandoffCard {
-  return {
-    id: randomUUID() as string,
-    from: 'orchestrator',
-    to: role,
-    scenario: 'dispatch',
-    userIntent: state.intake?.userVisibleSummary ?? state.userMessage,
-    taskBrief: task.title,
-    pinnedMessages: [],
-    rolesInGroup: [],
-    relevantArtifacts: [],
-    fullHistoryRef: `chat:${state.chatId}`,
-    createdAt: new Date(),
-    generatedBy: 'orchestrator',
-  };
-}
-
 export interface DispatchDeps {
   registry: AdapterRegistry;
   workspaces: WorkspaceResolver;
   handoffLog: HandoffLog;
+  handoff?: HandoffGeneratorOptions;
 }
 
 export async function runDispatch(
@@ -63,7 +46,15 @@ export async function runDispatch(
       continue;
     }
 
-    const card = buildHandoffCard(state, task, role);
+    const card = await generateHandoffCard(
+      {
+        state,
+        task,
+        role,
+        previousCards: cards,
+      },
+      deps.handoff,
+    );
     cards.push(card);
     await deps.handoffLog.append(card);
 
@@ -78,7 +69,7 @@ export async function runDispatch(
         cwd,
         role,
         agentMeta: { displayName: adapter.displayName, color: '#888' },
-        systemPrompt: card.taskBrief,
+        systemPrompt: buildHandoffSystemPrompt(card),
       });
 
       const events: AgentEvent[] = [];

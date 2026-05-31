@@ -127,8 +127,8 @@ Green is **staged**. M1 is the integration floor; M5 is the demo we ship.
 - [ ] The user's *actual request* reaches the implementer (blocked on Known gap 1 —
       the dispatcher currently sends only the role title).
 - [ ] The implementer is the **real Claude Code adapter** and writes real files.
-- [ ] `file_change` events are materialized into `Artifact` objects in state (blocked
-      on Known gap 2 — nothing converts them yet).
+- [ ] Emitted `artifact` events are collected into a state-level `Artifact[]` (blocked
+      on Known gap 2 — the adapter emits them but nothing surfaces them).
 - [ ] Generated `file` artifacts render in the UI (not raw text dumps).
 - [ ] The reviewer leaves ≥1 substantive comment **tied to an artifact** (blocked on
       Known gap 4 — review notes are bare `string[]` with no artifact anchor).
@@ -151,27 +151,44 @@ Green is **staged**. M1 is the integration floor; M5 is the demo we ship.
 
 ## Known gaps between this path and the current skeleton
 
-These are the seams `src/` does not yet connect (found 2026-05-31, file:line):
+Re-verified against `main` @ `17e08ee` (orchestrator runtime foundation) on 2026-05-31.
+That commit shipped a real Claude Code adapter and an LLM planner, which **closed part
+of the original audit** — flagged `(half-closed)` inline below.
 
-1. **User intent never reaches the implementer.** `dispatch.ts` sends `card.taskBrief`
-   as both system prompt and message; `taskBrief = task.title`, a generic role label
-   from `plan.ts`. The user's real request sits unused in `card.userIntent`.
-2. **`file_change` → `Artifact` has no producer.** Adapters emit `file_change`
-   (`event.ts`); nothing converts it to an `Artifact`. `aggregate.ts` only makes text
-   bullets. State holds no `Artifact[]`, so "file artifacts render" has no source.
-   **Decision:** the orchestrator (not each adapter) synthesizes artifacts from
-   `file_change`, so new adapters get it for free.
-3. **Reviewer is blind.** `buildHandoffCard` hardcodes `relevantArtifacts: []` and the
-   reviewer is dispatched with only its role title — it cannot see the diff it must
-   review.
-4. **Review notes can't anchor to artifacts.** `Reviewer.review()` returns `string[]`;
-   needs `{ artifactId, line?, body }` to satisfy "tied to an artifact."
-5. **Planner is mis-modeled as a dispatched role.** `rolePlanner` maps `suggestedRoles`
-   1:1 to tasks, so `build` yields `T1 @planner / T2 @implementer / T3 @reviewer` — one
-   implementer, planner wrongly dispatched. Planner must be an internal step that
-   expands into the parallel UI ‖ API implementer tasks.
+1. **User intent never reaches the implementer.** *(open)* `dispatch.ts:88` sends
+   `card.taskBrief` as the message and `:81` as the system prompt; `taskBrief = task.title`
+   (`dispatch.ts:28`), a short role label. The user's real request sits unused in
+   `card.userIntent` (`:27`). The real adapter forwards `systemPrompt` via
+   `--append-system-prompt` and `input.text` as the user turn, so the implementer's entire
+   instruction is the task title.
+2. **Emitted `artifact` events are not collected into state.** *(half-closed)* The real
+   Claude Code adapter now **does** emit `{ type: 'artifact' }` events alongside
+   `file_change` (`adapters/claude-code/normalize.ts:150-165`, `kind: 'file'`). Still
+   missing: `OrchestratorState` has no `artifacts` field (`state.ts:47-59`), the graph has
+   no `artifacts` channel (`graph.ts:41-53`), and `aggregate.ts` only makes text bullets —
+   so emitted artifacts stay buried in `dispatch[].events` with nothing surfacing them for
+   the UI. **Decision (updated):** add `artifacts: Artifact[]` to state and drain `artifact`
+   events into it; do **not** re-synthesize from `file_change` — the adapter already
+   produces them.
+3. **Reviewer is blind.** *(open)* `buildHandoffCard` hardcodes `relevantArtifacts: []`
+   (`dispatch.ts:31`) and the reviewer is dispatched with only its role title — it cannot
+   see the diff it must review.
+4. **Review notes can't anchor to artifacts.** *(open)* `Reviewer.review()` returns
+   `string[]` (`review.ts`) and state stores `reviewNotes: string[]` (`state.ts:56`); needs
+   `{ artifactId, line?, body }` to satisfy "tied to an artifact."
+5. **The LLM planner exists but is not the default.** *(half-closed)* `llm-planner.ts`
+   can now emit the golden-path shape — multiple `@implementer` tasks, `parallel: true`,
+   position-based `deps`, and `user_visible: false` for internal planning. But `graph.ts:83`
+   defaults to the old `rolePlanner()` (1:1 `suggestedRoles`→tasks), which still yields
+   `T1 @planner / T2 @implementer / T3 @reviewer`. Fix = wire `llmPlanner` as the
+   orchestrator's planner (it already falls back to `rolePlanner` on LLM failure).
+6. **Dispatch runs sequentially and ignores `parallel`.** *(open)* `dispatch.ts:59` awaits
+   each task in a `for` loop, so even a plan marked `parallel: true` runs serially. M2's
+   "two color-owned artifacts land concurrently" needs dispatch to fan out parallel siblings.
 
-M1 is blocked on gaps 1, 2, 3, 4. M2 is blocked on gap 5.
+M1 is blocked on gaps 1, 2, 4 (and gap 3 for a grounded review). M2 is blocked on gaps
+5 and 6. The real Claude Code adapter itself is **built** (`adapters/claude-code/`); M1's
+remaining adapter work is binding it to the `implementer` role and fixing gap 1.
 
 ## Explicitly out of scope for the golden path
 
@@ -187,7 +204,8 @@ Even though specs cover them, these stay out until M5 is green:
 
 ## What this unblocks (derived work)
 
-1. **Real Claude Code adapter** replacing the mock implementer (skills:
+1. **Bind the (now-built) Claude Code adapter** to the `implementer` role and fix gap 1
+   so the user's request reaches it (the adapter landed in `17e08ee`; skills:
    `debug-stream-json`, `add-agent-adapter`).
 2. **Orchestrator wiring** for gaps 1–5 above — the bulk of M1/M2.
 3. **Minimal UI** rendering: the live TodoList, an editable HandoffCard, color-owned
@@ -214,6 +232,10 @@ Even though specs cover them, these stay out until M5 is green:
 
 ## Changelog
 
+- 2026-05-31 — re-verified Known gaps against `main` @ `17e08ee`. Gaps 2 and 5 are now
+  half-closed (the real adapter emits `artifact` events; the LLM planner can express the
+  parallel shape); added gap 6 (sequential dispatch ignores `parallel`); noted the real
+  Claude Code adapter is built.
 - 2026-05-31 — **rewrite.** Reframed from a single-implementer landing-page slice into
   the staged Story A demo path (M1–M5). The original slice survives as M1. Added the
   multi-author-diff resolution, the M-stage rubric mapping, and the Known-gaps audit of

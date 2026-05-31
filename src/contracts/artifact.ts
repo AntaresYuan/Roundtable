@@ -2,8 +2,14 @@ import { z } from 'zod';
 import { ArtifactIdSchema } from './ids.js';
 
 export const ArtifactKindSchema = z.enum([
+  'code',
   'file',
   'diff',
+  'web_app',
+  'markdown',
+  'mermaid',
+  'html',
+  'spec',
   'doc',
   'preview',
   'note',

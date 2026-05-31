@@ -1,11 +1,12 @@
+import { Command, isGraphInterrupt, MemorySaver } from '@langchain/langgraph';
 import type { AdapterRegistry } from '../adapters/index.js';
-import { type HandoffLog, inMemoryHandoffLog } from './handoff-log.js';
-import { runAggregate } from './nodes/aggregate.js';
-import { type ClarifyGenerator, fallbackClarify, runClarify } from './nodes/clarify.js';
-import { runDispatch, type WorkspaceResolver } from './nodes/dispatch.js';
-import { heuristicIntake, type IntakeClassifier, runIntake } from './nodes/intake.js';
-import { type Planner, rolePlanner, runPlan } from './nodes/plan.js';
-import { noopReviewer, type Reviewer, runReview } from './nodes/review.js';
+import { buildOrchestratorGraph, type GraphDeps } from './graph.js';
+import { type HandoffLog } from './handoff-log.js';
+import { type ClarifyGenerator } from './nodes/clarify.js';
+import { type WorkspaceResolver } from './nodes/dispatch.js';
+import { type IntakeClassifier } from './nodes/intake.js';
+import { type Planner } from './nodes/plan.js';
+import { type Reviewer } from './nodes/review.js';
 import { initialState, type OrchestratorState } from './state.js';
 
 export interface OrchestratorDeps {
@@ -16,59 +17,61 @@ export interface OrchestratorDeps {
   planner?: Planner;
   reviewer?: Reviewer;
   handoffLog?: HandoffLog;
+  /** Defaults to an in-memory MemorySaver — pass a Postgres saver in prod. */
+  checkpointer?: GraphDeps['checkpointer'];
 }
 
 export interface RunOptions {
   chatId: string;
   userMessage: string;
+  /** Stable thread id for checkpointing/resume. Defaults to `chatId`. */
+  threadId?: string;
 }
 
-const MAX_STAGE_TRANSITIONS = 32;
+export interface ResumeOptions {
+  chatId: string;
+  threadId?: string;
+  /** Answers keyed by question id, to satisfy a pending clarify interrupt. */
+  clarifyAnswers: Record<string, string>;
+}
 
 export async function runOrchestrator(
   opts: RunOptions,
   deps: OrchestratorDeps,
 ): Promise<OrchestratorState> {
-  const intake = deps.intake ?? heuristicIntake();
-  const clarify = deps.clarify ?? fallbackClarify();
-  const planner = deps.planner ?? rolePlanner();
-  const reviewer = deps.reviewer ?? noopReviewer();
-  const handoffLog = deps.handoffLog ?? inMemoryHandoffLog();
+  const checkpointer = deps.checkpointer ?? new MemorySaver();
+  const graph = buildOrchestratorGraph({ ...deps, checkpointer });
+  const threadId = opts.threadId ?? opts.chatId;
 
-  let state = initialState(opts.chatId, opts.userMessage);
+  return invoke(graph, threadId, initialState(opts.chatId, opts.userMessage));
+}
 
-  for (let i = 0; i < MAX_STAGE_TRANSITIONS; i++) {
-    if (state.stage === 'done') return state;
+export async function resumeOrchestrator(
+  opts: ResumeOptions,
+  deps: OrchestratorDeps,
+): Promise<OrchestratorState> {
+  const checkpointer = deps.checkpointer ?? new MemorySaver();
+  const graph = buildOrchestratorGraph({ ...deps, checkpointer });
+  const threadId = opts.threadId ?? opts.chatId;
 
-    switch (state.stage) {
-      case 'intake':
-        state = await runIntake(state, intake);
-        break;
-      case 'clarify':
-        state = await runClarify(state, clarify);
-        if (state.stage === 'clarify') return state;
-        break;
-      case 'plan':
-        state = await runPlan(state, planner);
-        break;
-      case 'dispatch':
-        state = await runDispatch(state, {
-          registry: deps.registry,
-          workspaces: deps.workspaces,
-          handoffLog,
-        });
-        break;
-      case 'monitor':
-        state = { ...state, stage: 'review' };
-        break;
-      case 'review':
-        state = await runReview(state, reviewer);
-        break;
-      case 'aggregate':
-        state = runAggregate(state);
-        break;
+  return invoke(graph, threadId, new Command({ resume: opts.clarifyAnswers }));
+}
+
+async function invoke(
+  graph: ReturnType<typeof buildOrchestratorGraph>,
+  threadId: string,
+  input: OrchestratorState | Command,
+): Promise<OrchestratorState> {
+  try {
+    const result = await graph.invoke(input as never, {
+      configurable: { thread_id: threadId },
+    });
+    return result as unknown as OrchestratorState;
+  } catch (err) {
+    if (isGraphInterrupt(err)) {
+      const snapshot = await graph.getState({ configurable: { thread_id: threadId } });
+      return snapshot.values as unknown as OrchestratorState;
     }
+    throw err;
   }
-
-  throw new Error(`orchestrator did not converge after ${MAX_STAGE_TRANSITIONS} transitions`);
 }

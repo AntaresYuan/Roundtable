@@ -32,3 +32,4 @@ export { noopReviewer } from './nodes/review.js';
 export { fallbackClarify } from './nodes/clarify.js';
 export { llmIntake, llmPlanner, defaultOrchestratorModel, requireAnthropicKey } from './llm/index.js';
 export type { LlmIntakeOpts, LlmPlannerOpts } from './llm/index.js';
+export type { PinnedLoader } from './nodes/dispatch.js';

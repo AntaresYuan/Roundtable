@@ -4,7 +4,7 @@ import { buildOrchestratorGraph, type GraphDeps } from './graph.js';
 import type { HandoffGeneratorOptions } from './handoff.js';
 import { type HandoffLog } from './handoff-log.js';
 import { type ClarifyGenerator } from './nodes/clarify.js';
-import { type WorkspaceResolver } from './nodes/dispatch.js';
+import { type PinnedLoader, type WorkspaceResolver } from './nodes/dispatch.js';
 import { type IntakeClassifier } from './nodes/intake.js';
 import { type Planner } from './nodes/plan.js';
 import { type Reviewer } from './nodes/review.js';
@@ -19,6 +19,13 @@ export interface OrchestratorDeps {
   reviewer?: Reviewer;
   handoffLog?: HandoffLog;
   handoff?: HandoffGeneratorOptions;
+  /**
+   * Per-chat pinned-message loader. In prod wire to
+   * `(chatId) => loadPinnedForHandoff(db, chatId)` from
+   * `src/server/pinned-helpers.ts` so pinned context (spec 030 § 4)
+   * actually flows into HandoffCards.
+   */
+  pinnedLoader?: PinnedLoader;
   /** Defaults to an in-memory MemorySaver — pass a Postgres saver in prod. */
   checkpointer?: GraphDeps['checkpointer'];
 }

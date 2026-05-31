@@ -11,7 +11,11 @@ import type { AdapterRegistry } from '../adapters/index.js';
 import { type HandoffLog, inMemoryHandoffLog } from './handoff-log.js';
 import { runAggregate } from './nodes/aggregate.js';
 import { type ClarifyGenerator, fallbackClarify, runClarify } from './nodes/clarify.js';
-import { runDispatch, type WorkspaceResolver } from './nodes/dispatch.js';
+import {
+  runDispatch,
+  type PinnedLoader,
+  type WorkspaceResolver,
+} from './nodes/dispatch.js';
 import type { HandoffGeneratorOptions } from './handoff.js';
 import { heuristicIntake, type IntakeClassifier, runIntake } from './nodes/intake.js';
 import { type Planner, rolePlanner, runPlan } from './nodes/plan.js';
@@ -35,6 +39,7 @@ export interface GraphDeps {
   reviewer?: Reviewer;
   handoffLog?: HandoffLog;
   handoff?: HandoffGeneratorOptions;
+  pinnedLoader?: PinnedLoader;
   checkpointer?: BaseCheckpointSaver;
 }
 
@@ -115,6 +120,7 @@ export function buildOrchestratorGraph(deps: GraphDeps) {
         workspaces: deps.workspaces,
         handoffLog,
         ...(deps.handoff ? { handoff: deps.handoff } : {}),
+        ...(deps.pinnedLoader ? { pinnedLoader: deps.pinnedLoader } : {}),
       }),
     )
     .addNode(N.monitor, async (s: GraphState) => ({ ...s, stage: 'review' as StageId }))

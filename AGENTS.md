@@ -23,6 +23,7 @@ Next.js 15 (App Router) · TypeScript · LangGraph.js · Vercel AI SDK · Copilo
 | Understand group-chat routing | `specs/050-group-chat.md` |
 | Modify dependency graph | `specs/060-dependency-graph.md` |
 | Author a new Skill | `specs/070-skills-system.md` |
+| Know what the demo must prove + what to build first | `specs/080-golden-path.md` |
 | Debug Claude Code `stream-json` | `skills/debug-stream-json/SKILL.md` |
 | Tune the Orchestrator prompt | `skills/write-orchestrator-prompt/SKILL.md` |
 | Understand *why* a spec is shaped the way it is | `ai-logs/brainstorms/2026-05-21-roundtable-architecture.md` |

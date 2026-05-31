@@ -14,6 +14,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "orch:smoke": "tsx scripts/orchestrator-smoke.ts",
+    "demo:restore": "tsx scripts/demo-restore.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "spec:lint": "node scripts/spec-lint.mjs",

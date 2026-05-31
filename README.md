@@ -24,6 +24,7 @@ Next.js 15 (App Router) · TypeScript · LangGraph.js · Vercel AI SDK · Copilo
 | Add a new Coding Agent adapter | [`skills/add-agent-adapter/SKILL.md`](./skills/add-agent-adapter/SKILL.md) |
 | See how we collaborate with AI | [`rules/ai-collaboration.md`](./rules/ai-collaboration.md) |
 | Read architectural decisions | [`ai-logs/decisions/`](./ai-logs/decisions/) |
+| Operate / deploy / reset the demo | [`docs/operations.md`](./docs/operations.md) |
 
 ## Status
 

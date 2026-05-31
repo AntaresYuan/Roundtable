@@ -1,6 +1,7 @@
 import { Command, isGraphInterrupt, MemorySaver } from '@langchain/langgraph';
 import type { AdapterRegistry } from '../adapters/index.js';
 import { buildOrchestratorGraph, type GraphDeps } from './graph.js';
+import type { HandoffGeneratorOptions } from './handoff.js';
 import { type HandoffLog } from './handoff-log.js';
 import { type ClarifyGenerator } from './nodes/clarify.js';
 import { type WorkspaceResolver } from './nodes/dispatch.js';
@@ -17,6 +18,7 @@ export interface OrchestratorDeps {
   planner?: Planner;
   reviewer?: Reviewer;
   handoffLog?: HandoffLog;
+  handoff?: HandoffGeneratorOptions;
   /** Defaults to an in-memory MemorySaver — pass a Postgres saver in prod. */
   checkpointer?: GraphDeps['checkpointer'];
 }

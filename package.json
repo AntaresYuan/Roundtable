@@ -19,8 +19,12 @@
     "check:console": "node scripts/check-console-log.mjs"
   },
   "dependencies": {
+    "@trpc/server": "^11.17.0",
     "drizzle-orm": "^0.45.2",
+    "next-auth": "^4.24.14",
+    "nodemailer": "^7.0.13",
     "postgres": "^3.4.9",
+    "superjson": "^2.2.6",
     "zod": "^3.23.8"
   },
   "devDependencies": {

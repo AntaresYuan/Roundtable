@@ -956,7 +956,7 @@ function App() {
                 onOpenWorkflow={() => setView('workflow')} />
             </>
           )}
-          {view === 'workflow' && <WorkflowView agents={agents} onAddAgent={() => setModal('agent')} />}
+          {view === 'workflow' && <WorkflowView agents={agents} onAddAgent={() => setModal('agent')} onOpenTemplates={() => setModal('table')} />}
         </div>
       </div>
 

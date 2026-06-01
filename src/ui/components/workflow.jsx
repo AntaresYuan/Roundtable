@@ -7,7 +7,7 @@
 import React from 'react';
 import { RT } from '../lib/rt';
 import { Avatar, Icon, alpha, tint } from './primitives';
-const { useState: useStateW } = React;
+const { useState: useStateW, useEffect: useEffectW } = React;
 const ghostBtn = { display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 14px', borderRadius: 'var(--r-sm)',
   border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-muted)', font: 'inherit',
   fontSize: 12.5, fontWeight: 500, cursor: 'pointer' };
@@ -55,7 +55,12 @@ function WhoChips({ who, agents, onRemove, onAdd }) {
   );
 }
 
-function StageCard({ stage, idx, agents, onToggle, onRemove, onAddAgent, onRemoveAgent }) {
+function StageCard({ stage, idx, agents, onToggle, onRemove, onAddAgent, onRemoveAgent, onEdit, onMove, canLeft, canRight }) {
+  const moveBtn = (enabled) => ({ width: 22, height: 24, borderRadius: 7, border: '1px solid var(--border)',
+    background: 'var(--surface)', color: 'var(--text-muted)', cursor: enabled ? 'pointer' : 'default',
+    opacity: enabled ? 1 : 0.35, display: 'grid', placeItems: 'center', padding: 0 });
+  const editFocus = (e) => (e.currentTarget.style.borderColor = 'var(--border)');
+  const editBlur = (e) => (e.currentTarget.style.borderColor = 'transparent');
   return (
     <div style={{ width: 230, flexShrink: 0, background: 'var(--surface)', borderRadius: 'var(--r-card)',
       border: '1px solid var(--border)', boxShadow: 'var(--shadow-card)', overflow: 'hidden', position: 'relative' }}>
@@ -65,16 +70,29 @@ function StageCard({ stage, idx, agents, onToggle, onRemove, onAddAgent, onRemov
         <span style={{ display: 'grid', placeItems: 'center', width: 30, height: 30, borderRadius: 9, flexShrink: 0,
           background: tint('var(--accent)', 13), color: 'var(--accent)' }}><Icon name={stage.icon} size={16} /></span>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 13.5, fontWeight: 700 }}>{stage.name}</div>
-          <div className="mono" style={{ fontSize: 9.5, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-faint)' }}>
+          <input value={stage.name} onChange={(e) => onEdit('name', e.target.value)} title="Rename stage" spellCheck={false}
+            onFocus={editFocus} onBlur={editBlur}
+            style={{ width: '100%', font: 'inherit', fontSize: 13.5, fontWeight: 700, color: 'var(--text)', background: 'transparent',
+              border: '1px solid transparent', borderRadius: 6, outline: 'none', padding: '1px 4px', margin: '-1px -4px' }} />
+          <div className="mono" style={{ fontSize: 9.5, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-faint)', marginTop: 3 }}>
             stage {idx + 1}{stage.parallel ? ' · parallel' : ''}</div>
         </div>
-        {!stage.fixed && onRemove && <button onClick={onRemove} title="Remove stage" style={{ width: 24, height: 24, borderRadius: 7,
-          border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-faint)', cursor: 'pointer',
-          display: 'grid', placeItems: 'center' }}><Icon name="x" size={12} /></button>}
+        <div style={{ display: 'flex', gap: 3, flexShrink: 0 }}>
+          <button onClick={() => canLeft && onMove(-1)} disabled={!canLeft} title="Move earlier" style={moveBtn(canLeft)}>
+            <Icon name="chevron" size={11} style={{ transform: 'rotate(180deg)' }} /></button>
+          <button onClick={() => canRight && onMove(1)} disabled={!canRight} title="Move later" style={moveBtn(canRight)}>
+            <Icon name="chevron" size={11} /></button>
+          {!stage.fixed && onRemove && <button onClick={onRemove} title="Remove stage" style={{ width: 24, height: 24, borderRadius: 7,
+            border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-faint)', cursor: 'pointer',
+            display: 'grid', placeItems: 'center', padding: 0 }}><Icon name="x" size={12} /></button>}
+        </div>
       </div>
       <div style={{ padding: '12px 13px' }}>
-        <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 11, minHeight: 34 }}>{stage.desc}</div>
+        <textarea value={stage.desc} onChange={(e) => onEdit('desc', e.target.value)} rows={2} title="Edit description" spellCheck={false}
+          onFocus={editFocus} onBlur={editBlur}
+          style={{ width: '100%', font: 'inherit', fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 11,
+            minHeight: 38, resize: 'vertical', background: 'transparent', border: '1px solid transparent', borderRadius: 6,
+            outline: 'none', padding: '4px', boxSizing: 'border-box' }} />
         <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--text-faint)', marginBottom: 7 }}>Who runs it</div>
         <WhoChips who={stage.who} agents={agents} onRemove={stage.fixed ? null : (id) => onRemoveAgent(id)} onAdd={stage.fixed ? null : onAddAgent} />
         {!stage.fixed && (
@@ -96,18 +114,35 @@ function AddStageButton({ onClick }) {
   );
 }
 
-function WorkflowView({ agents, onAddAgent }) {
+function WorkflowView({ agents, onAddAgent, onOpenTemplates }) {
   const [stages, setStages] = useStateW(() => RT.WORKFLOW.stages.map((s) => ({ ...s, who: [...s.who] })));
   const [saved, setSaved] = useStateW(false);
+  // hydrate workflows the user saved in a previous session
+  useEffectW(() => {
+    try {
+      const raw = localStorage.getItem('rt.userTemplates');
+      if (raw) RT.userTemplates = JSON.parse(raw);
+    } catch { /* ignore */ }
+  }, []);
   const saveTemplate = () => {
-    RT.userTemplates = RT.userTemplates || [];
-    RT.userTemplates.push({ id: 'tpl-' + Date.now(), name: RT.WORKBENCH.name + ' workflow', tag: 'Yours',
+    const tpl = { id: 'tpl-' + Date.now(), name: RT.WORKBENCH.name + ' workflow', tag: 'Yours',
       desc: 'Saved from this workbench — ' + stages.map((s) => s.name).join(' → ') + '.',
       roles: ['planner', 'implementer', 'reviewer'],
-      pipe: stages.map((s) => ({ icon: s.icon, label: s.name })) });
+      pipe: stages.map((s) => ({ icon: s.icon, label: s.name })) };
+    RT.userTemplates = [...(RT.userTemplates || []), tpl];
+    try { localStorage.setItem('rt.userTemplates', JSON.stringify(RT.userTemplates)); } catch { /* ignore */ }
     setSaved(true); setTimeout(() => setSaved(false), 2600);
   };
   const toggle = (i, key) => setStages((ss) => ss.map((s, j) => (j === i ? { ...s, [key]: !s[key] } : s)));
+  const editStage = (i, field, val) => setStages((ss) => ss.map((s, j) => (j === i ? { ...s, [field]: val } : s)));
+  const moveStage = (i, dir) => setStages((ss) => {
+    const j = i + dir;
+    if (j < 0 || j >= ss.length) return ss;
+    const n = [...ss];
+    const [m] = n.splice(i, 1);
+    n.splice(j, 0, m);
+    return n;
+  });
   const removeStage = (i) => setStages((ss) => ss.filter((_, j) => j !== i));
   const removeAgent = (i, id) => setStages((ss) => ss.map((s, j) => (j === i ? { ...s, who: s.who.filter((x) => x !== id) } : s)));
   const addStage = (i) => setStages((ss) => {
@@ -126,7 +161,7 @@ function WorkflowView({ agents, onAddAgent }) {
             </p>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button style={ghostBtn}><Icon name="layers" size={14} /> Start from template</button>
+            <button onClick={onOpenTemplates} style={ghostBtn}><Icon name="layers" size={14} /> Start from template</button>
             <button onClick={saveTemplate} style={{ ...ghostBtn, background: saved ? 'var(--ok)' : 'var(--accent)', color: '#fff', border: 'none', fontWeight: 600 }}>
               <Icon name="check" size={14} /> {saved ? 'Saved to gallery' : 'Save as template'}</button>
           </div>
@@ -155,7 +190,9 @@ function WorkflowView({ agents, onAddAgent }) {
               </div>}
               <StageCard stage={s} idx={i} agents={agents}
                 onToggle={(k) => toggle(i, k)} onRemove={() => removeStage(i)}
-                onAddAgent={onAddAgent} onRemoveAgent={(id) => removeAgent(i, id)} />
+                onAddAgent={onAddAgent} onRemoveAgent={(id) => removeAgent(i, id)}
+                onEdit={(field, val) => editStage(i, field, val)} onMove={(dir) => moveStage(i, dir)}
+                canLeft={i > 0} canRight={i < stages.length - 1} />
             </React.Fragment>
           ))}
         </div>

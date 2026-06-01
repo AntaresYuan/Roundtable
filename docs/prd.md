@@ -341,6 +341,8 @@ The four things no shipping product has, all of which Roundtable ships:
 | Dependency graph / 依赖图 | [`specs/060-dependency-graph.md`](../specs/060-dependency-graph.md) | — |
 | Skills system / Skills 系统 | [`specs/070-skills-system.md`](../specs/070-skills-system.md) | — |
 | Golden path — demo scenario & build order / 黄金路径·演示主线与构建顺序 | [`specs/080-golden-path.md`](../specs/080-golden-path.md) | — |
+| Workflows — packaged & customizable / 工作流·封装与自定义 | [`specs/090-workflows.md`](../specs/090-workflows.md) | [ADR-009](../ai-logs/decisions/ADR-009-workflow-as-spec-not-canvas.md) |
+| Interaction model — meeting + breakout / 交互隐喻·会议与分组 | — | [ADR-008](../ai-logs/decisions/ADR-008-roundtable-meeting-interaction-model.md) |
 | Why PM cannot self-spawn agents / PM 不能自动生成 Agent | — | [ADR-007](../ai-logs/decisions/ADR-007-pm-cannot-create-new-agents.md) |
 | Original brainstorm (history, not spec) / 脑爆档案 | [`ai-logs/brainstorms/2026-05-21-roundtable-architecture.md`](../ai-logs/brainstorms/2026-05-21-roundtable-architecture.md) | — |
 

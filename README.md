@@ -50,6 +50,7 @@ Drizzle migrations and demo seed data.
 Useful local commands:
 
 ```bash
+corepack pnpm ui:dev             # Next.js app at localhost:3000 (/ and /gallery)
 corepack pnpm dev:services       # start Postgres + Redis
 corepack pnpm dev:services:mail  # also start Mailhog for email auth testing
 corepack pnpm db:reset           # drop service volumes, restart, migrate, seed

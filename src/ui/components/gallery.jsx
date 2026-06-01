@@ -8,6 +8,7 @@
 import React from 'react';
 import { RT } from '../lib/rt';
 import { TodoListCard, ArtifactRenderer, HandoffCard, BreakoutChip } from './cards';
+import RoundtableView from './roundtable-view';
 
 // Show the parallel-running hero state: T1 ∥ T2 running, T3 waiting.
 const demoPlan = {
@@ -59,6 +60,10 @@ export default function Gallery() {
           Golden-path cards rendered from fixtures. The main table.
         </p>
       </header>
+
+      <GallerySection title="The roundtable — main table · 24s golden path">
+        <RoundtableView />
+      </GallerySection>
 
       <GallerySection title="Live TodoList (parallel)">
         <TodoListCard plan={demoPlan} agents={agents} />

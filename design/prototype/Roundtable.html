@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en" data-aesthetic="neutral" data-theme="light" data-density="balanced">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Roundtable — main table</title>
+
+  <template id="__bundler_thumbnail">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+      <rect width="100" height="100" fill="#5eb0ef"/>
+      <g transform="translate(50 52)">
+        <ellipse cx="0" cy="6" rx="30" ry="11" fill="#fff" opacity=".9"/>
+        <circle cx="-16" cy="-4" r="6" fill="#8b7cf6"/>
+        <circle cx="0" cy="-9" r="6" fill="#4cc38a"/>
+        <circle cx="16" cy="-4" r="6" fill="#e6a23c"/>
+      </g>
+    </svg>
+  </template>
+
+  <link rel="stylesheet" href="src/tokens.css" />
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <script src="src/fixtures.js"></script>
+  <script type="text/babel" src="src/primitives.jsx"></script>
+  <script type="text/babel" src="src/cards.jsx"></script>
+  <script type="text/babel" src="src/chat.jsx"></script>
+  <script type="text/babel" src="src/roundtable.jsx"></script>
+  <script type="text/babel" src="src/modals.jsx"></script>
+  <script type="text/babel" src="src/workflow.jsx"></script>
+  <script type="text/babel" src="tweaks-panel.jsx"></script>
+  <script type="text/babel" src="src/app.jsx"></script>
+</body>
+</html>

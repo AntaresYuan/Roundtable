@@ -493,5 +493,5 @@ function BreakoutChip({ data, agents }) {
 }
 
 export {
-  TodoListCard, ArtifactRenderer, HandoffCard, BreakoutChip, OwnerCard, CodeBlock, VChip,
+  TodoListCard, ArtifactRenderer, HandoffCard, BreakoutChip, OwnerCard, CodeBlock, VChip, iconBtn,
 };

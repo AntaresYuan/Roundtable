@@ -1,5 +1,5 @@
-import Gallery from '@/ui/components/gallery';
+import AppRoot from '@/ui/components/app-root';
 
 export default function Page() {
-  return <Gallery />;
+  return <AppRoot />;
 }

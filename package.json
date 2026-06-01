@@ -17,7 +17,10 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "spec:lint": "node scripts/spec-lint.mjs",
-    "check:console": "node scripts/check-console-log.mjs"
+    "check:console": "node scripts/check-console-log.mjs",
+    "ui:dev": "next dev",
+    "ui:build": "next build",
+    "ui:start": "next start"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.79",
@@ -26,15 +29,20 @@
     "@trpc/server": "^11.17.0",
     "ai": "^6.0.191",
     "drizzle-orm": "^0.45.2",
+    "next": "^15.1.0",
     "next-auth": "^4.24.14",
     "nodemailer": "^7.0.13",
     "postgres": "^3.4.9",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "superjson": "^2.2.6",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.4.6",
     "@types/node": "^20.14.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
     "drizzle-kit": "^0.31.10",
     "eslint": "^10.4.0",
     "lint-staged": "^17.0.5",

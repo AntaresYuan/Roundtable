@@ -8,7 +8,9 @@ import { type WorkspaceResolver } from './nodes/dispatch.js';
 import { type IntakeClassifier } from './nodes/intake.js';
 import { type Planner } from './nodes/plan.js';
 import { type Reviewer } from './nodes/review.js';
+import { type SelectSpeakerDeps } from './nodes/select-speaker.js';
 import { initialState, type OrchestratorState } from './state.js';
+import type { AgentDescription } from '../contracts/index.js';
 
 export interface OrchestratorDeps {
   registry: AdapterRegistry;
@@ -19,6 +21,12 @@ export interface OrchestratorDeps {
   reviewer?: Reviewer;
   handoffLog?: HandoffLog;
   handoff?: HandoffGeneratorOptions;
+  /**
+   * Group-chat selector wiring. Defaults to the heuristic selector +
+   * in-memory telemetry, suitable for tests; prod plugs in `llmSelector()`
+   * + `fileSelectorTelemetry()`.
+   */
+  selectSpeaker?: SelectSpeakerDeps;
   /** Defaults to an in-memory MemorySaver — pass a Postgres saver in prod. */
   checkpointer?: GraphDeps['checkpointer'];
 }
@@ -28,6 +36,13 @@ export interface RunOptions {
   userMessage: string;
   /** Stable thread id for checkpointing/resume. Defaults to `chatId`. */
   threadId?: string;
+  /**
+   * Agents in the chat room. When ≥ 2 are provided AND the user message
+   * has no `@mention`, the graph starts at the group-chat selector node
+   * (spec 050 § (a)) instead of intake. Omit to keep the existing
+   * single-chat / PM flow.
+   */
+  agents?: AgentDescription[];
 }
 
 export interface ResumeOptions {
@@ -45,7 +60,13 @@ export async function runOrchestrator(
   const graph = buildOrchestratorGraph({ ...deps, checkpointer });
   const threadId = opts.threadId ?? opts.chatId;
 
-  return invoke(graph, threadId, initialState(opts.chatId, opts.userMessage));
+  return invoke(
+    graph,
+    threadId,
+    initialState(opts.chatId, opts.userMessage, {
+      ...(opts.agents !== undefined ? { agents: opts.agents } : {}),
+    }),
+  );
 }
 
 export async function resumeOrchestrator(

@@ -14,6 +14,10 @@ import { type ClarifyGenerator, fallbackClarify, runClarify } from './nodes/clar
 import { runDispatch, type WorkspaceResolver } from './nodes/dispatch.js';
 import type { HandoffGeneratorOptions } from './handoff.js';
 import { heuristicIntake, type IntakeClassifier, runIntake } from './nodes/intake.js';
+import {
+  runSelectSpeaker,
+  type SelectSpeakerDeps,
+} from './nodes/select-speaker.js';
 import { type Planner, rolePlanner, runPlan } from './nodes/plan.js';
 import { noopReviewer, type Reviewer, runReview } from './nodes/review.js';
 import {
@@ -24,7 +28,13 @@ import {
   type OrchestratorState,
   type StageId,
 } from './state.js';
-import type { HandoffCard, IntakeResult, Plan } from '../contracts/index.js';
+import type {
+  AgentDescription,
+  HandoffCard,
+  IntakeResult,
+  Plan,
+  SelectorDecision,
+} from '../contracts/index.js';
 
 export interface GraphDeps {
   registry: AdapterRegistry;
@@ -35,6 +45,8 @@ export interface GraphDeps {
   reviewer?: Reviewer;
   handoffLog?: HandoffLog;
   handoff?: HandoffGeneratorOptions;
+  /** Group-chat selector dependencies. Default: heuristic + in-memory telemetry. */
+  selectSpeaker?: SelectSpeakerDeps;
   checkpointer?: BaseCheckpointSaver;
 }
 
@@ -44,6 +56,12 @@ const StateAnnotation = Annotation.Root({
   chatId: Annotation<string>(lastWins<string>()),
   userMessage: Annotation<string>(lastWins<string>()),
   stage: Annotation<StageId>(lastWins<StageId>()),
+  agents: Annotation<AgentDescription[] | undefined>(
+    lastWins<AgentDescription[] | undefined>(),
+  ),
+  selector: Annotation<SelectorDecision | undefined>(
+    lastWins<SelectorDecision | undefined>(),
+  ),
   intake: Annotation<IntakeResult | undefined>(lastWins<IntakeResult | undefined>()),
   clarify: Annotation<ClarifyState | undefined>(lastWins<ClarifyState | undefined>()),
   plan: Annotation<Plan | undefined>(lastWins<Plan | undefined>()),
@@ -59,6 +77,7 @@ type GraphState = typeof StateAnnotation.State;
 // LangGraph forbids node names that collide with channel names. Prefix with
 // `stage:` so they cannot clash with the StateAnnotation keys (intake, plan…).
 const N = {
+  select_speaker: 'stage_select_speaker',
   intake: 'stage_intake',
   clarify: 'stage_clarify',
   await_user: 'stage_await_user',
@@ -89,7 +108,12 @@ export function buildOrchestratorGraph(deps: GraphDeps) {
 
   const adapt = (s: GraphState): OrchestratorState => s as unknown as OrchestratorState;
 
+  const selectSpeakerDeps: SelectSpeakerDeps = deps.selectSpeaker ?? {};
+
   const graph = new StateGraph(StateAnnotation)
+    .addNode(N.select_speaker, async (s: GraphState) =>
+      await runSelectSpeaker(adapt(s), selectSpeakerDeps),
+    )
     .addNode(N.intake, async (s: GraphState) => await runIntake(adapt(s), intake))
     .addNode(N.clarify, async (s: GraphState) => await runClarify(adapt(s), clarify))
     .addNode(N.await_user, async (s: GraphState) => {
@@ -120,7 +144,18 @@ export function buildOrchestratorGraph(deps: GraphDeps) {
     .addNode(N.monitor, async (s: GraphState) => ({ ...s, stage: 'review' as StageId }))
     .addNode(N.review, async (s: GraphState) => await runReview(adapt(s), reviewer))
     .addNode(N.aggregate, async (s: GraphState) => runAggregate(adapt(s)))
-    .addEdge(START, N.intake)
+    .addConditionalEdges(
+      START,
+      (s: GraphState) =>
+        s.stage === 'select_speaker' ? N.select_speaker : N.intake,
+      [N.select_speaker, N.intake],
+    )
+    .addConditionalEdges(N.select_speaker, route, [
+      N.intake,
+      N.clarify,
+      N.dispatch,
+      END,
+    ])
     .addConditionalEdges(N.intake, route, [
       N.clarify,
       N.plan,
@@ -147,6 +182,8 @@ export function buildOrchestratorGraph(deps: GraphDeps) {
 
 function route(s: GraphState): StageNode | typeof END {
   switch (s.stage) {
+    case 'select_speaker':
+      return N.select_speaker;
     case 'intake':
       return N.intake;
     case 'clarify':
@@ -166,8 +203,12 @@ function route(s: GraphState): StageNode | typeof END {
   }
 }
 
-export function buildInitialInput(chatId: string, userMessage: string): OrchestratorState {
-  return initialState(chatId, userMessage);
+export function buildInitialInput(
+  chatId: string,
+  userMessage: string,
+  opts: { agents?: AgentDescription[] } = {},
+): OrchestratorState {
+  return initialState(chatId, userMessage, opts);
 }
 
 export { StateAnnotation };

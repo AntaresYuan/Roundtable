@@ -39,7 +39,7 @@ function palettize(palette) {
 
 /* ---- timeline hook -------------------------------------------------------- */
 function useScene(autoplay, speed) {
-  const [clock, setClock] = useState(autoplay ? 0 : RT.SCENE_DURATION);
+  const [clock, setClock] = useState(0);
   const [playing, setPlaying] = useState(autoplay);
   const raf = useRef(0), last = useRef(0);
   useEffect(() => {
@@ -363,9 +363,6 @@ function TopBar({ t, setTweak, view, setView }) {
         { v: 'roundtable', label: 'Roundtable', icon: 'layers' },
         { v: 'workflow', label: 'Workflow', icon: 'sparkle' }]} />
       <div style={{ flex: 1 }} />
-      <span style={{ fontSize: 11.5, color: 'var(--text-faint)' }}>Aesthetic</span>
-      <MiniSeg value={t.aesthetic} onChange={v => setTweak('aesthetic', v)} options={[
-        { v: 'document', label: 'Doc' }, { v: 'neutral', label: 'Neutral' }, { v: 'technical', label: 'Tech' }]} />
       <button onClick={() => setTweak('theme', t.theme === 'light' ? 'dark' : 'light')} title="Toggle theme"
         style={{ ...iconBtn, background: 'var(--surface-2)' }}>
         <Icon name={t.theme === 'light' ? 'moon' : 'sun'} size={16} />
@@ -496,14 +493,13 @@ function Dock({ st, agents, scene, onAction, onOpenChat, onOpenWorkflow }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 22px 0' }}>
         <WorkflowStrip clock={scene.clock} onOpen={onOpenWorkflow} />
         <span style={{ flex: 1 }} />
-        <Transport scene={scene} />
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '9px 22px 4px' }}>
         <span style={{ width: 8, height: 8, borderRadius: '50%', background: dotColor, flexShrink: 0,
           boxShadow: st.speech ? `0 0 0 4px ${alpha(dotColor, 22)}` : 'none' }} />
         {body}
       </div>
-      <Composer agents={agents} onSend={() => {}} />
+      <Composer agents={agents} onSend={() => scene.replay()} />
     </div>
   );
 }
@@ -838,7 +834,7 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "theme": "light",
   "density": "balanced",
   "palette": "soft",
-  "autoplay": true,
+  "autoplay": false,
   "speed": 1.2
 }/*EDITMODE-END*/;
 
@@ -946,9 +942,6 @@ function App() {
                             <button onClick={() => setModal('task')} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '10px 16px',
                               borderRadius: 'var(--r-sm)', border: 'none', cursor: 'pointer', background: 'var(--accent)', color: '#fff',
                               font: 'inherit', fontSize: 13, fontWeight: 600 }}><Icon name="plus" size={15} /> Start a task</button>
-                            <button onClick={scene.toggle} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '10px 16px',
-                              borderRadius: 'var(--r-sm)', border: '1px solid var(--border)', cursor: 'pointer', background: 'var(--surface)',
-                              color: 'var(--text)', font: 'inherit', fontSize: 13, fontWeight: 600 }}><Icon name="play" size={14} /> Watch the demo</button>
                           </div>
                         </div>
                       </div>
@@ -981,6 +974,7 @@ function App() {
         onClose={() => setModal(null)} onCreate={(goal) => {
           setTasks((ts) => [{ id: 'new-' + Date.now(), title: goal.length > 40 ? goal.slice(0, 40) + '…' : goal, meta: 'just now · queued', status: 'queued' }, ...ts]);
           setModal(null);
+          scene.replay();
         }} />}
       {modal === 'table' && <NewWorkbenchModal agents={agents} onClose={() => setModal(null)} onCreate={() => setModal(null)} />}
       {modal === 'agent' && <AddAgentModal onClose={() => setModal(null)} onAdd={({ role, name, color }) => {

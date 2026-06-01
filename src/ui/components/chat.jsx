@@ -228,7 +228,7 @@ function Composer({ agents, onSend }) {
           <Icon name="send" size={17} /></button>
       </div>
       <div style={{ height: 16, marginTop: 6, fontSize: 11.5, color: 'var(--text-faint)', textAlign: 'center' }}>
-        {sent ? 'Queued — this demo plays a scripted scene.' : ''}
+        {sent ? 'Sent.' : ''}
       </div>
     </div>
   );

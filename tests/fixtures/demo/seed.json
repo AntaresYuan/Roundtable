@@ -1,0 +1,111 @@
+{
+  "$comment": "Declarative demo dataset. Loaded by scripts/demo-restore.ts. UUIDs are stable so re-running clears + re-inserts the same rows (idempotent reset).",
+  "users": [
+    {
+      "id": "00000000-0000-4000-8000-0000000000d1",
+      "email": "demo@roundtable.local",
+      "name": "Demo User"
+    }
+  ],
+  "chats": [
+    {
+      "id": "00000000-0000-4000-8000-0000000000c1",
+      "ownerUserId": "00000000-0000-4000-8000-0000000000d1",
+      "title": "Demo: build a waitlist landing page",
+      "workspacePath": "./workspaces/demo-waitlist"
+    }
+  ],
+  "messages": [
+    {
+      "id": "00000000-0000-4000-8000-0000000000e1",
+      "chatId": "00000000-0000-4000-8000-0000000000c1",
+      "authorType": "user",
+      "authorId": "00000000-0000-4000-8000-0000000000d1",
+      "content": "Build a waitlist landing page with email capture and CSV export.",
+      "status": "completed"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000e2",
+      "chatId": "00000000-0000-4000-8000-0000000000c1",
+      "authorType": "agent",
+      "authorId": "mock-planner",
+      "content": "Planned 3 tasks: UI, API, tests. Dispatching to specialists.",
+      "status": "completed"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000e3",
+      "chatId": "00000000-0000-4000-8000-0000000000c1",
+      "authorType": "agent",
+      "authorId": "mock-implementer",
+      "content": "Landing page scaffolded at app/waitlist/page.tsx.",
+      "status": "completed"
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "00000000-0000-4000-8000-0000000000a1",
+      "chatId": "00000000-0000-4000-8000-0000000000c1",
+      "kind": "doc",
+      "title": "Waitlist requirements",
+      "ownerAgentId": "mock-planner",
+      "currentVersion": 1,
+      "uri": "docs/waitlist.md",
+      "preview": "Email capture, CSV export, GDPR-friendly."
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000a2",
+      "chatId": "00000000-0000-4000-8000-0000000000c1",
+      "kind": "file",
+      "title": "app/waitlist/page.tsx",
+      "ownerAgentId": "mock-implementer",
+      "currentVersion": 1,
+      "uri": "app/waitlist/page.tsx",
+      "preview": "export default function Waitlist() { ... }"
+    }
+  ],
+  "artifactDeps": [
+    {
+      "fromArtifactId": "00000000-0000-4000-8000-0000000000a2",
+      "toArtifactId": "00000000-0000-4000-8000-0000000000a1",
+      "kind": "references"
+    }
+  ],
+  "handoffs": [
+    {
+      "id": "00000000-0000-4000-8000-0000000000b1",
+      "chatId": "00000000-0000-4000-8000-0000000000c1",
+      "from": "orchestrator",
+      "to": "implementer",
+      "scenario": "dispatch",
+      "userIntent": "Build a waitlist landing page with email capture and CSV export.",
+      "taskBrief": "Scaffold the waitlist page and wire the CSV export endpoint.",
+      "pinnedMessages": [
+        {
+          "id": "00000000-0000-4000-8000-0000000000e1",
+          "content": "CSV export must be downloadable without auth for demo.",
+          "pinnedBy": "00000000-0000-4000-8000-0000000000d1"
+        }
+      ],
+      "rolesInGroup": [],
+      "relevantArtifacts": [
+        {
+          "id": "00000000-0000-4000-8000-0000000000a1",
+          "kind": "doc",
+          "title": "Waitlist requirements",
+          "uri": "docs/waitlist.md"
+        }
+      ],
+      "fullHistoryRef": "chat:00000000-0000-4000-8000-0000000000c1",
+      "generatedBy": "orchestrator"
+    }
+  ],
+  "pinnedMessages": [
+    {
+      "id": "00000000-0000-4000-8000-0000000000f1",
+      "chatId": "00000000-0000-4000-8000-0000000000c1",
+      "messageId": "00000000-0000-4000-8000-0000000000e1",
+      "pinnedByUserId": "00000000-0000-4000-8000-0000000000d1",
+      "position": 0
+    }
+  ]
+}

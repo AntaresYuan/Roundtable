@@ -1,10 +1,16 @@
 import { resolve } from 'node:path';
 import { createDbClient } from '../src/db/client.js';
-import { loadDemoSeed, restoreDemo } from '../src/lib/demo-restore.js';
+import {
+  assertDemoRestoreAllowed,
+  loadDemoSeed,
+  restoreDemo,
+} from '../src/lib/demo-restore.js';
 
 const fixturePath = resolve(
   process.env['DEMO_SEED_PATH'] ?? 'tests/fixtures/demo/seed.json',
 );
+
+assertDemoRestoreAllowed();
 
 const { db, client } = createDbClient();
 try {

@@ -69,6 +69,7 @@ Group | Variable | Required? | Default | Used by
 **Sandboxing** | `SANDBOX_URL_SIGNING_SECRET` | always (HMAC for iframe URLs) | — | `src/lib/sandbox.ts`
 **Maintenance** | `CHECKPOINT_TTL_DAYS` | optional GC tuning | `30` | `scripts/cleanup-checkpoints.ts`
 **Maintenance** | `DEMO_SEED_PATH` | override fixture path | `tests/fixtures/demo/seed.json` | `scripts/demo-restore.ts`
+**Maintenance** | `ROUNDTABLE_ALLOW_DEMO_RESTORE` | remote demo reset only | unset | `scripts/demo-restore.ts`
 **Maintenance** | `ROUNDTABLE_RUN_CLAUDE_INTEGRATION` | opt-in live-CLI test | unset | `tests/adapters/claude-code/adapter.test.ts`
 **Maintenance** | `ROUNDTABLE_CLAUDE_COMMAND` | override the `claude` binary path | `claude` | same test
 
@@ -223,6 +224,7 @@ Schedule these as Railway cron tasks (or external runners):
 - Fixture: [`tests/fixtures/demo/seed.json`](../tests/fixtures/demo/seed.json) — 1 user, 1 chat, 3 messages, 2 artifacts (one with a `references` dep), 1 handoff card, 1 pinned message.
 - Override the fixture path with `DEMO_SEED_PATH=path/to/other.json pnpm demo:restore`.
 - Reset semantics: deletes the fixture's `chats.id` and `users.id` rows first (which cascades through messages / artifacts / handoffs / pinned via `ON DELETE CASCADE`), then inserts the fixture cleanly.
+- Safety guard: non-local `DATABASE_URL` is refused unless `ROUNDTABLE_ALLOW_DEMO_RESTORE=true` is set. Use that only for an intentional demo environment reset.
 
 Use this before the demo to guarantee a known-good starting state, and after any wild local poking to get back to baseline.
 

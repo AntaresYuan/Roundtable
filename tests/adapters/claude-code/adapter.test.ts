@@ -146,6 +146,48 @@ describe('createClaudeCodeAdapter', () => {
     await session.close();
   });
 
+  it('spawns the documented stream-json command shape', async () => {
+    const { spawner, spawned } = fakeSpawner([]);
+    const adapter = createClaudeCodeAdapter({ spawner });
+    const session = await adapter.createSession({
+      cwd: '/tmp/ws',
+      role: 'implementer',
+      agentMeta: { displayName: 'cc', color: '#000' },
+    });
+    const args = spawned[0]?.args ?? [];
+    // The AC pins down the exact stream-json invocation; assert the flags are
+    // present and the workspace is propagated via `--cwd`.
+    expect(args).toContain('-p');
+    expect(args.slice(args.indexOf('--output-format'), args.indexOf('--output-format') + 2)).toEqual([
+      '--output-format',
+      'stream-json',
+    ]);
+    expect(args.slice(args.indexOf('--input-format'), args.indexOf('--input-format') + 2)).toEqual([
+      '--input-format',
+      'stream-json',
+    ]);
+    expect(args.slice(args.indexOf('--cwd'), args.indexOf('--cwd') + 2)).toEqual([
+      '--cwd',
+      '/tmp/ws',
+    ]);
+    expect(spawned[0]?.cwd).toBe('/tmp/ws');
+    await session.close();
+  });
+
+  it('captures child stderr into the debug snapshot', async () => {
+    const proc = spawnCli({
+      command: 'sh',
+      args: ['-c', 'printf "boom\\n" 1>&2; printf "ok\\n"'],
+      cwd: process.cwd(),
+    });
+    // Drain stdout so the process exits cleanly.
+    for await (const _ of proc.lines()) {
+      // no-op
+    }
+    await proc.close();
+    expect(proc.stderrSnapshot()).toContain('boom');
+  });
+
   it('surfaces child-process spawn failures as non-recoverable errors', async () => {
     const proc = spawnCli({
       command: 'roundtable-definitely-missing-cli',

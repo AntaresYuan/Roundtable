@@ -58,6 +58,27 @@ export async function loadDemoSeed(path: string): Promise<DemoSeed> {
   return JSON.parse(raw) as DemoSeed;
 }
 
+export function assertDemoRestoreAllowed(
+  databaseUrl = process.env['DATABASE_URL'],
+  allowFlag = process.env['ROUNDTABLE_ALLOW_DEMO_RESTORE'],
+): void {
+  if (allowFlag === 'true' || isLocalDatabaseUrl(databaseUrl)) return;
+
+  throw new Error(
+    'Refusing to run demo restore against a non-local DATABASE_URL. Set ROUNDTABLE_ALLOW_DEMO_RESTORE=true to confirm this is a demo environment.',
+  );
+}
+
+export function isLocalDatabaseUrl(databaseUrl: string | undefined): boolean {
+  if (!databaseUrl) return true;
+  try {
+    const { hostname } = new URL(databaseUrl);
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Idempotent demo reset: deletes existing rows for the fixture's chat ids
  * (cascades to messages / artifacts / handoffs / pins / deps via the

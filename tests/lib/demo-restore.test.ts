@@ -6,7 +6,12 @@ import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import * as schema from '../../src/db/schema.js';
 import type { Db } from '../../src/db/index.js';
-import { loadDemoSeed, restoreDemo } from '../../src/lib/demo-restore.js';
+import {
+  assertDemoRestoreAllowed,
+  isLocalDatabaseUrl,
+  loadDemoSeed,
+  restoreDemo,
+} from '../../src/lib/demo-restore.js';
 
 describe('demo:restore', () => {
   let client: PGlite;
@@ -91,5 +96,19 @@ describe('demo:restore', () => {
       .where(eq(schema.messages.chatId, chatId));
     expect(after.map((m) => m.id)).not.toContain(NOISE_ID);
     expect(after).toHaveLength(seed.messages.length);
+  });
+});
+
+describe('demo restore safety guard', () => {
+  it('allows unset and localhost database URLs', () => {
+    expect(isLocalDatabaseUrl(undefined)).toBe(true);
+    expect(isLocalDatabaseUrl('postgres://user:pass@localhost:5432/db')).toBe(true);
+    expect(isLocalDatabaseUrl('postgres://user:pass@127.0.0.1:5432/db')).toBe(true);
+  });
+
+  it('rejects non-local database URLs unless explicitly confirmed', () => {
+    const remoteUrl = 'postgres://user:pass@prod.example.com:5432/db';
+    expect(() => assertDemoRestoreAllowed(remoteUrl)).toThrow(/non-local DATABASE_URL/);
+    expect(() => assertDemoRestoreAllowed(remoteUrl, 'true')).not.toThrow();
   });
 });

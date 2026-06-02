@@ -114,11 +114,26 @@ export class SandboxManager {
   }
 
   async provision(input: ProvisionInput): Promise<ProvisionResult> {
-    if (!input.entrypoint || Object.keys(input.files).length === 0) {
+    if (!input.entrypoint.trim() || Object.keys(input.files).length === 0) {
       return {
         ok: false,
         error: 'invalid_input',
         message: 'entrypoint and at least one file are required.',
+      };
+    }
+    if (!Object.keys(input.files).every(isSafeSandboxPath)) {
+      return {
+        ok: false,
+        error: 'invalid_input',
+        message: 'file paths must be relative and stay inside the sandbox workspace.',
+      };
+    }
+    const port = input.port ?? 3000;
+    if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+      return {
+        ok: false,
+        error: 'invalid_input',
+        message: 'port must be an integer between 1 and 65535.',
       };
     }
     if (this.registry.countForChat(input.chatId) >= this.perChatBudget) {
@@ -131,7 +146,6 @@ export class SandboxManager {
 
     let handle: SandboxHandle;
     try {
-      const port = input.port ?? 3000;
       const createOpts = {
         files: input.files,
         entrypoint: input.entrypoint,
@@ -245,6 +259,21 @@ function createInMemoryRegistry(): SandboxRegistry {
       return n;
     },
   };
+}
+
+function isSafeSandboxPath(path: string): boolean {
+  if (
+    !path ||
+    path.startsWith('/') ||
+    path.startsWith('\\') ||
+    path.includes('\0') ||
+    /[/\\]{2,}/.test(path)
+  ) {
+    return false;
+  }
+  return path
+    .split(/[\\/]+/)
+    .every((segment) => segment.length > 0 && segment !== '.' && segment !== '..');
 }
 
 // ── URL signing ─────────────────────────────────────────────────────────────

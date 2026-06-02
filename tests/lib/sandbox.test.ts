@@ -55,6 +55,32 @@ describe('SandboxManager.provision', () => {
     expect(noEntry.error).toBe('invalid_input');
   });
 
+  it('rejects unsafe file paths and invalid ports before calling the provider', async () => {
+    const provider = createFakeSandboxProvider();
+    const mgr = new SandboxManager({
+      provider,
+      signingSecret: SECRET,
+    });
+
+    const badPathCases = [
+      { '/etc/passwd': 'x' },
+      { '../escape.ts': 'x' },
+      { 'src/../escape.ts': 'x' },
+      { 'src//file.ts': 'x' },
+      { '\\windows\\absolute.ts': 'x' },
+    ];
+    for (const files of badPathCases) {
+      const result = await mgr.provision(baseInput({ files }));
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error).toBe('invalid_input');
+    }
+
+    const badPort = await mgr.provision(baseInput({ port: 0 }));
+    expect(badPort.ok).toBe(false);
+    if (!badPort.ok) expect(badPort.error).toBe('invalid_input');
+    expect(provider.created).toHaveLength(0);
+  });
+
   it('enforces the per-chat budget', async () => {
     const mgr = new SandboxManager({
       provider: createFakeSandboxProvider(),

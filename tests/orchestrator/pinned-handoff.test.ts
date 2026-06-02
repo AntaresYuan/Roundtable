@@ -62,6 +62,28 @@ describe('runDispatch — pinnedLoader integration (#64)', () => {
 
     expect(result.handoffCards[0]?.pinnedMessages).toEqual([]);
   });
+
+  it('continues dispatch with empty pins when the loader fails', async () => {
+    const registry = new AdapterRegistry();
+    registry.register(createMockAdapter());
+    registry.bindRole('implementer', 'mock');
+
+    const result = await runDispatch(withPlan(['@implementer']), {
+      registry,
+      workspaces: workspaceResolver(rootDir),
+      handoffLog: inMemoryHandoffLog(),
+      pinnedLoader: async () => {
+        throw new Error('database unavailable');
+      },
+    });
+
+    expect(result.dispatch[0]?.status).toBe('completed');
+    expect(result.handoffCards[0]?.pinnedMessages).toEqual([]);
+    expect(result.errors).toContainEqual({
+      stage: 'dispatch',
+      message: 'pinned loader failed: database unavailable',
+    });
+  });
 });
 
 function withPlan(assignees: string[]) {

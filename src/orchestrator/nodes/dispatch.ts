@@ -48,13 +48,25 @@ export async function runDispatch(
 
   const cards: HandoffCard[] = [];
   const records: DispatchRecord[] = [];
+  let errors = state.errors;
 
   // Load pinned messages once per dispatch turn; same set flows into every
   // card emitted this turn (spec 030 § Token-control § 4: pinned messages
   // are global constraints, not per-task).
-  const pinnedMessages = deps.pinnedLoader
-    ? await deps.pinnedLoader(state.chatId)
-    : [];
+  let pinnedMessages: PinnedMessage[] = [];
+  if (deps.pinnedLoader) {
+    try {
+      pinnedMessages = await deps.pinnedLoader(state.chatId);
+    } catch (error) {
+      errors = [
+        ...errors,
+        {
+          stage: 'dispatch',
+          message: `pinned loader failed: ${errorMessage(error)}`,
+        },
+      ];
+    }
+  }
 
   for (const task of state.plan.tasks) {
     const role = parseAssignee(task.assignee);
@@ -132,6 +144,7 @@ export async function runDispatch(
     ...state,
     handoffCards: [...state.handoffCards, ...cards],
     dispatch: [...state.dispatch, ...records],
+    errors,
     stage: anyCodeWriting ? 'review' : 'aggregate',
   };
 }

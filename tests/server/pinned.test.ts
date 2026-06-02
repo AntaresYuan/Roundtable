@@ -216,6 +216,32 @@ describe('pinnedRouter', () => {
     expect(listed[0]?.messageId).toBe(original);
   });
 
+  it('replacePin is idempotent when the added message is already pinned', async () => {
+    const original = await insertMessage(env.db, 'old');
+    const alreadyPinned = await insertMessage(env.db, 'already pinned');
+    await env.caller.pinned.pin({ chatId: CHAT_ID, messageId: original });
+    const existing = await env.caller.pinned.pin({
+      chatId: CHAT_ID,
+      messageId: alreadyPinned,
+    });
+    expect(existing.ok).toBe(true);
+    if (!existing.ok) return;
+
+    const result = await env.caller.pinned.replacePin({
+      chatId: CHAT_ID,
+      addMessageId: alreadyPinned,
+      evictMessageId: original,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.pin.id).toBe(existing.pin.id);
+    const listed = await env.caller.pinned.list({ chatId: CHAT_ID });
+    expect(listed.map((p) => p.messageId).sort()).toEqual(
+      [alreadyPinned, original].sort(),
+    );
+  });
+
   it('replacePin returns evict_not_found when the target isn\'t pinned', async () => {
     const m1 = await insertMessage(env.db, 'phantom');
     const m2 = await insertMessage(env.db, 'newcomer');

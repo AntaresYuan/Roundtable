@@ -22,6 +22,18 @@ function useTweaks(defaults) {
   return [t, setTweak];
 }
 
+function useMediaQuery(query) {
+  const [matches, setMatches] = useState(false);
+  useEffect(() => {
+    const media = window.matchMedia(query);
+    const update = () => setMatches(media.matches);
+    update();
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, [query]);
+  return matches;
+}
+
 /* ---- palette remap -------------------------------------------------------- */
 const PALETTES = {
   soft:    { architect: '#9579b0', planner: '#5f86b8', implementer: '#5a9e8c', reviewer: '#bd9a55', fixer: '#c47766' },
@@ -855,9 +867,15 @@ function App() {
   const [tasks, setTasks] = useState(RT.TASKS);
   const agents = useMemo(() => palettize(t.palette), [t.palette, memberIds]);
   const scene = useScene(t.autoplay, t.speed);
+  const compact = useMediaQuery('(max-width: 760px)');
   const [decided, setDecided] = useState(false);
   const st = useMemo(() => { const s = sceneAt(scene.clock); if (decided) s.decision = null; return s; }, [scene.clock, decided]);
   useEffect(() => { if (scene.clock < 200) setDecided(false); }, [scene.clock]);
+  useEffect(() => {
+    if (!compact) return;
+    setRailOpen(false);
+    setNotesOpen(false);
+  }, [compact]);
   useEffect(() => {
     const onKey = (e) => {
       if (e.key !== 'Escape') return;
@@ -891,11 +909,23 @@ function App() {
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <TopBar t={t} setTweak={setTweak} view={view} setView={setView} />
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        {railOpen && <ConversationRail workbench={RT.WORKBENCH} workbenches={RT.WORKBENCHES}
+        {railOpen && !compact && <ConversationRail workbench={RT.WORKBENCH} workbenches={RT.WORKBENCHES}
           tasks={tasks} agents={agents} activeId={tasks[0] && tasks[0].id} onPick={() => {}}
           memberIds={memberIds} onRemoveMember={(id) => setMemberIds((m) => m.filter((x) => x !== id))}
           onAddMember={() => setModal('agent')} onNewTask={() => setModal('task')} onNewWorkbench={() => setModal('table')}
           onPickWorkbench={() => {}} onCollapse={() => setRailOpen(false)} />}
+        {railOpen && compact && (
+          <div style={{ position: 'fixed', inset: 0, zIndex: 110, background: alpha('#000', 30), display: 'flex' }}
+            onClick={() => setRailOpen(false)}>
+            <div onClick={(e) => e.stopPropagation()} style={{ width: 'min(320px, 86vw)', height: '100%' }}>
+              <ConversationRail workbench={RT.WORKBENCH} workbenches={RT.WORKBENCHES}
+                tasks={tasks} agents={agents} activeId={tasks[0] && tasks[0].id} onPick={() => {}}
+                memberIds={memberIds} onRemoveMember={(id) => setMemberIds((m) => m.filter((x) => x !== id))}
+                onAddMember={() => setModal('agent')} onNewTask={() => setModal('task')} onNewWorkbench={() => setModal('table')}
+                onPickWorkbench={() => {}} onCollapse={() => setRailOpen(false)} />
+            </div>
+          </div>
+        )}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg)', position: 'relative' }}>
           {!railOpen && (
             <button onClick={() => setRailOpen(true)} title="Show sidebar" style={{ position: 'absolute', top: 12, left: 12, zIndex: 60,
@@ -947,8 +977,8 @@ function App() {
                       </div>
                     )}
                 </div>
-                {notesOpen && <ResizeHandle onResize={(dx) => setInspectorW((w) => Math.max(300, Math.min(640, w + dx)))} />}
-                {notesOpen && <InspectorPanel tab={inspectorTab} setTab={setInspectorTab} clock={scene.clock} width={inspectorW}
+                {notesOpen && !compact && <ResizeHandle onResize={(dx) => setInspectorW((w) => Math.max(300, Math.min(640, w + dx)))} />}
+                {notesOpen && <InspectorPanel tab={inspectorTab} setTab={setInspectorTab} clock={scene.clock} width={compact ? 'min(100vw, 420px)' : inspectorW}
                   agents={agents} scene={scene} onOpenArtifact={setDrawerArt} onAction={onAction} onClose={() => setNotesOpen(false)} />}
               </div>
               <Dock st={st} agents={agents} scene={scene} onAction={onAction}

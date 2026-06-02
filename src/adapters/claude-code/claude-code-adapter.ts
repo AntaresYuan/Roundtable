@@ -62,6 +62,8 @@ function createSession(
     'stream-json',
     '--input-format',
     'stream-json',
+    '--cwd',
+    opts.cwd,
     '--verbose',
   ];
   if (opts.systemPrompt) {

@@ -216,12 +216,12 @@ function Composer({ agents, onSend }) {
         boxShadow: 'var(--shadow-card)' }}>
         <button title="Mention (@)" onClick={() => { setVal(v => v + '@'); setMenu(true); taRef.current && taRef.current.focus(); }}
           style={{ ...iconBtn, border: 'none', background: 'var(--surface-2)' }}><Icon name="at" size={16} /></button>
-        <textarea ref={taRef} value={val} onChange={onChange} rows={1}
+        <textarea id="roundtable-composer" name="message" ref={taRef} value={val} onChange={onChange} rows={1}
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
           placeholder="Message the table…  use @ to bring in an agent"
           style={{ flex: 1, resize: 'none', border: 'none', outline: 'none', background: 'transparent',
             font: 'inherit', fontSize: 14, color: 'var(--text)', lineHeight: 1.5, maxHeight: 120, padding: '6px 0' }} />
-        <button onClick={send} disabled={!val.trim()} style={{ display: 'grid', placeItems: 'center',
+        <button aria-label="Send message" onClick={send} disabled={!val.trim()} style={{ display: 'grid', placeItems: 'center',
           width: 36, height: 36, borderRadius: 'var(--r-sm)', border: 'none', cursor: val.trim() ? 'pointer' : 'default',
           background: val.trim() ? 'var(--accent)' : 'var(--surface-3)',
           color: val.trim() ? '#fff' : 'var(--text-faint)', transition: 'all .15s ease' }}>

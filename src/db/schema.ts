@@ -51,8 +51,14 @@ export const messageStatusEnum = pgEnum('message_status', [
 ]);
 
 export const artifactKindEnum = pgEnum('artifact_kind', [
+  'code',
   'file',
   'diff',
+  'web_app',
+  'markdown',
+  'mermaid',
+  'html',
+  'spec',
   'doc',
   'preview',
   'note',

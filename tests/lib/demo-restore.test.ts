@@ -110,6 +110,29 @@ describe('demo:restore', () => {
     expect(after.map((m) => m.id)).not.toContain(NOISE_ID);
     expect(after).toHaveLength(seed.messages.length);
   });
+
+  it('does not delete non-fixture chats owned by the demo user', async () => {
+    const seed = await loadDemoSeed(
+      resolve('tests/fixtures/demo/seed.json'),
+    );
+    await restoreDemo(db, seed);
+
+    const extraChatId = '99999999-9999-4999-8999-999999999998';
+    await db.insert(schema.chats).values({
+      id: extraChatId,
+      ownerUserId: seed.users[0]!.id,
+      title: 'local scratch chat',
+      workspacePath: `/tmp/demo-scratch-${extraChatId}`,
+    });
+
+    await restoreDemo(db, seed);
+
+    const extraChatRows = await db
+      .select()
+      .from(schema.chats)
+      .where(eq(schema.chats.id, extraChatId));
+    expect(extraChatRows).toHaveLength(1);
+  });
 });
 
 describe('demo restore safety guard', () => {

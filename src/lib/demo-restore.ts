@@ -96,7 +96,6 @@ export function isLocalDatabaseUrl(databaseUrl: string | undefined): boolean {
  */
 export async function restoreDemo(db: Db, seed: DemoSeed): Promise<void> {
   const chatIds = seed.chats.map((c) => c.id);
-  const userIds = seed.users.map((u) => u.id);
   const now = new Date();
 
   await db.transaction(async (tx) => {
@@ -104,12 +103,18 @@ export async function restoreDemo(db: Db, seed: DemoSeed): Promise<void> {
       // Cascades through messages / artifacts / handoffs / pinned_messages / agent_sessions.
       await tx.delete(chats).where(inArray(chats.id, chatIds));
     }
-    if (userIds.length > 0) {
-      await tx.delete(users).where(inArray(users.id, userIds));
-    }
 
-    if (seed.users.length > 0) {
-      await tx.insert(users).values(seed.users);
+    for (const user of seed.users) {
+      await tx
+        .insert(users)
+        .values(user)
+        .onConflictDoUpdate({
+          target: users.id,
+          set: {
+            email: user.email,
+            name: user.name,
+          },
+        });
     }
     if (seed.chats.length > 0) {
       await tx.insert(chats).values(seed.chats);

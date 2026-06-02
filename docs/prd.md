@@ -340,9 +340,11 @@ The four things no shipping product has, all of which Roundtable ships:
 | Group chat routing / 群聊路由 | [`specs/050-group-chat.md`](../specs/050-group-chat.md) | — |
 | Dependency graph / 依赖图 | [`specs/060-dependency-graph.md`](../specs/060-dependency-graph.md) | — |
 | Skills system / Skills 系统 | [`specs/070-skills-system.md`](../specs/070-skills-system.md) | — |
+| Golden path — demo scenario & build order / 黄金路径·演示主线与构建顺序 | [`specs/080-golden-path.md`](../specs/080-golden-path.md) | — |
 | Why PM cannot self-spawn agents / PM 不能自动生成 Agent | — | [ADR-007](../ai-logs/decisions/ADR-007-pm-cannot-create-new-agents.md) |
 | Original brainstorm (history, not spec) / 脑爆档案 | [`ai-logs/brainstorms/2026-05-21-roundtable-architecture.md`](../ai-logs/brainstorms/2026-05-21-roundtable-architecture.md) | — |
 
 ## Changelog / 修订记录
 
+- 2026-05-31 — added spec 080 (golden path — demo scenario & build order) to the § 8 index. Story A (§ 4) is its executable form. / § 8 索引补入 spec 080（黄金路径·演示主线）；它是 § 4 Story A 的可执行版。
 - 2026-05-27 — initial draft (@AntaresYuan, with Claude Opus 4.7). Bilingual treatment added in v1.1.  / 初稿（@袁晨杰 + Claude Opus 4.7）；v1.1 加入双语处理。Sources: brainstorm archive + specs 000/010/020/030/040/050/060/070 + ADR-001/002/003/007.

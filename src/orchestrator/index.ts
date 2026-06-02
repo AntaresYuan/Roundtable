@@ -17,6 +17,17 @@ export { inMemoryHandoffLog, fileHandoffLog } from './handoff-log.js';
 export type { HandoffLog, HandoffLogEntry } from './handoff-log.js';
 export { ArtifactWatcher, watchArtifactEvents } from './artifact-watcher.js';
 export type { ArtifactWatcherContext } from './artifact-watcher.js';
+export {
+  buildHandoffSystemPrompt,
+  createAISDKHandoffModelClient,
+  fallbackHandoffCard,
+  generateHandoffCard,
+} from './handoff.js';
+export type {
+  HandoffGeneratorInput,
+  HandoffGeneratorOptions,
+  HandoffModelClient,
+} from './handoff.js';
 export { heuristicIntake } from './nodes/intake.js';
 export { rolePlanner } from './nodes/plan.js';
 export { noopReviewer } from './nodes/review.js';

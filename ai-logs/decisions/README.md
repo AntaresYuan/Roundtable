@@ -8,6 +8,7 @@ Append-only. Use the template below. Number sequentially; never renumber.
 - [ADR-002: Claude Code via CLI subprocess, not direct API](./ADR-002-claude-code-cli-vs-api.md)
 - [ADR-003: HandoffCard as a structured object, not a free-form message](./ADR-003-handoff-card-format.md)
 - [ADR-007: PM cannot create new Agents on the fly](./ADR-007-pm-cannot-create-new-agents.md)
+- [ADR-008: Interaction model — Roundtable meeting with breakout rooms](./ADR-008-roundtable-meeting-interaction-model.md)
 
 ## Template
 

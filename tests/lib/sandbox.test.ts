@@ -181,6 +181,42 @@ describe('signSandboxUrl / verifySandboxUrl', () => {
     expect(v.reason).toBe('bad_signature');
   });
 
+  it('rejects tampered URL targets even when sid/exp/sig are preserved', () => {
+    const url = signSandboxUrl({
+      hostname: 'sandbox.example',
+      port: 3000,
+      sandboxId: 's',
+      expiresAt: new Date(Date.now() + 60_000),
+      secret: SECRET,
+    });
+
+    const tamperedHost = new URL(url);
+    tamperedHost.hostname = 'attacker.example';
+    expect(verifySandboxUrl(tamperedHost.toString(), SECRET).reason).toBe('bad_signature');
+
+    const tamperedPort = new URL(url);
+    tamperedPort.port = '3001';
+    expect(verifySandboxUrl(tamperedPort.toString(), SECRET).reason).toBe('bad_signature');
+
+    const tamperedPath = new URL(url);
+    tamperedPath.pathname = '/other';
+    expect(verifySandboxUrl(tamperedPath.toString(), SECRET).reason).toBe('bad_signature');
+  });
+
+  it('rejects non-https sandbox URLs', () => {
+    const url = signSandboxUrl({
+      hostname: 'sandbox.example',
+      port: 3000,
+      sandboxId: 's',
+      expiresAt: new Date(Date.now() + 60_000),
+      secret: SECRET,
+    });
+    const downgraded = new URL(url);
+    downgraded.protocol = 'http:';
+
+    expect(verifySandboxUrl(downgraded.toString(), SECRET).reason).toBe('bad_url');
+  });
+
   it('rejects an expired URL', () => {
     const past = new Date(Date.now() - 1000);
     const url = signSandboxUrl({

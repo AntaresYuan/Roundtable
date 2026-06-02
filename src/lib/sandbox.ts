@@ -258,8 +258,9 @@ export interface SignSandboxUrlInput {
 }
 
 /**
- * Build `https://{hostname}:{port}?sid=&exp=&sig=` with an HMAC over
- * `${sandboxId}.${exp}` so the URL can't be tampered with after issue.
+ * Build `https://{hostname}:{port}?sid=&exp=&sig=` with an HMAC over the
+ * canonical URL target plus sandbox id and expiry, so host/port/path cannot be
+ * tampered with after issue.
  *
  * The sandbox id is encoded in the query string (not the host) because e2b
  * hostnames already encode their sandbox id but consumers may rewrite the
@@ -267,7 +268,17 @@ export interface SignSandboxUrlInput {
  */
 export function signSandboxUrl(input: SignSandboxUrlInput): string {
   const expMs = input.expiresAt.getTime();
-  const sig = hmac(input.secret, `${input.sandboxId}.${expMs}`);
+  const sig = hmac(
+    input.secret,
+    sandboxUrlPayload({
+      protocol: 'https:',
+      hostname: input.hostname,
+      port: input.port,
+      pathname: '/',
+      sandboxId: input.sandboxId,
+      expMs,
+    }),
+  );
   const port = input.port === 443 ? '' : `:${input.port}`;
   return `https://${input.hostname}${port}?sid=${encodeURIComponent(input.sandboxId)}&exp=${expMs}&sig=${sig}`;
 }
@@ -297,8 +308,21 @@ export function verifySandboxUrl(
   const exp = parsed.searchParams.get('exp');
   const sig = parsed.searchParams.get('sig');
   if (!sid || !exp || !sig) return { ok: false, reason: 'bad_url' };
+  if (parsed.protocol !== 'https:') return { ok: false, reason: 'bad_url' };
+  const port = parsed.port ? Number(parsed.port) : 443;
+  if (!Number.isInteger(port) || port <= 0) return { ok: false, reason: 'bad_url' };
 
-  const expected = hmac(secret, `${sid}.${exp}`);
+  const expected = hmac(
+    secret,
+    sandboxUrlPayload({
+      protocol: parsed.protocol,
+      hostname: parsed.hostname,
+      port,
+      pathname: parsed.pathname,
+      sandboxId: sid,
+      expMs: exp,
+    }),
+  );
   // Constant-time compare to avoid signature timing leaks.
   const sigBuf = Buffer.from(sig, 'hex');
   const expectedBuf = Buffer.from(expected, 'hex');
@@ -315,4 +339,22 @@ export function verifySandboxUrl(
 
 function hmac(secret: string, payload: string): string {
   return createHmac('sha256', secret).update(payload).digest('hex');
+}
+
+function sandboxUrlPayload(input: {
+  protocol: 'https:';
+  hostname: string;
+  port: number;
+  pathname: string;
+  sandboxId: string;
+  expMs: number | string;
+}): string {
+  return [
+    input.protocol,
+    input.hostname.toLowerCase(),
+    String(input.port),
+    input.pathname,
+    input.sandboxId,
+    String(input.expMs),
+  ].join('\n');
 }

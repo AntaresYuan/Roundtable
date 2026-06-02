@@ -171,6 +171,19 @@ export const pinnedRouter = createTRPCRouter({
       return ctx.db.transaction(async (tx) => {
         await assertMessageInChat(tx, input.chatId, input.addMessageId);
 
+        const [alreadyPinned] = await tx
+          .select()
+          .from(pinnedMessages)
+          .where(
+            and(
+              eq(pinnedMessages.chatId, input.chatId),
+              eq(pinnedMessages.messageId, input.addMessageId),
+            ),
+          );
+        if (alreadyPinned) {
+          return { ok: true as const, pin: alreadyPinned };
+        }
+
         const evicted = await tx
           .delete(pinnedMessages)
           .where(

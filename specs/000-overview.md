@@ -62,6 +62,7 @@ The user sees a friendly group-work surface while the system controls real CLI t
 | Group chat routing | 050 |
 | Dependency graph | 060 |
 | Skills system (build + runtime) | 070 |
+| Customizable workflows | 090 |
 
 ## Tech stack & why
 

@@ -46,3 +46,6 @@ tmp/
 # ai-logs runtime artifacts (handoffs are append-only per environment)
 ai-logs/handoffs.local.jsonl
 ai-logs/prompt-history/*.local.md
+
+# Next.js generated
+next-env.d.ts

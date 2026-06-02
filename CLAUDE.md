@@ -58,8 +58,9 @@ src/
 ├── orchestrator/        # LangGraph nodes for PM behavior
 ├── contracts/           # AgentEvent, Artifact, HandoffCard schemas (zod)
 ├── server/              # tRPC routers, db schema, auth
-├── ui/                  # Next.js app router pages + components
+├── app/                 # Next.js App Router (routes: / and /gallery)
+├── ui/                  # React components, fixtures (rt.js), design tokens
 └── lib/                 # shared utilities (logger, fs, sandbox client)
 ```
 
-`src/` is not scaffolded yet — see `specs/000-overview.md` for the build order.
+Run the frontend with `pnpm ui:dev` (Next.js at localhost:3000). Build order: `specs/000-overview.md`.

@@ -24,6 +24,7 @@ Next.js 15 (App Router) · TypeScript · LangGraph.js · Vercel AI SDK · Copilo
 | Modify dependency graph | `specs/060-dependency-graph.md` |
 | Author a new Skill | `specs/070-skills-system.md` |
 | Know what the demo must prove + what to build first | `specs/080-golden-path.md` |
+| Build or modify the workflow feature | `specs/090-workflows.md` |
 | Debug Claude Code `stream-json` | `skills/debug-stream-json/SKILL.md` |
 | Tune the Orchestrator prompt | `skills/write-orchestrator-prompt/SKILL.md` |
 | Understand *why* a spec is shaped the way it is | `ai-logs/brainstorms/2026-05-21-roundtable-architecture.md` |
@@ -40,7 +41,8 @@ Next.js 15 (App Router) · TypeScript · LangGraph.js · Vercel AI SDK · Copilo
 
 ```bash
 pnpm setup     # one-time: install deps + seed db + start docker services
-pnpm dev       # next.js + langgraph dev server
+pnpm ui:dev    # Next.js app at localhost:3000 (/ and /gallery)
+pnpm orch:smoke # run the orchestrator graph end-to-end (tsx script)
 pnpm test      # vitest (unit + integration)
 pnpm lint      # eslint + prettier
 pnpm typecheck # tsc --noEmit

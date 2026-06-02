@@ -6,5 +6,7 @@ export * from './session.js';
 export * from './intake.js';
 export * from './plan.js';
 export * from './adapter.js';
+export * from './workflow.js';
+export * from './workflow-run.js';
 export * from './portable-handoff.js';
 export * from './selector.js';

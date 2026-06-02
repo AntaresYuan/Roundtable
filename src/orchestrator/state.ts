@@ -1,12 +1,15 @@
 import type {
+  AgentDescription,
   AgentEvent,
   HandoffCard,
   IntakeResult,
   Plan,
   PlanTaskStatus,
+  SelectorDecision,
 } from '../contracts/index.js';
 
 export type StageId =
+  | 'select_speaker'
   | 'intake'
   | 'clarify'
   | 'plan'
@@ -48,6 +51,10 @@ export interface OrchestratorState {
   chatId: string;
   userMessage: string;
   stage: StageId;
+  /** Agents present in this chat — drives the group-chat selector node. */
+  agents?: AgentDescription[];
+  /** Last selector decision (when group-chat routing fires). */
+  selector?: SelectorDecision;
   intake?: IntakeResult;
   clarify?: ClarifyState;
   plan?: Plan;
@@ -58,14 +65,31 @@ export interface OrchestratorState {
   errors: { stage: StageId; message: string }[];
 }
 
-export function initialState(chatId: string, userMessage: string): OrchestratorState {
+export function initialState(
+  chatId: string,
+  userMessage: string,
+  opts: { agents?: AgentDescription[] } = {},
+): OrchestratorState {
+  // Group-chat routing kicks in when ≥ 2 agents are in the room AND the
+  // user didn't disambiguate with an `@mention`. Otherwise start at intake
+  // (existing single-chat / PM flow).
+  const useSelector =
+    opts.agents !== undefined && opts.agents.length >= 2 && !MENTION_RE.test(userMessage);
   return {
     chatId,
     userMessage,
-    stage: 'intake',
+    stage: useSelector ? 'select_speaker' : 'intake',
+    ...(opts.agents !== undefined ? { agents: opts.agents } : {}),
     handoffCards: [],
     dispatch: [],
     reviewNotes: [],
     errors: [],
   };
+}
+
+const MENTION_RE = /(^|\s)@\w+/;
+
+/** Expose for tests + the graph routing helper. */
+export function hasMention(message: string): boolean {
+  return MENTION_RE.test(message);
 }

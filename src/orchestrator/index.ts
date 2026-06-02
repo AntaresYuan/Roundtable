@@ -51,6 +51,24 @@ export {
   fileSelectorTelemetry,
 } from './selector-log.js';
 export type { SelectorTelemetry } from './selector-log.js';
+export { DependencyGraph, MAX_NOTICE_HOPS } from './dependency-graph.js';
+export type {
+  ArtifactNode,
+  DependencyEdge,
+  DepChangedNotice,
+  RecordArtifactResult,
+} from './dependency-graph.js';
+export {
+  buildDepChangedMessage,
+  buildSyncHandoffCard,
+} from './dependency-broadcast.js';
+export type { BuildSyncHandoffOptions } from './dependency-broadcast.js';
+export {
+  inMemoryDependencyStore,
+  hydrateDependencyGraph,
+  persistDependency,
+} from './dependency-store.js';
+export type { DependencyEdgeRow, DependencyStore } from './dependency-store.js';
 export {
   createPostgresCheckpointer,
   cleanupOldCheckpoints,

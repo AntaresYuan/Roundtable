@@ -1,11 +1,15 @@
-import { randomUUID } from 'node:crypto';
 import type {
   AgentEvent,
   AgentRoleId,
   HandoffCard,
-  PlanTask,
+  PinnedMessage,
 } from '../../contracts/index.js';
 import type { AdapterRegistry } from '../../adapters/index.js';
+import {
+  buildHandoffSystemPrompt,
+  generateHandoffCard,
+  type HandoffGeneratorOptions,
+} from '../handoff.js';
 import type { HandoffLog } from '../handoff-log.js';
 import type { DispatchRecord, OrchestratorState } from '../state.js';
 import { ensureWorkspace } from '../workspace.js';
@@ -14,31 +18,20 @@ export interface WorkspaceResolver {
   resolve(chatId: string): string;
 }
 
-export function buildHandoffCard(
-  state: OrchestratorState,
-  task: PlanTask,
-  role: AgentRoleId,
-): HandoffCard {
-  return {
-    id: randomUUID() as string,
-    from: 'orchestrator',
-    to: role,
-    scenario: 'dispatch',
-    userIntent: state.intake?.userVisibleSummary ?? state.userMessage,
-    taskBrief: task.title,
-    pinnedMessages: [],
-    rolesInGroup: [],
-    relevantArtifacts: [],
-    fullHistoryRef: `chat:${state.chatId}`,
-    createdAt: new Date(),
-    generatedBy: 'orchestrator',
-  };
-}
+/**
+ * Loads the chat's pinned messages so the HandoffCard generator can flow
+ * them into `card.pinnedMessages`. Wired in prod with
+ * `loadPinnedForHandoff(db, chatId)` from `src/server/pinned-helpers.ts`;
+ * tests pass an in-memory function or omit (defaults to `[]`).
+ */
+export type PinnedLoader = (chatId: string) => Promise<PinnedMessage[]>;
 
 export interface DispatchDeps {
   registry: AdapterRegistry;
   workspaces: WorkspaceResolver;
   handoffLog: HandoffLog;
+  handoff?: HandoffGeneratorOptions;
+  pinnedLoader?: PinnedLoader;
 }
 
 export async function runDispatch(
@@ -55,6 +48,25 @@ export async function runDispatch(
 
   const cards: HandoffCard[] = [];
   const records: DispatchRecord[] = [];
+  let errors = state.errors;
+
+  // Load pinned messages once per dispatch turn; same set flows into every
+  // card emitted this turn (spec 030 § Token-control § 4: pinned messages
+  // are global constraints, not per-task).
+  let pinnedMessages: PinnedMessage[] = [];
+  if (deps.pinnedLoader) {
+    try {
+      pinnedMessages = await deps.pinnedLoader(state.chatId);
+    } catch (error) {
+      errors = [
+        ...errors,
+        {
+          stage: 'dispatch',
+          message: `pinned loader failed: ${errorMessage(error)}`,
+        },
+      ];
+    }
+  }
 
   for (const task of state.plan.tasks) {
     const role = parseAssignee(task.assignee);
@@ -63,7 +75,16 @@ export async function runDispatch(
       continue;
     }
 
-    const card = buildHandoffCard(state, task, role);
+    const card = await generateHandoffCard(
+      {
+        state,
+        task,
+        role,
+        previousCards: cards,
+        pinnedMessages,
+      },
+      deps.handoff,
+    );
     cards.push(card);
     await deps.handoffLog.append(card);
 
@@ -78,7 +99,7 @@ export async function runDispatch(
         cwd,
         role,
         agentMeta: { displayName: adapter.displayName, color: '#888' },
-        systemPrompt: card.taskBrief,
+        systemPrompt: buildHandoffSystemPrompt(card),
       });
 
       const events: AgentEvent[] = [];
@@ -123,6 +144,7 @@ export async function runDispatch(
     ...state,
     handoffCards: [...state.handoffCards, ...cards],
     dispatch: [...state.dispatch, ...records],
+    errors,
     stage: anyCodeWriting ? 'review' : 'aggregate',
   };
 }

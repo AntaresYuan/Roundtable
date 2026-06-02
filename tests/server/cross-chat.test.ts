@@ -145,6 +145,14 @@ describe('handoffs.export', () => {
     });
   });
 
+  it('does not inline artifacts outside the source chat', async () => {
+    await seedArtifact(env.db, CHAT_B);
+    await seedRealHandoffCard(env.db, CHAT_A);
+
+    const portable = await env.caller.handoffs.export({ chatId: CHAT_A });
+    expect(portable.inlinedArtifacts).toEqual([]);
+  });
+
   it('returns NOT_FOUND when the source chat has no handoffs yet', async () => {
     await expect(env.caller.handoffs.export({ chatId: CHAT_A })).rejects.toThrow(
       TRPCError,

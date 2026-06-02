@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import type {
   ArtifactId,
@@ -48,7 +48,7 @@ export async function buildPortableCard(
   const refIds = original.relevantArtifacts.map((a) => a.id as ArtifactId);
   const inlinedArtifacts = refIds.length === 0
     ? []
-    : await loadArtifactSnapshots(db, refIds);
+    : await loadArtifactSnapshots(db, chatId, refIds);
 
   const exportedCard: HandoffCard = {
     ...original,
@@ -207,6 +207,7 @@ function rewriteArtifactRefs(
 
 async function loadArtifactSnapshots(
   db: Db,
+  chatId: ChatId,
   ids: ArtifactId[],
 ): Promise<InlinedArtifact[]> {
   // `artifacts.id` is `uuid` in the DB; the contract brand `ArtifactId` is
@@ -222,7 +223,12 @@ async function loadArtifactSnapshots(
       preview: artifacts.preview,
     })
     .from(artifacts)
-    .where(inArray(artifacts.id, ids as unknown as string[]));
+    .where(
+      and(
+        eq(artifacts.chatId, chatId),
+        inArray(artifacts.id, ids as unknown as string[]),
+      ),
+    );
 
   return rows.map((r) => ({
     id: r.id as ArtifactId,

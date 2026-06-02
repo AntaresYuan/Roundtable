@@ -3,7 +3,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { chats, messages, users } from '../../src/db/schema.js';
+import { chats, messages, pinnedMessages, users } from '../../src/db/schema.js';
 import * as schema from '../../src/db/schema.js';
 import type { Db } from '../../src/db/index.js';
 import { createTRPCContext } from '../../src/server/context.js';
@@ -122,6 +122,24 @@ describe('pinnedRouter', () => {
     ).rejects.toThrow('Message not found');
 
     await expect(env.caller.pinned.list({ chatId: CHAT_ID })).resolves.toEqual([]);
+  });
+
+  it('does not surface legacy cross-chat pinned rows when listing pins', async () => {
+    const otherChatMessage = await insertMessage(
+      env.db,
+      'other chat secret',
+      OTHER_CHAT_ID,
+    );
+    await env.db.insert(pinnedMessages).values({
+      id: randomUUID(),
+      chatId: CHAT_ID,
+      messageId: otherChatMessage,
+      pinnedByUserId: USER_ID,
+      position: 0,
+    });
+
+    await expect(env.caller.pinned.list({ chatId: CHAT_ID })).resolves.toEqual([]);
+    await expect(loadPinnedForHandoff(env.db, CHAT_ID)).resolves.toEqual([]);
   });
 
   it('unpin frees a slot so the next pin lands in the hole', async () => {

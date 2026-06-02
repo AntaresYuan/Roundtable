@@ -497,8 +497,14 @@ function Dock({ st, agents, scene, onAction, onOpenChat, onOpenWorkflow }) {
       body = <div style={{ flex: 1, minWidth: 0, fontSize: 13.5 }}><b style={{ color: a.color }}>{a.displayName}</b> {verb}…</div>;
     }
   } else {
-    body = <div style={{ flex: 1, minWidth: 0, fontSize: 13.5 }}>{!st.started ? 'Ready to begin' : 'The table is quiet'}
-      <span style={{ fontSize: 12.5, color: 'var(--text-faint)', marginLeft: 8 }}>{!st.started ? 'press play to convene' : ''}</span></div>;
+    body = (
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 1, fontSize: 13.5 }}>
+        <span>{!st.started ? 'Ready to begin' : 'The table is quiet'}</span>
+        {!st.started && (
+          <span style={{ fontSize: 12.5, color: 'var(--text-faint)' }}>press play to convene</span>
+        )}
+      </div>
+    );
   }
   return (
     <div style={{ borderTop: '1px solid var(--border)', background: 'var(--surface)' }}>

@@ -219,7 +219,8 @@ function WorkflowStrip({ clock, onOpen }) {
   const stages = RT.WORKFLOW.stages;
   const cur = currentStageIndex(clock);
   return (
-    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '6px 8px 6px 12px', borderRadius: 999,
+    <div className="rt-workflow-strip" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0, maxWidth: '100%',
+      padding: '6px 8px 6px 12px', borderRadius: 999, overflow: 'hidden',
       background: 'color-mix(in oklab, var(--surface) 88%, transparent)', backdropFilter: 'blur(8px)',
       border: '1px solid var(--border)', boxShadow: 'var(--shadow-card)' }}>
       <span className="mono" style={{ fontSize: 9.5, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--text-faint)', marginRight: 4 }}>Workflow</span>
@@ -227,17 +228,20 @@ function WorkflowStrip({ clock, onOpen }) {
         const done = i < cur, active = i === cur;
         return (
           <React.Fragment key={s.id}>
-            {i > 0 && <span style={{ width: 12, height: 1.5, background: done || active ? 'var(--accent)' : 'var(--border-strong)' }} />}
-            <span title={s.desc} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 9px', borderRadius: 999,
+            {i > 0 && <span className="rt-workflow-connector" style={{ width: 12, height: 1.5, flexShrink: 0,
+              background: done || active ? 'var(--accent)' : 'var(--border-strong)' }} />}
+            <span className={`rt-workflow-step${active ? ' is-active' : ''}${done ? ' is-done' : ''}`} title={s.desc}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, minWidth: 0, padding: '4px 9px', borderRadius: 999,
               background: active ? 'var(--accent)' : done ? tint('var(--accent)', 14) : 'transparent',
               color: active ? '#fff' : done ? 'var(--accent)' : 'var(--text-faint)', fontSize: 11.5, fontWeight: active ? 600 : 500 }}>
               {done ? <Icon name="check" size={12} /> : <Icon name={s.icon} size={12} />}
-              {(active || done) && <span>{s.name}</span>}
+              {(active || done) && <span className="rt-workflow-label">{s.name}</span>}
             </span>
           </React.Fragment>
         );
       })}
       <button onClick={onOpen} title="Open workflow" style={{ marginLeft: 4, display: 'grid', placeItems: 'center', width: 24, height: 24,
+        flexShrink: 0,
         borderRadius: '50%', border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-muted)', cursor: 'pointer' }}>
         <Icon name="expand" size={12} />
       </button>

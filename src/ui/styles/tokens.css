@@ -244,3 +244,23 @@ body {
 .rt-seat:hover .rt-seat-dm { display: grid !important; }
 .rt-seat:hover { filter: none !important; }
 .rt-fade { animation: rt-fadein .4s ease both; }
+
+@media (max-width: 520px) {
+  .rt-workflow-strip {
+    width: 100%;
+    gap: 2px !important;
+  }
+
+  .rt-workflow-connector {
+    width: 7px !important;
+  }
+
+  .rt-workflow-step {
+    flex: 0 1 auto;
+    padding: 4px 6px !important;
+  }
+
+  .rt-workflow-step:not(.is-active) .rt-workflow-label {
+    display: none;
+  }
+}

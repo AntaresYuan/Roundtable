@@ -15,6 +15,7 @@ import { PIN_CAP_PER_CHAT } from '../../src/server/routers/pinned.js';
 
 const USER_ID = '40000000-0000-4000-8000-000000000001';
 const CHAT_ID = '40000000-0000-4000-8000-000000000099';
+const OTHER_CHAT_ID = '40000000-0000-4000-8000-000000000088';
 
 async function buildCaller() {
   resetRateLimitForTests();
@@ -27,12 +28,20 @@ async function buildCaller() {
     email: 'pin-test@roundtable.local',
     name: 'Pin Test',
   });
-  await db.insert(chats).values({
-    id: CHAT_ID,
-    ownerUserId: USER_ID,
-    title: 'pin test chat',
-    workspacePath: `/tmp/pin-${randomUUID()}`,
-  });
+  await db.insert(chats).values([
+    {
+      id: CHAT_ID,
+      ownerUserId: USER_ID,
+      title: 'pin test chat',
+      workspacePath: `/tmp/pin-${randomUUID()}`,
+    },
+    {
+      id: OTHER_CHAT_ID,
+      ownerUserId: USER_ID,
+      title: 'other pin test chat',
+      workspacePath: `/tmp/pin-other-${randomUUID()}`,
+    },
+  ]);
 
   const session: AuthSession = {
     expires: new Date(Date.now() + 60_000).toISOString(),
@@ -44,11 +53,15 @@ async function buildCaller() {
   return { client, db: db as unknown as Db, caller };
 }
 
-async function insertMessage(db: Db, content: string): Promise<string> {
+async function insertMessage(
+  db: Db,
+  content: string,
+  chatId = CHAT_ID,
+): Promise<string> {
   const id = randomUUID();
   await db.insert(messages).values({
     id,
-    chatId: CHAT_ID,
+    chatId,
     authorType: 'user',
     authorId: USER_ID,
     content,
@@ -95,6 +108,20 @@ describe('pinnedRouter', () => {
     if (!r1.ok || !r2.ok) return;
     expect(r1.pin.id).toBe(r2.pin.id);
     expect((await env.caller.pinned.list({ chatId: CHAT_ID })).length).toBe(1);
+  });
+
+  it('rejects pinning a message from another chat', async () => {
+    const otherChatMessage = await insertMessage(
+      env.db,
+      'other chat secret',
+      OTHER_CHAT_ID,
+    );
+
+    await expect(
+      env.caller.pinned.pin({ chatId: CHAT_ID, messageId: otherChatMessage }),
+    ).rejects.toThrow('Message not found');
+
+    await expect(env.caller.pinned.list({ chatId: CHAT_ID })).resolves.toEqual([]);
   });
 
   it('unpin frees a slot so the next pin lands in the hole', async () => {
@@ -147,6 +174,28 @@ describe('pinnedRouter', () => {
     const listed = await env.caller.pinned.list({ chatId: CHAT_ID });
     expect(listed).toHaveLength(1);
     expect(listed[0]?.content).toBe('new');
+  });
+
+  it('rejects replacing with a message from another chat without evicting', async () => {
+    const original = await insertMessage(env.db, 'old');
+    const otherChatMessage = await insertMessage(
+      env.db,
+      'other chat replacement',
+      OTHER_CHAT_ID,
+    );
+    await env.caller.pinned.pin({ chatId: CHAT_ID, messageId: original });
+
+    await expect(
+      env.caller.pinned.replacePin({
+        chatId: CHAT_ID,
+        addMessageId: otherChatMessage,
+        evictMessageId: original,
+      }),
+    ).rejects.toThrow('Message not found');
+
+    const listed = await env.caller.pinned.list({ chatId: CHAT_ID });
+    expect(listed).toHaveLength(1);
+    expect(listed[0]?.messageId).toBe(original);
   });
 
   it('replacePin returns evict_not_found when the target isn\'t pinned', async () => {

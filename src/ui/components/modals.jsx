@@ -69,32 +69,20 @@ function Pipeline({ steps, editable }) {
   );
 }
 
-const PIPE_DEFAULT = [
-  { icon: 'layers', label: 'Plan' }, { icon: 'code', label: 'Build · parallel' },
-  { icon: 'eye', label: 'Review' }, { icon: 'rocket', label: 'Ship' },
-];
-const TEMPLATES = [
-  { id: 'fullstack', name: 'Full-stack Squad', tag: 'Most used', desc: 'Plan, build in parallel, review, ship. The complete loop for shipping product.',
-    roles: ['planner', 'implementer', 'implementer', 'reviewer'], pipe: PIPE_DEFAULT },
-  { id: 'research', name: 'Research Pod', desc: 'Gather sources, synthesize, and brief — for specs and discovery.',
-    roles: ['planner', 'architect', 'reviewer'], pipe: [{ icon: 'search', label: 'Gather' }, { icon: 'layers', label: 'Synthesize' }, { icon: 'eye', label: 'Review' }, { icon: 'clip', label: 'Brief' }] },
-  { id: 'growth', name: 'Growth Team', desc: 'Landing pages, copy, and experiments that convert.',
-    roles: ['planner', 'implementer', 'reviewer'], pipe: [{ icon: 'layers', label: 'Brief' }, { icon: 'code', label: 'Build' }, { icon: 'eye', label: 'QA' }, { icon: 'rocket', label: 'Launch' }] },
-  { id: 'custom', name: 'Build your own', desc: 'Start from an empty table and assemble exactly the team and process you want.',
-    roles: [], pipe: PIPE_DEFAULT, custom: true },
-];
+// Gallery cards are PROJECTIONS of the real BUILTIN_WORKFLOWS / user workflows
+// (ADR-009 — one model, no stored second shape). See rt.js workflowToGalleryCard.
 
 /* ---- New Workbench (workflow template gallery + custom) ------------------ */
 function NewWorkbenchModal({ agents, onClose, onCreate }) {
-  const [sel, setSel] = useStateM('fullstack');
+  const [sel, setSel] = useStateM('wf-fullstack');
   const [name, setName] = useStateM('');
-  const allTemplates = TEMPLATES.concat(RT.userTemplates || []);
+  const allTemplates = RT.BUILTIN_WORKFLOWS.concat(RT.workflows || []).map(RT.workflowToGalleryCard);
   const tpl = allTemplates.find((t) => t.id === sel);
   const roleColors = RT.ROLE_COLORS;
   return (
     <Modal title="New workbench" sub="A workbench is a fixed team + a workflow. Pick a proven one or build your own." icon="layers"
       onClose={onClose} width={680}
-      footer={<><Btn onClick={onClose}>Cancel</Btn><Btn primary disabled={!name.trim()} onClick={() => onCreate({ name, tpl })}>Create workbench</Btn></>}>
+      footer={<><Btn onClick={onClose}>Cancel</Btn><Btn primary disabled={!name.trim()} onClick={() => onCreate({ name, workflowId: tpl.id })}>Create workbench</Btn></>}>
       <div style={{ marginBottom: 16 }}>
         <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>Name</div>
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Mobile Squad" style={fieldStyle} autoFocus />

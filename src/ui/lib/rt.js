@@ -215,6 +215,54 @@ export async function POST(req: Request) {
     ],
   };
 
+  // ---- BUILTIN_WORKFLOWS : full Workflow spec objects (contracts/workflow.ts) ----
+  // ONE model (specs/090-workflows.md, ADR-009). The gallery card is a PROJECTION of
+  // these, never a stored second shape. NOTE: the WorkflowView editor still reads the
+  // legacy `WORKFLOW` (who-shape) above until step 3 migrates it onto `seats`.
+  const seat = (role, agentId) => (agentId ? { ref: { kind: 'role', role, agentId } } : { ref: { kind: 'role', role } });
+  const userSeat = { ref: { kind: 'user' } };
+  const basePlanning = { cut: 'by_role', clarifyThreshold: 0.6, maxClarifyQuestions: 3 };
+  const SQUAD_WORKFLOW = {
+    id: 'wf-fullstack', name: 'Ship a PR-ready feature', tag: 'Most used · just works',
+    desc: 'Plan, build in parallel, review behind a gate, then ship. The full loop.',
+    origin: { kind: 'builtin' }, builtin: true, planning: basePlanning, version: 1, updatedAt: '2026-06-01T00:00:00Z',
+    stages: [
+      { id: 'intake', name: 'Intake', icon: 'clip', kind: 'intake', desc: 'Capture the goal in plain language.', seats: [userSeat], fixed: true, gate: { kind: 'none' } },
+      { id: 'plan', name: 'Plan', icon: 'layers', kind: 'plan', desc: 'Facilitator breaks the goal into parallel tasks.', seats: [seat('planner', 'orchestrator')], gate: { kind: 'none' } },
+      { id: 'build', name: 'Build', icon: 'code', kind: 'work', desc: 'Implementers write the code concurrently.', seats: [seat('implementer', 'atlas'), seat('implementer', 'beam')], parallelGroup: 'build', gate: { kind: 'none' } },
+      { id: 'review', name: 'Review', icon: 'eye', kind: 'review', desc: 'Reviewer checks quality & accessibility.', seats: [seat('reviewer', 'vera')], gate: { kind: 'reviewer_signoff', reviewer: seat('reviewer', 'vera').ref, blockOn: 'open_comments' } },
+      { id: 'ship', name: 'Ship', icon: 'rocket', kind: 'ship', desc: 'Deploy to production.', seats: [], gate: { kind: 'user_approval' } },
+    ],
+  };
+  const RESEARCH_WORKFLOW = {
+    id: 'wf-research', name: 'Research & brief', desc: 'Gather sources, synthesize, and brief — for specs and discovery.',
+    origin: { kind: 'builtin' }, builtin: true, planning: basePlanning, version: 1, updatedAt: '2026-06-01T00:00:00Z',
+    stages: [
+      { id: 'intake', name: 'Intake', icon: 'clip', kind: 'intake', desc: 'Capture the question.', seats: [userSeat], fixed: true, gate: { kind: 'none' } },
+      { id: 'gather', name: 'Gather', icon: 'search', kind: 'work', desc: 'Collect sources.', seats: [seat('architect')], gate: { kind: 'none' } },
+      { id: 'synthesize', name: 'Synthesize', icon: 'layers', kind: 'plan', desc: 'Synthesize findings.', seats: [seat('planner')], gate: { kind: 'none' } },
+      { id: 'review', name: 'Review', icon: 'eye', kind: 'review', desc: 'Check the brief.', seats: [seat('reviewer')], gate: { kind: 'user_approval' } },
+    ],
+  };
+  const GROWTH_WORKFLOW = {
+    id: 'wf-growth', name: 'Landing page that converts', desc: 'Brief, build, QA, and launch a page that converts.',
+    origin: { kind: 'builtin' }, builtin: true, planning: basePlanning, version: 1, updatedAt: '2026-06-01T00:00:00Z',
+    stages: [
+      { id: 'intake', name: 'Intake', icon: 'clip', kind: 'intake', desc: 'Capture the goal.', seats: [userSeat], fixed: true, gate: { kind: 'none' } },
+      { id: 'build', name: 'Build', icon: 'code', kind: 'work', desc: 'Build the page.', seats: [seat('implementer')], gate: { kind: 'none' } },
+      { id: 'qa', name: 'QA', icon: 'eye', kind: 'review', desc: 'Check it converts.', seats: [seat('reviewer')], gate: { kind: 'reviewer_signoff', reviewer: seat('reviewer').ref, blockOn: 'open_comments' } },
+      { id: 'launch', name: 'Launch', icon: 'rocket', kind: 'ship', desc: 'Ship it.', seats: [], gate: { kind: 'user_approval' } },
+    ],
+  };
+  const BUILTIN_WORKFLOWS = [SQUAD_WORKFLOW, RESEARCH_WORKFLOW, GROWTH_WORKFLOW];
+  const workflows = []; // user-saved Workflow objects (hydrated from localStorage by the UI)
+  const seatRole = (s) => (s.ref.kind === 'user' ? null : s.ref.role);
+  const workflowToGalleryCard = (wf) => ({
+    id: wf.id, name: wf.name, tag: wf.tag, desc: wf.desc, custom: false,
+    roles: [...new Set(wf.stages.flatMap((s) => s.seats.map(seatRole).filter(Boolean)))],
+    pipe: wf.stages.filter((s) => s.kind !== 'intake').map((s) => ({ icon: s.icon, label: s.name })),
+  });
+
   // ---- Scripted thread / streaming timeline -------------------------------
   // Each "beat" is revealed at `at` ms. Agent beats carry an AgentEvent stream
   // the MessageGroup plays out (text streams char-by-char during `dur`).
@@ -290,6 +338,7 @@ export async function POST(req: Request) {
 export const RT = {
     AGENTS, PLAN, PLAN_TIMELINE, ARTIFACTS, HANDOFF,
     WORKBENCH, WORKBENCHES, TASKS, WORKFLOW, SCRIPT, SCENE_DURATION, DECISION,
+    BUILTIN_WORKFLOWS, workflows, workflowToGalleryCard,
     ROLE_COLORS: {
       architect: '#9579b0', planner: '#5f86b8', implementer: '#5a9e8c',
       reviewer: '#bd9a55', fixer: '#c47766',

@@ -976,7 +976,7 @@ function App() {
           setModal(null);
           scene.replay();
         }} />}
-      {modal === 'table' && <NewWorkbenchModal agents={agents} onClose={() => setModal(null)} onCreate={() => setModal(null)} />}
+      {modal === 'table' && <NewWorkbenchModal agents={agents} onClose={() => setModal(null)} onCreate={() => { setView('workflow'); setModal(null); }} />}
       {modal === 'agent' && <AddAgentModal onClose={() => setModal(null)} onAdd={({ role, name, color }) => {
         const id = 'a-' + Date.now();
         RT.AGENTS[id] = { agentId: id, role, displayName: name, color };

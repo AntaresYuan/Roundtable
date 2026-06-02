@@ -1,4 +1,4 @@
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import type { PinnedMessage } from '../contracts/index.js';
 import type { Db } from '../db/index.js';
 import { messages, pinnedMessages } from '../db/index.js';
@@ -28,7 +28,13 @@ export async function loadPinnedForHandoff(
       pinnedBy: pinnedMessages.pinnedByUserId,
     })
     .from(pinnedMessages)
-    .innerJoin(messages, eq(messages.id, pinnedMessages.messageId))
+    .innerJoin(
+      messages,
+      and(
+        eq(messages.id, pinnedMessages.messageId),
+        eq(messages.chatId, pinnedMessages.chatId),
+      ),
+    )
     .where(eq(pinnedMessages.chatId, chatId))
     .orderBy(asc(pinnedMessages.position));
 

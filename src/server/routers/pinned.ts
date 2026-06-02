@@ -43,7 +43,13 @@ export const pinnedRouter = createTRPCRouter({
           content: messages.content,
         })
         .from(pinnedMessages)
-        .innerJoin(messages, eq(messages.id, pinnedMessages.messageId))
+        .innerJoin(
+          messages,
+          and(
+            eq(messages.id, pinnedMessages.messageId),
+            eq(messages.chatId, pinnedMessages.chatId),
+          ),
+        )
         .where(eq(pinnedMessages.chatId, input.chatId))
         .orderBy(asc(pinnedMessages.position));
       return rows;

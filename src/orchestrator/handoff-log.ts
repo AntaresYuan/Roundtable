@@ -13,6 +13,7 @@ export interface HandoffLogEntry {
   to: string;
   card_id: string;
   user_intent: string;
+  summary: string;
   ts: string;
 }
 
@@ -50,6 +51,7 @@ function toEntry(card: HandoffCard): HandoffLogEntry {
     to: card.to,
     card_id: card.id,
     user_intent: card.userIntent,
+    summary: card.taskBrief,
     ts: card.createdAt.toISOString(),
   };
 }

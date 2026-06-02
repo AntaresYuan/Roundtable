@@ -8,10 +8,13 @@ import {
   type BaseCheckpointSaver,
 } from '@langchain/langgraph';
 import type { AdapterRegistry } from '../adapters/index.js';
+import { DependencyGraph } from './dependency-graph.js';
+import type { DependencyStore } from './dependency-store.js';
 import { type HandoffLog, inMemoryHandoffLog } from './handoff-log.js';
 import { runAggregate } from './nodes/aggregate.js';
 import { type ClarifyGenerator, fallbackClarify, runClarify } from './nodes/clarify.js';
 import { runDispatch, type WorkspaceResolver } from './nodes/dispatch.js';
+import type { HandoffGeneratorOptions } from './handoff.js';
 import { heuristicIntake, type IntakeClassifier, runIntake } from './nodes/intake.js';
 import { type Planner, rolePlanner, runPlan } from './nodes/plan.js';
 import { noopReviewer, type Reviewer, runReview } from './nodes/review.js';
@@ -33,7 +36,10 @@ export interface GraphDeps {
   planner?: Planner;
   reviewer?: Reviewer;
   handoffLog?: HandoffLog;
+  handoff?: HandoffGeneratorOptions;
   checkpointer?: BaseCheckpointSaver;
+  dependencyGraph?: DependencyGraph;
+  dependencyStore?: DependencyStore;
 }
 
 const lastWins = <T>() => ({ reducer: (_prev: T, next: T) => next });
@@ -84,6 +90,7 @@ export function buildOrchestratorGraph(deps: GraphDeps) {
   const reviewer = deps.reviewer ?? noopReviewer();
   const handoffLog = deps.handoffLog ?? inMemoryHandoffLog();
   const checkpointer = deps.checkpointer ?? new MemorySaver();
+  const dependencyGraph = deps.dependencyGraph ?? new DependencyGraph();
 
   const adapt = (s: GraphState): OrchestratorState => s as unknown as OrchestratorState;
 
@@ -112,6 +119,9 @@ export function buildOrchestratorGraph(deps: GraphDeps) {
         registry: deps.registry,
         workspaces: deps.workspaces,
         handoffLog,
+        ...(deps.handoff ? { handoff: deps.handoff } : {}),
+        dependencyGraph,
+        ...(deps.dependencyStore ? { dependencyStore: deps.dependencyStore } : {}),
       }),
     )
     .addNode(N.monitor, async (s: GraphState) => ({ ...s, stage: 'review' as StageId }))

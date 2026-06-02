@@ -1,11 +1,25 @@
-import { randomUUID } from 'node:crypto';
 import type {
   AgentEvent,
   AgentRoleId,
+  Artifact,
+  ArtifactId,
   HandoffCard,
-  PlanTask,
 } from '../../contracts/index.js';
 import type { AdapterRegistry } from '../../adapters/index.js';
+import {
+  buildDepChangedMessage,
+  buildSyncHandoffCard,
+} from '../dependency-broadcast.js';
+import type { DependencyGraph } from '../dependency-graph.js';
+import {
+  persistDependency,
+  type DependencyStore,
+} from '../dependency-store.js';
+import {
+  buildHandoffSystemPrompt,
+  generateHandoffCard,
+  type HandoffGeneratorOptions,
+} from '../handoff.js';
 import type { HandoffLog } from '../handoff-log.js';
 import type { DispatchRecord, OrchestratorState } from '../state.js';
 import { ensureWorkspace } from '../workspace.js';
@@ -14,31 +28,13 @@ export interface WorkspaceResolver {
   resolve(chatId: string): string;
 }
 
-export function buildHandoffCard(
-  state: OrchestratorState,
-  task: PlanTask,
-  role: AgentRoleId,
-): HandoffCard {
-  return {
-    id: randomUUID() as string,
-    from: 'orchestrator',
-    to: role,
-    scenario: 'dispatch',
-    userIntent: state.intake?.userVisibleSummary ?? state.userMessage,
-    taskBrief: task.title,
-    pinnedMessages: [],
-    rolesInGroup: [],
-    relevantArtifacts: [],
-    fullHistoryRef: `chat:${state.chatId}`,
-    createdAt: new Date(),
-    generatedBy: 'orchestrator',
-  };
-}
-
 export interface DispatchDeps {
   registry: AdapterRegistry;
   workspaces: WorkspaceResolver;
   handoffLog: HandoffLog;
+  handoff?: HandoffGeneratorOptions;
+  dependencyGraph?: DependencyGraph;
+  dependencyStore?: DependencyStore;
 }
 
 export async function runDispatch(
@@ -63,7 +59,15 @@ export async function runDispatch(
       continue;
     }
 
-    const card = buildHandoffCard(state, task, role);
+    const card = await generateHandoffCard(
+      {
+        state,
+        task,
+        role,
+        previousCards: cards,
+      },
+      deps.handoff,
+    );
     cards.push(card);
     await deps.handoffLog.append(card);
 
@@ -78,7 +82,7 @@ export async function runDispatch(
         cwd,
         role,
         agentMeta: { displayName: adapter.displayName, color: '#888' },
-        systemPrompt: card.taskBrief,
+        systemPrompt: buildHandoffSystemPrompt(card),
       });
 
       const events: AgentEvent[] = [];
@@ -87,6 +91,14 @@ export async function runDispatch(
       try {
         for await (const event of session.send({ text: card.taskBrief })) {
           events.push(event);
+          const dependencyEvents = await handleDependencyEvent(event, {
+            chatId: state.chatId,
+            handoffLog: deps.handoffLog,
+            ...(deps.dependencyGraph ? { graph: deps.dependencyGraph } : {}),
+            ...(deps.dependencyStore ? { store: deps.dependencyStore } : {}),
+          });
+          events.push(...dependencyEvents.events);
+          cards.push(...dependencyEvents.cards);
           if (event.type === 'error' && !event.recoverable) {
             status = 'failed';
             break;
@@ -125,6 +137,70 @@ export async function runDispatch(
     dispatch: [...state.dispatch, ...records],
     stage: anyCodeWriting ? 'review' : 'aggregate',
   };
+}
+
+async function handleDependencyEvent(
+  event: AgentEvent,
+  deps: {
+    chatId: string;
+    graph?: DependencyGraph;
+    store?: DependencyStore;
+    handoffLog: HandoffLog;
+  },
+): Promise<{ events: AgentEvent[]; cards: HandoffCard[] }> {
+  if (!deps.graph) return { events: [], cards: [] };
+
+  try {
+    if (event.type === 'declare_dependency') {
+      const row = {
+        fromArtifactId: event.from as ArtifactId,
+        toArtifactId: event.to as ArtifactId,
+        kind: event.kind,
+      };
+      if (deps.store) {
+        await persistDependency(deps.graph, deps.store, row);
+      } else {
+        deps.graph.addDependency(row.fromArtifactId, row.toArtifactId, row.kind);
+      }
+      return { events: [], cards: [] };
+    }
+
+    if (event.type !== 'artifact') return { events: [], cards: [] };
+
+    const notices = deps.graph.onArtifactObserved(event.artifact);
+    const cards = notices.map((notice) =>
+      buildSyncHandoffCard({
+        notice,
+        changeSummary: summarizeArtifactChange(event.artifact),
+        fullHistoryRef: `chat:${deps.chatId}`,
+      }),
+    );
+    for (const card of cards) {
+      await deps.handoffLog.append(card);
+    }
+    return {
+      events: notices.map((notice) => ({
+        type: 'text_delta',
+        delta: buildDepChangedMessage(notice),
+      })),
+      cards,
+    };
+  } catch (error) {
+    return {
+      events: [
+        {
+          type: 'error',
+          message: `dependency graph update failed: ${errorMessage(error)}`,
+          recoverable: true,
+        },
+      ],
+      cards: [],
+    };
+  }
+}
+
+function summarizeArtifactChange(artifact: Artifact): string {
+  return `${artifact.title} changed to v${artifact.version}.`;
 }
 
 function parseAssignee(assignee: string): AgentRoleId | undefined {

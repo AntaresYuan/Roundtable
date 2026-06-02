@@ -3,6 +3,7 @@ import { desc, eq, inArray } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import type {
   ArtifactId,
+  ArtifactRef,
   ChatId,
   HandoffCard,
   InlinedArtifact,
@@ -13,7 +14,7 @@ import {
   PortableHandoffCardSchema,
 } from '../contracts/index.js';
 import type { Db } from '../db/index.js';
-import { artifacts, handoffs, messages } from '../db/index.js';
+import { artifacts, artifactVersions, handoffs, messages } from '../db/index.js';
 
 /**
  * Build a self-contained PortableHandoffCard from a chat's most recent
@@ -83,6 +84,12 @@ export async function injectPortableCard(
 
   return db.transaction(async (tx) => {
     const importedHandoffId = randomUUID();
+    const importedArtifacts = await importInlinedArtifacts(
+      tx,
+      targetChatId,
+      portable,
+      now,
+    );
     const card: HandoffCard = {
       ...portable.card,
       id: importedHandoffId,
@@ -90,6 +97,10 @@ export async function injectPortableCard(
       generatedBy: 'orchestrator',
       createdAt: now(),
       fullHistoryRef: `imported:${portable.sourceChatId}:${portable.card.fullHistoryRef}`,
+      relevantArtifacts: rewriteArtifactRefs(
+        portable.card.relevantArtifacts,
+        importedArtifacts,
+      ),
     };
 
     await tx.insert(handoffs).values({
@@ -125,6 +136,73 @@ export async function injectPortableCard(
       sourceChatId: portable.sourceChatId,
     };
   });
+}
+
+type ImportedArtifactMap = Map<ArtifactId, ArtifactRef>;
+
+async function importInlinedArtifacts(
+  db: Pick<Db, 'insert'>,
+  targetChatId: ChatId,
+  portable: PortableHandoffCard,
+  now: () => Date,
+): Promise<ImportedArtifactMap> {
+  const imported = new Map<ArtifactId, ArtifactRef>();
+
+  for (const artifact of portable.inlinedArtifacts) {
+    const importedId = randomUUID() as ArtifactId;
+    const createdAt = now();
+    const uri = `imported:${portable.sourceChatId}:${artifact.uri ?? artifact.id}`;
+    const preview = artifact.content ?? artifact.preview;
+    const snapshot = {
+      id: importedId,
+      kind: artifact.kind,
+      title: artifact.title,
+      ownerAgentId: artifact.ownerAgentId,
+      version: artifact.version,
+      uri,
+      ...(preview !== undefined ? { preview } : {}),
+      createdAt,
+    };
+
+    await db.insert(artifacts).values({
+      id: importedId,
+      chatId: targetChatId,
+      kind: artifact.kind,
+      title: artifact.title,
+      ownerAgentId: artifact.ownerAgentId,
+      currentVersion: artifact.version,
+      uri,
+      ...(preview !== undefined ? { preview } : {}),
+      createdAt,
+      updatedAt: createdAt,
+    });
+    await db.insert(artifactVersions).values({
+      id: randomUUID(),
+      artifactId: importedId,
+      version: artifact.version,
+      parentVersion: null,
+      snapshot,
+      diff: artifact.content ?? artifact.preview ?? null,
+      createdByAgentId: artifact.ownerAgentId,
+      createdAt,
+    });
+
+    imported.set(artifact.id, {
+      id: importedId,
+      kind: artifact.kind,
+      title: artifact.title,
+      uri,
+    });
+  }
+
+  return imported;
+}
+
+function rewriteArtifactRefs(
+  refs: ArtifactRef[],
+  imported: ImportedArtifactMap,
+): ArtifactRef[] {
+  return refs.map((ref) => imported.get(ref.id as ArtifactId) ?? ref);
 }
 
 async function loadArtifactSnapshots(

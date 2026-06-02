@@ -5,8 +5,15 @@ import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { TRPCError } from '@trpc/server';
-import type { ArtifactId, ChatId } from '../../src/contracts/index.js';
-import { artifacts, chats, handoffs, messages, users } from '../../src/db/schema.js';
+import type { ArtifactId, ArtifactRef, ChatId } from '../../src/contracts/index.js';
+import {
+  artifacts,
+  artifactVersions,
+  chats,
+  handoffs,
+  messages,
+  users,
+} from '../../src/db/schema.js';
 import * as schema from '../../src/db/schema.js';
 import type { Db } from '../../src/db/index.js';
 import { createTRPCContext } from '../../src/server/context.js';
@@ -172,6 +179,30 @@ describe('handoffs.import', () => {
     expect(insertedHandoff[0]?.chatId).toBe(CHAT_B);
     expect(insertedHandoff[0]?.scenario).toBe('cross_chat');
     expect(insertedHandoff[0]?.fullHistoryRef).toContain(`imported:${CHAT_A as ChatId}`);
+
+    const importedArtifacts = await env.db
+      .select()
+      .from(artifacts)
+      .where(eq(artifacts.chatId, CHAT_B));
+    expect(importedArtifacts).toHaveLength(1);
+    expect(importedArtifacts[0]?.id).not.toBe(ARTIFACT_ID);
+    expect(importedArtifacts[0]).toMatchObject({
+      title: 'api/login.ts',
+      ownerAgentId: 'backend-agent',
+      currentVersion: 2,
+      preview: 'export async function login(req) { ... }',
+    });
+
+    const rewrittenRefs = insertedHandoff[0]?.relevantArtifacts as ArtifactRef[];
+    expect(rewrittenRefs[0]?.id).toBe(importedArtifacts[0]?.id);
+    expect(rewrittenRefs[0]?.id).not.toBe(ARTIFACT_ID);
+
+    const importedVersions = await env.db
+      .select()
+      .from(artifactVersions)
+      .where(eq(artifactVersions.artifactId, importedArtifacts[0]!.id));
+    expect(importedVersions).toHaveLength(1);
+    expect(importedVersions[0]?.version).toBe(2);
 
     const noticeMessage = await env.db
       .select()

@@ -1,4 +1,6 @@
-import { resolve } from 'node:path';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
@@ -47,6 +49,17 @@ describe('demo:restore', () => {
 
     // The handoff row's `card` jsonb should round-trip with the original id.
     expect(handoffRows[0]?.card?.id).toBe(seed.handoffs[0]?.id);
+  });
+
+  it('validates fixture shape when loading the seed file', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'roundtable-demo-seed-'));
+    const path = join(dir, 'bad-seed.json');
+    try {
+      await writeFile(path, JSON.stringify({ users: [{ id: 'not-a-uuid' }] }), 'utf8');
+      await expect(loadDemoSeed(path)).rejects.toThrow();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it('is idempotent: a second run produces the same final state', async () => {

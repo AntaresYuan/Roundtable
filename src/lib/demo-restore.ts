@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { inArray } from 'drizzle-orm';
+import { z } from 'zod';
 import type { Db } from '../db/index.js';
 import {
   artifactDeps,
@@ -11,51 +12,59 @@ import {
   users,
 } from '../db/schema.js';
 import type { HandoffCard } from '../contracts/index.js';
+import { HandoffCardSchema } from '../contracts/index.js';
 
-export interface DemoSeed {
-  users: { id: string; email: string; name: string }[];
-  chats: {
-    id: string;
-    ownerUserId: string;
-    title: string;
-    workspacePath: string;
-  }[];
-  messages: {
-    id: string;
-    chatId: string;
-    authorType: 'user' | 'orchestrator' | 'agent' | 'system';
-    authorId: string | null;
-    content: string;
-    status?: 'draft' | 'streaming' | 'completed' | 'failed';
-  }[];
-  artifacts: {
-    id: string;
-    chatId: string;
-    kind: 'file' | 'diff' | 'doc' | 'preview' | 'note';
-    title: string;
-    ownerAgentId: string;
-    currentVersion: number;
-    uri?: string;
-    preview?: string;
-  }[];
-  artifactDeps: {
-    fromArtifactId: string;
-    toArtifactId: string;
-    kind: 'derives_from' | 'replaces' | 'references';
-  }[];
-  handoffs: (Omit<HandoffCard, 'createdAt'> & { chatId: string })[];
-  pinnedMessages: {
-    id: string;
-    chatId: string;
-    messageId: string;
-    pinnedByUserId: string;
-    position: number;
-  }[];
-}
+const DemoSeedSchema = z.object({
+  users: z.array(z.object({
+    id: z.string().uuid(),
+    email: z.string().email(),
+    name: z.string(),
+  })),
+  chats: z.array(z.object({
+    id: z.string().uuid(),
+    ownerUserId: z.string().uuid(),
+    title: z.string(),
+    workspacePath: z.string(),
+  })),
+  messages: z.array(z.object({
+    id: z.string().uuid(),
+    chatId: z.string().uuid(),
+    authorType: z.enum(['user', 'orchestrator', 'agent', 'system']),
+    authorId: z.string().nullable(),
+    content: z.string(),
+    status: z.enum(['draft', 'streaming', 'completed', 'failed']).optional(),
+  })),
+  artifacts: z.array(z.object({
+    id: z.string().uuid(),
+    chatId: z.string().uuid(),
+    kind: z.enum(['file', 'diff', 'doc', 'preview', 'note']),
+    title: z.string(),
+    ownerAgentId: z.string(),
+    currentVersion: z.number().int().nonnegative(),
+    uri: z.string().optional(),
+    preview: z.string().optional(),
+  })),
+  artifactDeps: z.array(z.object({
+    fromArtifactId: z.string().uuid(),
+    toArtifactId: z.string().uuid(),
+    kind: z.enum(['derives_from', 'replaces', 'references']),
+  })),
+  handoffs: z.array(HandoffCardSchema.omit({ createdAt: true }).extend({
+    chatId: z.string().uuid(),
+  })),
+  pinnedMessages: z.array(z.object({
+    id: z.string().uuid(),
+    chatId: z.string().uuid(),
+    messageId: z.string().uuid(),
+    pinnedByUserId: z.string().uuid(),
+    position: z.number().int().min(0).max(9),
+  })),
+});
+export type DemoSeed = z.infer<typeof DemoSeedSchema>;
 
 export async function loadDemoSeed(path: string): Promise<DemoSeed> {
   const raw = await readFile(path, 'utf8');
-  return JSON.parse(raw) as DemoSeed;
+  return DemoSeedSchema.parse(JSON.parse(raw));
 }
 
 export function assertDemoRestoreAllowed(

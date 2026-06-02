@@ -8,6 +8,13 @@
       "when": 1780036596777,
       "tag": "0000_massive_smasher",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1780220489741,
+      "tag": "0001_polite_titanium_man",
+      "breakpoints": true
     }
   ]
 }

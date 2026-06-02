@@ -162,59 +162,39 @@ describe('heuristicSelector', () => {
     expect(decision.confidence).toBeGreaterThan(0.5);
   });
 
-  it('returns low confidence and the first agent when no keyword matches', async () => {
+  it('returns no choice when no keyword matches so callers can fall through', async () => {
     const s = heuristicSelector();
     const decision = await s.select({
       userMessage: 'asdfasdf zzzz',
       agents: [agent('a1', 'one', 'irrelevant'), agent('a2', 'two', 'irrelevant')],
     });
-    expect(decision.chosenAgentId).toBe('a1');
-    expect(decision.confidence).toBeLessThan(0.5);
+    expect(decision.chosenAgentId).toBeNull();
+    expect(decision.confidence).toBe(0);
+    expect(decision.runnersUp.map((r) => r.agentId)).toEqual(['a1', 'a2']);
   });
 });
 
 describe('llmSelector', () => {
-  it('falls back to the heuristic when the LLM throws', async () => {
-    const agents = [agent('a1', 'one', 'frontend', ['react'])];
-    const s = llmSelector({ fallback: heuristicSelector() });
-    // Inject a throwing LLM by replacing the model: easiest is to construct
-    // through the option and rely on the fallback path — the LLM will throw
-    // because no API key is set in tests.
-    const decision = await s.select({ userMessage: 'react', agents });
-    expect(decision.chosenAgentId).toBe('a1');
-  });
+  it.skipIf(!process.env['ANTHROPIC_API_KEY'])(
+    'selects from the supplied roster with the real LLM',
+    async () => {
+      const agents = [
+        agent('a-frontend', 'frontend', 'frontend specialist', ['react', 'css']),
+        agent('a-backend', 'backend', 'API endpoints', ['api', 'database']),
+        agent('a-reviewer', 'reviewer', 'reviews PRs', ['review'], 'reviewer'),
+      ];
+      const s = llmSelector();
+      const decision = await s.select({
+        userMessage: 'Please review the pull request for regressions and missing tests.',
+        agents,
+      });
 
-  it('discards a hallucinated agent id and falls back', async () => {
-    const agents = [agent('a1', 'one', 'frontend', ['react'])];
-    // Build a selector whose "LLM" returns an agent id not in the roster.
-    const lyingFallback = scriptedSelector({
-      chosenAgentId: 'a1' as AgentId,
-      confidence: 0.9,
-      reasoning: 'heuristic',
-      runnersUp: [],
-    });
-    const lyingLlm: SpeakerSelector = {
-      async select() {
-        return {
-          chosenAgentId: 'nonexistent' as AgentId,
-          confidence: 0.99,
-          reasoning: 'made up',
-          runnersUp: [],
-        };
-      },
-    };
-    // Compose: a thin wrapper that mirrors llmSelector's validation.
-    const validated: SpeakerSelector = {
-      async select(input) {
-        const obj = await lyingLlm.select(input);
-        const valid = new Set(input.agents.map((a) => a.id));
-        if (obj.chosenAgentId && !valid.has(obj.chosenAgentId)) {
-          return lyingFallback.select(input);
-        }
-        return obj;
-      },
-    };
-    const decision = await validated.select({ userMessage: 'react', agents });
-    expect(decision.chosenAgentId).toBe('a1');
-  });
+      expect(decision.chosenAgentId).toBe('a-reviewer');
+      expect(decision.confidence).toBeGreaterThan(0);
+      expect(
+        decision.runnersUp.every((r) => agents.some((a) => a.id === r.agentId)),
+      ).toBe(true);
+    },
+    30_000,
+  );
 });

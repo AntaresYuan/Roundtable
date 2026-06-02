@@ -149,15 +149,16 @@ export function heuristicSelector(): SpeakerSelector {
       const second = scored[1];
       const margin = top.score - (second?.score ?? 0);
 
-      // No keyword matched anyone: low confidence, just pick the first agent.
+      // No keyword matched anyone: let the caller fall back to PM planning
+      // instead of silently routing to the first agent in the roster.
       if (top.score === 0) {
         return {
-          chosenAgentId: top.agent.id,
-          confidence: 0.2,
-          reasoning: 'No keyword match; defaulting to first agent.',
-          runnersUp: scored.slice(1, 3).map(({ agent }) => ({
+          chosenAgentId: null,
+          confidence: 0,
+          reasoning: 'No keyword match; no agent selected.',
+          runnersUp: scored.slice(0, 3).map(({ agent }) => ({
             agentId: agent.id,
-            confidence: 0.1,
+            confidence: 0,
           })),
         };
       }

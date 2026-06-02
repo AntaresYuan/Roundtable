@@ -19,7 +19,11 @@ Define how messages route between user and multiple agents in a group, how artif
 | Agent A `@mentions` Agent B | Allowed; depth-2 limit on `agent → agent` chains. Orchestrator force-breaks on overflow. |
 | User asks to invite a new agent | "Invite Agent" button; or Orchestrator proactively suggests when needed. |
 
-**Guard:** when group has ≥ 4 agents and the user message has no `@`, the selector must include a confidence score. Below threshold, Orchestrator falls back to asking: "Do you want @frontend or @backend?"
+**Guard:** when group has ≥ 4 agents and the user message has no `@`, the selector must include a confidence score. Below threshold (default `0.6`, exported as `DEFAULT_SELECTOR_CONFIDENCE_THRESHOLD`), Orchestrator falls back to asking: "Do you want @frontend or @backend?"
+
+**Selector decision shape** (see `src/contracts/selector.ts`): `{ chosenAgentId, confidence, reasoning, runnersUp[] }`. The clarify fallback uses the chosen agent + top runner-up as the two visible options; if only one was returned the second slot is filled alphabetically from the remaining roster.
+
+**Telemetry:** every selector invocation appends a `SelectorDecisionEntry` row (`{ ts, chatId, userMessage, agentCount, decision, fallbackTriggered }`) so we can later tune the threshold against real traffic. Default sink is `ai-logs/selector-decisions.jsonl` via `fileSelectorTelemetry()`; tests use `inMemorySelectorTelemetry()`.
 
 ## (b) Artifact ownership & multi-version
 

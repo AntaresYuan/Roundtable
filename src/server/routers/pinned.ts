@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
+import { TRPCError } from '@trpc/server';
 import { and, asc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { messages, pinnedMessages } from '../../db/index.js';
+import type { Db } from '../../db/index.js';
 import { assertChatAccess } from '../access.js';
 import {
   createTRPCRouter,
@@ -64,6 +66,8 @@ export const pinnedRouter = createTRPCRouter({
       await assertChatAccess(ctx, input.chatId);
 
       return ctx.db.transaction(async (tx) => {
+        await assertMessageInChat(tx, input.chatId, input.messageId);
+
         const existing = await tx
           .select({
             id: pinnedMessages.id,
@@ -159,6 +163,8 @@ export const pinnedRouter = createTRPCRouter({
       await assertChatAccess(ctx, input.chatId);
 
       return ctx.db.transaction(async (tx) => {
+        await assertMessageInChat(tx, input.chatId, input.addMessageId);
+
         const evicted = await tx
           .delete(pinnedMessages)
           .where(
@@ -205,3 +211,17 @@ export const pinnedRouter = createTRPCRouter({
     }),
 });
 
+async function assertMessageInChat(
+  db: Pick<Db, 'select'>,
+  chatId: string,
+  messageId: string,
+): Promise<void> {
+  const [message] = await db
+    .select({ id: messages.id })
+    .from(messages)
+    .where(and(eq(messages.id, messageId), eq(messages.chatId, chatId)));
+
+  if (!message) {
+    throw new TRPCError({ code: 'NOT_FOUND', message: 'Message not found' });
+  }
+}

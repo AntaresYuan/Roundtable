@@ -150,6 +150,35 @@ describe('selector → graph routing (#63)', () => {
     expect(state.intake).toBeDefined();
   });
 
+  it('unknown selector ids fall through to intake after roster normalization', async () => {
+    const agents = [
+      agent('a-fe', 'frontend', 'implementer'),
+      agent('a-be', 'backend', 'reviewer'),
+    ];
+
+    const state = await runOrchestrator(
+      {
+        chatId: 'chat-hallucinated-selector-id',
+        userMessage: 'handle this follow-up',
+        agents,
+      },
+      deps(scripted({
+        chosenAgentId: 'not-in-room' as AgentId,
+        confidence: 0.95,
+        reasoning: 'hallucinated',
+        runnersUp: [],
+      })),
+    );
+
+    expect(state.selector?.chosenAgentId).toBeNull();
+    expect(state.intake).toBeDefined();
+    expect(state.plan?.tasks.map((task) => task.assignee)).toEqual([
+      '@implementer',
+      '@reviewer',
+    ]);
+    expect(state.dispatch).toHaveLength(2);
+  });
+
   it('zero or one agent: behavior is unchanged from the single-chat / PM flow', async () => {
     const state = await runOrchestrator(
       { chatId: 'chat-solo', userMessage: 'build a waitlist page' },

@@ -19,7 +19,11 @@ export interface OrchestratorDeps {
   reviewer?: Reviewer;
   handoffLog?: HandoffLog;
   handoff?: HandoffGeneratorOptions;
-  /** Defaults to an in-memory MemorySaver — pass a Postgres saver in prod. */
+  /**
+   * Defaults to an in-memory `MemorySaver` (handy for tests and the smoke
+   * script). Pass a `PostgresSaver` from `createPostgresCheckpointer()` in
+   * prod so runs survive process restarts (see ADR-001 + issue #40).
+   */
   checkpointer?: GraphDeps['checkpointer'];
 }
 

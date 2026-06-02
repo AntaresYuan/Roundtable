@@ -33,7 +33,7 @@ export async function buildPortableCard(
   const [row] = await db
     .select({ card: handoffs.card })
     .from(handoffs)
-    .where(eq(handoffs.chatId, chatId))
+    .where(and(eq(handoffs.chatId, chatId), eq(handoffs.scenario, 'dispatch')))
     .orderBy(desc(handoffs.createdAt))
     .limit(1);
 

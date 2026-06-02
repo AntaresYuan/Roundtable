@@ -69,9 +69,13 @@ async function buildEnv() {
  * real to find. This mirrors what `dispatch.ts` does in prod, minus the
  * adapter call — perfect for an end-to-end cross-chat test.
  */
-async function seedRealHandoffCard(db: Db, chatId: string): Promise<string> {
+async function seedRealHandoffCard(
+  db: Db,
+  chatId: string,
+  opts: { createdAt?: Date; scenario?: 'dispatch' | 'cross_chat' } = {},
+): Promise<string> {
   const state = initialState(chatId, 'Build a login page');
-  const card = fallbackHandoffCard({
+  const baseCard = fallbackHandoffCard({
     state,
     task: {
       id: 'T1',
@@ -87,6 +91,12 @@ async function seedRealHandoffCard(db: Db, chatId: string): Promise<string> {
       { id: ARTIFACT_ID as ArtifactId, kind: 'file', title: 'api/login.ts' },
     ],
   });
+  const card = {
+    ...baseCard,
+    id: opts.scenario === 'cross_chat' ? randomUUID() : baseCard.id,
+    scenario: opts.scenario ?? baseCard.scenario,
+    ...(opts.createdAt ? { createdAt: opts.createdAt } : {}),
+  };
   await db.insert(handoffs).values({
     id: card.id,
     chatId,
@@ -101,6 +111,7 @@ async function seedRealHandoffCard(db: Db, chatId: string): Promise<string> {
     card,
     fullHistoryRef: card.fullHistoryRef,
     generatedBy: card.generatedBy,
+    ...(opts.createdAt ? { createdAt: opts.createdAt } : {}),
   });
   return card.id;
 }
@@ -143,6 +154,22 @@ describe('handoffs.export', () => {
       uri: 'workspace://api/login.ts',
       preview: 'export async function login(req) { ... }',
     });
+  });
+
+  it('exports the latest dispatch handoff instead of newer imported handoffs', async () => {
+    await seedArtifact(env.db, CHAT_A);
+    const dispatchHandoffId = await seedRealHandoffCard(env.db, CHAT_A, {
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+    });
+    await seedRealHandoffCard(env.db, CHAT_A, {
+      createdAt: new Date('2026-01-02T00:00:00Z'),
+      scenario: 'cross_chat',
+    });
+
+    const portable = await env.caller.handoffs.export({ chatId: CHAT_A });
+
+    expect(portable.card.id).toBe(dispatchHandoffId);
+    expect(portable.card.scenario).toBe('cross_chat');
   });
 
   it('does not inline artifacts outside the source chat', async () => {

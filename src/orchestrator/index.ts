@@ -34,3 +34,14 @@ export { noopReviewer } from './nodes/review.js';
 export { fallbackClarify } from './nodes/clarify.js';
 export { llmIntake, llmPlanner, defaultOrchestratorModel, requireAnthropicKey } from './llm/index.js';
 export type { LlmIntakeOpts, LlmPlannerOpts } from './llm/index.js';
+export {
+  createPostgresCheckpointer,
+  cleanupOldCheckpoints,
+  PostgresSaver,
+} from './checkpointer.js';
+export type {
+  PostgresCheckpointerOptions,
+  PostgresCheckpointerHandle,
+  CleanupOldCheckpointsOptions,
+  CleanupResult,
+} from './checkpointer.js';

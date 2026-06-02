@@ -58,7 +58,7 @@ export async function runSelector(
   const telemetry = opts.telemetry ?? inMemorySelectorTelemetry();
   const now = opts.now ?? (() => new Date());
 
-  const decision = await selector.select(input);
+  const decision = normalizeDecision(await selector.select(input), input.agents);
 
   const fallbackTriggered =
     decision.chosenAgentId !== null &&
@@ -182,6 +182,36 @@ export function heuristicSelector(): SpeakerSelector {
       };
     },
   };
+}
+
+function normalizeDecision(
+  decision: SelectorDecision,
+  agents: AgentDescription[],
+): SelectorDecision {
+  const validIds = new Set(agents.map((a) => a.id));
+  const chosenAgentId =
+    decision.chosenAgentId && validIds.has(decision.chosenAgentId)
+      ? decision.chosenAgentId
+      : null;
+  const seen = new Set<string>();
+  const runnersUp = decision.runnersUp.filter((runner) => {
+    if (!validIds.has(runner.agentId)) return false;
+    if (chosenAgentId !== null && runner.agentId === chosenAgentId) return false;
+    if (seen.has(runner.agentId)) return false;
+    seen.add(runner.agentId);
+    return true;
+  });
+
+  if (decision.chosenAgentId !== null && chosenAgentId === null) {
+    return {
+      chosenAgentId,
+      confidence: 0,
+      reasoning: 'Selector returned an unknown agent id; no agent selected.',
+      runnersUp,
+    };
+  }
+
+  return { ...decision, chosenAgentId, runnersUp };
 }
 
 function scoreAgent(tokens: Set<string>, agent: AgentDescription): number {

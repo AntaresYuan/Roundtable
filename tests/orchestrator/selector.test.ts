@@ -128,6 +128,38 @@ describe('runSelector — fixture scenarios', () => {
     expect(result.clarifyQuestion).toBeNull();
   });
 
+  it('normalizes selector output to the supplied roster before routing', async () => {
+    const agents = [
+      agent('a1', 'frontend', 'frontend work', ['react']),
+      agent('a2', 'backend', 'backend work', ['api']),
+      agent('a3', 'design', 'design work', ['css']),
+      agent('a4', 'tester', 'qa work', ['tests']),
+    ];
+    const result = await runSelector(
+      { userMessage: 'please handle this', agents },
+      {
+        chatId,
+        selector: scriptedSelector({
+          chosenAgentId: 'not-in-room' as AgentId,
+          confidence: 0.9,
+          reasoning: 'hallucinated id',
+          runnersUp: [
+            { agentId: 'a1' as AgentId, confidence: 0.5 },
+            { agentId: 'not-in-room' as AgentId, confidence: 0.4 },
+            { agentId: 'a1' as AgentId, confidence: 0.3 },
+            { agentId: 'a2' as AgentId, confidence: 0.2 },
+          ],
+        }),
+      },
+    );
+
+    expect(result.decision.chosenAgentId).toBeNull();
+    expect(result.decision.confidence).toBe(0);
+    expect(result.decision.runnersUp.map((r) => r.agentId)).toEqual(['a1', 'a2']);
+    expect(result.fallbackTriggered).toBe(false);
+    expect(result.clarifyQuestion).toBeNull();
+  });
+
   it('writes one telemetry entry per call with the right shape', async () => {
     const telemetry = inMemorySelectorTelemetry();
     const agents = [agent('a1', 'one', 'frontend', ['react'])];

@@ -178,6 +178,26 @@ describe('dependency-store', () => {
     const rows = await store.selectAll();
     expect(rows).toHaveLength(1);
   });
+
+  it('does not mutate the graph when persistent storage rejects a new edge', async () => {
+    const g = new DependencyGraph();
+    await expect(
+      persistDependency(g, {
+        async selectAll() {
+          return [];
+        },
+        async insertOne() {
+          throw new Error('db down');
+        },
+      }, {
+        fromArtifactId: 'd1' as ArtifactId,
+        toArtifactId: 'u1' as ArtifactId,
+        kind: 'references',
+      }),
+    ).rejects.toThrow('db down');
+
+    expect(g.edges()).toEqual([]);
+  });
 });
 
 describe('dependency-broadcast', () => {

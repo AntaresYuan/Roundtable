@@ -68,7 +68,12 @@ export async function persistDependency(
   store: DependencyStore,
   row: DependencyEdgeRow,
 ): Promise<void> {
-  if (graph.addDependency(row.fromArtifactId, row.toArtifactId, row.kind)) {
-    await store.insertOne(row);
-  }
+  if (row.fromArtifactId === row.toArtifactId) return;
+  const alreadyPresent = graph
+    .getDependencies(row.fromArtifactId)
+    .some((edge) => edge.to === row.toArtifactId && edge.kind === row.kind);
+  if (alreadyPresent) return;
+
+  await store.insertOne(row);
+  graph.addDependency(row.fromArtifactId, row.toArtifactId, row.kind);
 }

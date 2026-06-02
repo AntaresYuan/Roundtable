@@ -32,8 +32,25 @@ export { heuristicIntake } from './nodes/intake.js';
 export { rolePlanner } from './nodes/plan.js';
 export { noopReviewer } from './nodes/review.js';
 export { fallbackClarify } from './nodes/clarify.js';
-export { llmIntake, llmPlanner, defaultOrchestratorModel, requireAnthropicKey } from './llm/index.js';
-export type { LlmIntakeOpts, LlmPlannerOpts } from './llm/index.js';
+export { llmIntake, llmPlanner, llmSelector, defaultOrchestratorModel, requireAnthropicKey } from './llm/index.js';
+export type { LlmIntakeOpts, LlmPlannerOpts, LlmSelectorOpts } from './llm/index.js';
+export {
+  runSelector,
+  heuristicSelector,
+  DEFAULT_SELECTOR_CONFIDENCE_THRESHOLD,
+  SELECTOR_CLARIFY_MIN_AGENTS,
+} from './nodes/selector.js';
+export type {
+  SpeakerSelector,
+  SelectorInput,
+  RunSelectorOpts,
+  RunSelectorResult,
+} from './nodes/selector.js';
+export {
+  inMemorySelectorTelemetry,
+  fileSelectorTelemetry,
+} from './selector-log.js';
+export type { SelectorTelemetry } from './selector-log.js';
 export { DependencyGraph, MAX_NOTICE_HOPS } from './dependency-graph.js';
 export type {
   ArtifactNode,

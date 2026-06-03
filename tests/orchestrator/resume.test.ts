@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AdapterRegistry, createMockAdapter } from '../../src/adapters/index.js';
+import type { Artifact, ArtifactId } from '../../src/contracts/index.js';
 import {
   resumeOrchestrator,
   runOrchestrator,
@@ -60,6 +61,65 @@ describe('resumeOrchestrator', () => {
     expect(resumed.clarify?.answers).toEqual({ scope: 'prototype' });
     expect(resumed.plan?.tasks.length).toBeGreaterThanOrEqual(1);
     expect(resumed.aggregate?.headline).toMatch(/Done|Partial/);
+  });
+
+  it('drains artifact events into state.artifacts and the channel survives checkpoint resume', async () => {
+    const landingPage: Artifact = {
+      id: 'art-landing' as ArtifactId,
+      kind: 'file',
+      title: 'LandingPage.tsx',
+      ownerAgentId: 'implementer',
+      version: 1,
+      createdAt: new Date('2026-06-01T00:00:00Z'),
+    };
+    const waitlistApi: Artifact = {
+      id: 'art-api' as ArtifactId,
+      kind: 'file',
+      title: 'api/waitlist.ts',
+      ownerAgentId: 'implementer',
+      version: 1,
+      createdAt: new Date('2026-06-01T00:00:00Z'),
+    };
+
+    const registry = new AdapterRegistry();
+    registry.register(
+      createMockAdapter({
+        scriptedEvents: [
+          { type: 'artifact', artifact: landingPage },
+          { type: 'artifact', artifact: waitlistApi },
+          { type: 'done', finishReason: 'stop' },
+        ],
+      }),
+    );
+    registry.bindRole('implementer', 'mock');
+    registry.bindRole('planner', 'mock');
+    registry.bindRole('reviewer', 'mock');
+
+    const checkpointer = new MemorySaver();
+    const deps = { registry, workspaces: workspaceResolver(workDir), checkpointer };
+
+    const halted = await runOrchestrator(
+      { chatId: 'chat-artifacts', userMessage: 'idk', threadId: 'thread-artifacts' },
+      deps,
+    );
+
+    expect(halted.stage).toBe('clarify');
+    expect(halted.artifacts).toEqual([]);
+
+    const resumed = await resumeOrchestrator(
+      {
+        chatId: 'chat-artifacts',
+        threadId: 'thread-artifacts',
+        clarifyAnswers: { scope: 'prototype' },
+      },
+      deps,
+    );
+
+    expect(resumed.stage).toBe('done');
+    expect(resumed.artifacts).toEqual([landingPage, waitlistApi]);
+    expect(resumed.aggregate?.bullets).toEqual(
+      expect.arrayContaining(['LandingPage.tsx', 'api/waitlist.ts']),
+    );
   });
 
   it('keeps clarify unresolved when resume answers are incomplete', async () => {

@@ -1,9 +1,15 @@
 import { stat, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { PGlite } from '@electric-sql/pglite';
+import { eq } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/pglite';
+import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AdapterRegistry, createMockAdapter } from '../../src/adapters/index.js';
 import type { AgentEvent, Artifact, ArtifactId } from '../../src/contracts/index.js';
+import { chats, messages, users } from '../../src/db/schema.js';
+import * as schema from '../../src/db/schema.js';
 import {
   DependencyGraph,
   inMemoryDependencyStore,
@@ -108,11 +114,98 @@ describe('runDispatch', () => {
     });
     expect(handoffLog.entries()).toHaveLength(2);
   });
+
+  it('routes watched artifact bumps into dependency system messages when artifactDb is wired', async () => {
+    const client = new PGlite();
+    const db = drizzle(client, { schema });
+    const chatId = '65000000-0000-4000-8000-000000000001';
+    const userId = '65000000-0000-4000-8000-000000000002';
+    const upstreamV1 = artifact(
+      '65000000-0000-4000-8000-000000000003',
+      1,
+      'backend',
+      'src/api/login.ts',
+    );
+    const downstream = artifact(
+      '65000000-0000-4000-8000-000000000004',
+      1,
+      'frontend',
+      'src/login-form.tsx',
+    );
+    const upstreamV2 = artifact(
+      upstreamV1.id,
+      2,
+      'backend',
+      'src/api/login.ts',
+    );
+    const script: AgentEvent[] = [
+      { type: 'artifact', artifact: upstreamV1 },
+      { type: 'artifact', artifact: downstream },
+      {
+        type: 'declare_dependency',
+        from: downstream.id,
+        to: upstreamV1.id,
+        kind: 'references',
+      },
+      { type: 'artifact', artifact: upstreamV2 },
+      { type: 'done', finishReason: 'stop' },
+    ];
+    const registry = new AdapterRegistry();
+    registry.register(createMockAdapter({ scriptedEvents: script }));
+    registry.bindRole('implementer', 'mock');
+    const dependencyStore = inMemoryDependencyStore();
+
+    try {
+      await migrate(db, { migrationsFolder: 'drizzle' });
+      await db.insert(users).values({
+        id: userId,
+        email: 'dispatch-artifact-watcher@roundtable.local',
+      });
+      await db.insert(chats).values({
+        id: chatId,
+        ownerUserId: userId,
+        title: 'Dispatch artifact watcher',
+        workspacePath: './workspaces/dispatch-artifact-watcher',
+      });
+
+      const result = await runDispatch(withPlan('@implementer', chatId), {
+        registry,
+        workspaces: workspaceResolver(rootDir),
+        handoffLog: inMemoryHandoffLog(),
+        dependencyGraph: new DependencyGraph(),
+        dependencyStore,
+        artifactDb: db,
+      });
+
+      expect(result.dispatch[0]?.status).toBe('completed');
+      expect(await dependencyStore.selectAll()).toEqual([
+        {
+          fromArtifactId: downstream.id,
+          toArtifactId: upstreamV1.id,
+          kind: 'references',
+        },
+      ]);
+
+      const systemMessages = await db
+        .select()
+        .from(messages)
+        .where(eq(messages.chatId, chatId));
+      expect(systemMessages).toHaveLength(1);
+      expect(systemMessages[0]).toMatchObject({
+        authorType: 'system',
+        authorId: 'orchestrator',
+        content:
+          '⚠️ @frontend `src/api/login.ts` changed v1→v2 — your `src/login-form.tsx` may need a sync',
+      });
+    } finally {
+      await client.close();
+    }
+  });
 });
 
-function withPlan(assignee: string) {
+function withPlan(assignee: string, chatId = 'chat/1') {
   return {
-    ...initialState('chat/1', 'build a page'),
+    ...initialState(chatId, 'build a page'),
     stage: 'dispatch' as const,
     plan: {
       id: 'plan-1',

@@ -1,9 +1,18 @@
 import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { and, eq, type SQL } from 'drizzle-orm';
-import type { AgentEvent, Artifact, ArtifactKind } from '../contracts/index.js';
-import { artifactVersions, artifacts } from '../db/schema.js';
+import type { AgentEvent, Artifact, ArtifactId, ArtifactKind } from '../contracts/index.js';
+import { artifactVersions, artifacts, messages } from '../db/schema.js';
 import type * as schema from '../db/schema.js';
+import { buildDepChangedMessage } from './dependency-broadcast.js';
+import type { DependencyGraph } from './dependency-graph.js';
+import { persistDependency, type DependencyStore } from './dependency-store.js';
+
+type InsertableTable = typeof artifacts | typeof artifactVersions | typeof messages;
+type InsertableValue =
+  | typeof artifacts.$inferInsert
+  | typeof artifactVersions.$inferInsert
+  | typeof messages.$inferInsert;
 
 interface ArtifactDb {
   select: () => {
@@ -13,8 +22,8 @@ interface ArtifactDb {
       };
     };
   };
-  insert: (table: typeof artifacts) => {
-    values: (value: typeof artifacts.$inferInsert) => Promise<unknown>;
+  insert: (table: InsertableTable) => {
+    values: (value: InsertableValue) => Promise<unknown>;
   };
   update: (table: typeof artifacts) => {
     set: (value: Partial<typeof artifacts.$inferInsert>) => {
@@ -23,13 +32,7 @@ interface ArtifactDb {
   };
 }
 
-interface ArtifactVersionDb {
-  insert: (table: typeof artifactVersions) => {
-    values: (value: typeof artifactVersions.$inferInsert) => Promise<unknown>;
-  };
-}
-
-type RoundtableDb = ArtifactDb & ArtifactVersionDb & {
+type RoundtableDb = ArtifactDb & {
   _: { fullSchema: typeof schema };
 };
 
@@ -39,6 +42,8 @@ export interface ArtifactWatcherContext {
   db: RoundtableDb;
   chatId: string;
   ownerAgentId: string;
+  dependencyGraph?: DependencyGraph;
+  dependencyStore?: DependencyStore;
 }
 
 interface PendingArtifactUnit {
@@ -61,6 +66,14 @@ export class ArtifactWatcher {
       return [event];
     }
 
+    if (event.type === 'declare_dependency') {
+      return [event, ...(await this.applyDependencyEvent(event))];
+    }
+
+    if (event.type === 'artifact') {
+      return [event, ...(await this.applyDependencyEvent(event))];
+    }
+
     if (event.type === 'done') {
       const artifactEvents = await this.flush();
       return [...artifactEvents, event];
@@ -78,7 +91,62 @@ export class ArtifactWatcher {
       inferArtifactUnits(changes).map((unit) => persistArtifact(this.ctx, unit)),
     );
 
-    return artifactsForChanges.map((artifact) => ({ type: 'artifact', artifact }));
+    const events: AgentEvent[] = [];
+    for (const artifact of artifactsForChanges) {
+      const event: AgentEvent = { type: 'artifact', artifact };
+      events.push(event);
+      events.push(...(await this.applyDependencyEvent(event)));
+    }
+    return events;
+  }
+
+  private async applyDependencyEvent(event: AgentEvent): Promise<AgentEvent[]> {
+    const graph = this.ctx.dependencyGraph;
+    if (!graph) return [];
+
+    try {
+      if (event.type === 'declare_dependency') {
+        const row = {
+          fromArtifactId: event.from as ArtifactId,
+          toArtifactId: event.to as ArtifactId,
+          kind: event.kind,
+        };
+        if (this.ctx.dependencyStore) {
+          await persistDependency(graph, this.ctx.dependencyStore, row);
+        } else {
+          graph.applyEvent(event);
+        }
+        return [];
+      }
+
+      if (event.type !== 'artifact') return [];
+
+      const notices = graph.applyEvent(event);
+      for (const notice of notices) {
+        const message = buildDepChangedMessage(notice);
+        await this.ctx.db.insert(messages).values({
+          id: randomUUID(),
+          chatId: this.ctx.chatId,
+          authorType: 'system',
+          authorId: 'orchestrator',
+          content: message,
+          status: 'completed',
+          event: {
+            type: 'text_delta',
+            delta: message,
+          },
+        });
+      }
+      return [];
+    } catch (error) {
+      return [
+        {
+          type: 'error',
+          message: `dependency graph update failed: ${errorMessage(error)}`,
+          recoverable: true,
+        },
+      ];
+    }
   }
 }
 
@@ -213,6 +281,10 @@ async function persistArtifact(
 
 function formatChangeDiff(change: FileChangeEvent): string {
   return [`# ${change.kind}: ${change.path}`, change.diff].join('\n');
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'artifact dependency update failed';
 }
 
 function isSpecPath(filePath: string): boolean {

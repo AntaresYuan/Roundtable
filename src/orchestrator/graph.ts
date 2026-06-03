@@ -10,6 +10,7 @@ import {
 import type { AdapterRegistry } from '../adapters/index.js';
 import { DependencyGraph } from './dependency-graph.js';
 import type { DependencyStore } from './dependency-store.js';
+import type { ArtifactWatcherContext } from './artifact-watcher.js';
 import { type HandoffLog, inMemoryHandoffLog } from './handoff-log.js';
 import { runAggregate } from './nodes/aggregate.js';
 import { type ClarifyGenerator, fallbackClarify, runClarify } from './nodes/clarify.js';
@@ -40,6 +41,7 @@ export interface GraphDeps {
   checkpointer?: BaseCheckpointSaver;
   dependencyGraph?: DependencyGraph;
   dependencyStore?: DependencyStore;
+  artifactDb?: ArtifactWatcherContext['db'];
 }
 
 const lastWins = <T>() => ({ reducer: (_prev: T, next: T) => next });
@@ -122,6 +124,7 @@ export function buildOrchestratorGraph(deps: GraphDeps) {
         ...(deps.handoff ? { handoff: deps.handoff } : {}),
         dependencyGraph,
         ...(deps.dependencyStore ? { dependencyStore: deps.dependencyStore } : {}),
+        ...(deps.artifactDb ? { artifactDb: deps.artifactDb } : {}),
       }),
     )
     .addNode(N.monitor, async (s: GraphState) => ({ ...s, stage: 'review' as StageId }))

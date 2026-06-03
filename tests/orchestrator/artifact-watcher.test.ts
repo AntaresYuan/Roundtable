@@ -3,10 +3,15 @@ import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { AgentEvent } from '../../src/contracts/index.js';
-import { artifactVersions, artifacts, chats, users } from '../../src/db/schema.js';
+import type { AgentEvent, ArtifactId } from '../../src/contracts/index.js';
+import { artifactVersions, artifacts, chats, messages, users } from '../../src/db/schema.js';
 import * as schema from '../../src/db/schema.js';
-import { ArtifactWatcher, watchArtifactEvents } from '../../src/orchestrator/index.js';
+import {
+  ArtifactWatcher,
+  DependencyGraph,
+  inMemoryDependencyStore,
+  watchArtifactEvents,
+} from '../../src/orchestrator/index.js';
 
 const ids = {
   user: '41000000-0000-4000-8000-000000000001',
@@ -215,5 +220,98 @@ describe('ArtifactWatcher', () => {
         artifact: expect.objectContaining({ version: 2 }),
       }),
     );
+  });
+
+  it('feeds declared dependencies and watcher-emitted artifact bumps into system broadcasts', async () => {
+    const graph = new DependencyGraph();
+    const store = inMemoryDependencyStore();
+    const downstreamWatcher = new ArtifactWatcher({
+      db,
+      chatId: ids.chat,
+      ownerAgentId: 'frontend',
+      dependencyGraph: graph,
+      dependencyStore: store,
+    });
+    const upstreamWatcher = new ArtifactWatcher({
+      db,
+      chatId: ids.chat,
+      ownerAgentId: 'backend',
+      dependencyGraph: graph,
+      dependencyStore: store,
+    });
+
+    await downstreamWatcher.accept({
+      type: 'file_change',
+      path: 'src/login-form.tsx',
+      kind: 'create',
+      diff: '+export function LoginForm() {}',
+    });
+    const [downstreamEvent] = await downstreamWatcher.flush();
+    const downstreamId = downstreamEvent?.type === 'artifact'
+      ? downstreamEvent.artifact.id
+      : undefined;
+
+    await upstreamWatcher.accept({
+      type: 'file_change',
+      path: 'src/api/login.ts',
+      kind: 'create',
+      diff: '+export function login() {}',
+    });
+    const [upstreamEvent] = await upstreamWatcher.flush();
+    const upstreamId = upstreamEvent?.type === 'artifact'
+      ? upstreamEvent.artifact.id
+      : undefined;
+
+    expect(downstreamId).toBeDefined();
+    expect(upstreamId).toBeDefined();
+
+    await upstreamWatcher.accept({
+      type: 'declare_dependency',
+      from: downstreamId as ArtifactId,
+      to: upstreamId as ArtifactId,
+      kind: 'references',
+    });
+
+    const storedEdges = await store.selectAll();
+    expect(storedEdges).toEqual([
+      {
+        fromArtifactId: downstreamId,
+        toArtifactId: upstreamId,
+        kind: 'references',
+      },
+    ]);
+
+    await upstreamWatcher.accept({
+      type: 'file_change',
+      path: 'src/api/login.ts',
+      kind: 'edit',
+      diff: '+export function loginWithEmail() {}',
+    });
+    const secondFlush = await upstreamWatcher.flush();
+
+    expect(secondFlush).toContainEqual(
+      expect.objectContaining({
+        type: 'artifact',
+        artifact: expect.objectContaining({
+          id: upstreamId,
+          version: 2,
+        }),
+      }),
+    );
+
+    const systemMessages = await db
+      .select()
+      .from(messages)
+      .where(eq(messages.chatId, ids.chat));
+    expect(systemMessages).toHaveLength(1);
+    expect(systemMessages[0]).toMatchObject({
+      authorType: 'system',
+      authorId: 'orchestrator',
+      status: 'completed',
+    });
+    expect(systemMessages[0]?.content).toContain('@frontend');
+    expect(systemMessages[0]?.content).toContain('src/api/login.ts');
+    expect(systemMessages[0]?.content).toContain('v1→v2');
+    expect(systemMessages[0]?.content).toContain('src/login-form.tsx');
   });
 });

@@ -66,7 +66,7 @@ function WorkingChip({ ev, working }) {
 
 /* ---- MessageGroup : consumes an AgentEvent stream ------------------------ */
 // stages: 0 thinking · 1 working · 2 text-streaming · 3 artifacts · 4 done
-function MessageGroup({ beat, agents, playing, onOpenArtifact }) {
+function MessageGroup({ beat, agents, playing, onOpenArtifact, noticesByArtifact, onAskSync }) {
   const agent = agents[beat.agentId];
   const isPM = !!agent.pm;
   const ev = beat.events;
@@ -154,8 +154,15 @@ function MessageGroup({ beat, agents, playing, onOpenArtifact }) {
 
         {stage >= 3 && artifactEvs.map((e, i) => {
           const art = RT.ARTIFACTS[e.artifactId];
+          const notice = art && noticesByArtifact ? noticesByArtifact.get(art.id) : null;
           return art ? <div key={i} style={{ marginTop: i ? 12 : 0 }}>
-            <ArtifactRenderer art={art} agents={agents} onOpen={onOpenArtifact} />
+            <ArtifactRenderer
+              art={art}
+              agents={agents}
+              onOpen={onOpenArtifact}
+              notice={notice}
+              onAskSync={onAskSync}
+            />
           </div> : null;
         })}
 

@@ -158,6 +158,25 @@ function Thread({ agents, scene, onOpenArtifact, onAction }) {
   const revealed = RT.SCRIPT.filter(b => b.at <= scene.clock);
   const [handoff, setHandoff] = useState(RT.HANDOFF);
   const [editingHandoff, setEditingHandoff] = useState(null);
+  const noticesByArtifact = useMemo(() => {
+    const m = new Map();
+    (RT.DEP_CHANGED_NOTICES || []).forEach(n => m.set(n.downstream.artifactId, n));
+    return m;
+  }, []);
+  const askSync = (notice) => {
+    const owner = agents[notice.upstream.ownerAgentId];
+    const prefill = {
+      ...handoff,
+      to: `@${owner?.role || notice.upstream.ownerAgentId}`,
+      scenario: 'agent_handoff',
+      taskBrief:
+        `Sync ${notice.downstream.title || notice.downstream.artifactId} ` +
+        `after ${notice.upstream.title || notice.upstream.artifactId} bumped ` +
+        `v${notice.upstream.fromVersion}→v${notice.upstream.toVersion} ` +
+        `(${notice.kind}). Repair the downstream call site.`,
+    };
+    setEditingHandoff(prefill);
+  };
   const plan = useMemo(() => {
     const tasks = RT.PLAN.tasks.map(t => ({ ...t }));
     RT.PLAN_TIMELINE.forEach(u => { if (u.at <= scene.clock) { const tk = tasks.find(x => x.id === u.id); if (tk) tk.status = u.status; } });
@@ -183,7 +202,7 @@ function Thread({ agents, scene, onOpenArtifact, onAction }) {
         {revealed.map(b => {
           const live = scene.playing && scene.clock < b.at + (b.dur || 1400) + 300;
           if (b.kind === 'user') return <UserMsg key={b.id} text={b.text} />;
-          if (b.kind === 'agent') return <MessageGroup key={b.id} beat={b} agents={agents} playing={live} onOpenArtifact={onOpenArtifact} />;
+          if (b.kind === 'agent') return <MessageGroup key={b.id} beat={b} agents={agents} playing={live} onOpenArtifact={onOpenArtifact} noticesByArtifact={noticesByArtifact} onAskSync={askSync} />;
           if (b.kind === 'plan') return <TodoListCard key={b.id} plan={plan} agents={agents} />;
           if (b.kind === 'handoff') return <HandoffCard key={b.id} ho={handoff} agents={agents} onEdit={() => setEditingHandoff(handoff)} />;
           if (b.kind === 'breakout') return <div key={b.id} className="rt-rise"><BreakoutChip data={b} agents={agents} /></div>;

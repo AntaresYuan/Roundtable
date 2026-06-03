@@ -115,6 +115,78 @@ describe('runDispatch', () => {
     expect(handoffLog.entries()).toHaveLength(2);
   });
 
+  it('drains artifact events into state.artifacts as a canonical list', async () => {
+    const a1 = artifact('art-1', 1, 'implementer', 'LandingPage.tsx');
+    const a2 = artifact('art-2', 1, 'implementer', 'api/waitlist.ts');
+    const script: AgentEvent[] = [
+      { type: 'artifact', artifact: a1 },
+      { type: 'artifact', artifact: a2 },
+      { type: 'done', finishReason: 'stop' },
+    ];
+    const registry = new AdapterRegistry();
+    registry.register(createMockAdapter({ scriptedEvents: script }));
+    registry.bindRole('implementer', 'mock');
+
+    const result = await runDispatch(withPlan('@implementer'), {
+      registry,
+      workspaces: workspaceResolver(rootDir),
+      handoffLog: inMemoryHandoffLog(),
+    });
+
+    expect(result.artifacts).toEqual([a1, a2]);
+  });
+
+  it('preserves existing state.artifacts when draining new ones', async () => {
+    const existing = artifact('art-existing', 1, 'planner', 'plan.md');
+    const fresh = artifact('art-new', 1, 'implementer', 'LandingPage.tsx');
+    const script: AgentEvent[] = [
+      { type: 'artifact', artifact: fresh },
+      { type: 'done', finishReason: 'stop' },
+    ];
+    const registry = new AdapterRegistry();
+    registry.register(createMockAdapter({ scriptedEvents: script }));
+    registry.bindRole('implementer', 'mock');
+
+    const seed = withPlan('@implementer');
+    const result = await runDispatch(
+      { ...seed, artifacts: [existing] },
+      {
+        registry,
+        workspaces: workspaceResolver(rootDir),
+        handoffLog: inMemoryHandoffLog(),
+      },
+    );
+
+    expect(result.artifacts).toEqual([existing, fresh]);
+  });
+
+  it('dedupes artifacts by id and version when the same artifact is emitted twice', async () => {
+    const v1 = artifact('art-1', 1, 'implementer', 'LandingPage.tsx');
+    const v1Dup = artifact('art-1', 1, 'implementer', 'LandingPage.tsx');
+    const v2 = artifact('art-1', 2, 'implementer', 'LandingPage.tsx');
+    const script: AgentEvent[] = [
+      { type: 'artifact', artifact: v1 },
+      { type: 'artifact', artifact: v1Dup },
+      { type: 'artifact', artifact: v2 },
+      { type: 'done', finishReason: 'stop' },
+    ];
+    const registry = new AdapterRegistry();
+    registry.register(createMockAdapter({ scriptedEvents: script }));
+    registry.bindRole('implementer', 'mock');
+
+    const result = await runDispatch(withPlan('@implementer'), {
+      registry,
+      workspaces: workspaceResolver(rootDir),
+      handoffLog: inMemoryHandoffLog(),
+    });
+
+    expect(result.artifacts).toHaveLength(2);
+    expect(result.artifacts.map((a) => `${a.id}@${a.version}`)).toEqual([
+      'art-1@1',
+      'art-1@2',
+    ]);
+  });
+
   it('routes watched artifact bumps into dependency system messages when artifactDb is wired', async () => {
     const client = new PGlite();
     const db = drizzle(client, { schema });

@@ -169,6 +169,28 @@ export async function POST(req: Request) {
     },
   };
 
+  // ---- Review comments (specs/030 §ReviewCard, issue #6) ------------------
+  // Mirrors `ReviewComment` from src/contracts/workflow-run.ts. The reviewer
+  // agent's findings; render inline under the affected artifact card.
+  const REVIEW_COMMENTS = [
+    {
+      id: 'rc-1',
+      artifactId: 'art-landing',
+      line: 7,
+      author: 'vera',
+      severity: 'major',
+      body: 'No client-side email validation — the form will hit the API with garbage. Add a basic regex check or use `<input type="email" required>` plus `noValidate={false}` on the form.',
+    },
+    {
+      id: 'rc-2',
+      artifactId: 'art-landing',
+      line: 14,
+      author: 'vera',
+      severity: 'minor',
+      body: '`companySize` options should match the API enum (`1-10` not `1–10`). The em-dash will fail Zod validation.',
+    },
+  ];
+
   // ---- HandoffCard ---------------------------------------------------------
   const HANDOFF = {
     id: 'ho-1', from: 'orchestrator', to: '@implementer', scenario: 'dispatch',
@@ -365,7 +387,7 @@ const DEPENDENCY_GRAPH = {
 };
 
 export const RT = {
-    AGENTS, PLAN, PLAN_TIMELINE, ARTIFACTS, HANDOFF, DEPENDENCY_GRAPH, DEP_CHANGED_NOTICES,
+    AGENTS, PLAN, PLAN_TIMELINE, ARTIFACTS, HANDOFF, REVIEW_COMMENTS, DEPENDENCY_GRAPH, DEP_CHANGED_NOTICES,
     WORKBENCH, WORKBENCHES, TASKS, WORKFLOW, SCRIPT, SCENE_DURATION, DECISION,
     BUILTIN_WORKFLOWS, workflows, workflowToGalleryCard,
     ROLE_COLORS: {

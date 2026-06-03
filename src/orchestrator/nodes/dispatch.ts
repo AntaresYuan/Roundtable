@@ -3,6 +3,7 @@ import type {
   AgentRoleId,
   Artifact,
   ArtifactId,
+  ArtifactRef,
   HandoffCard,
   Stage,
 } from '../../contracts/index.js';
@@ -69,6 +70,9 @@ export async function runDispatch(
         task,
         role,
         previousCards: cards,
+        ...(role === 'reviewer' || role === 'fixer'
+          ? { relevantArtifacts: artifactRefsForReview(state) }
+          : {}),
       },
       deps.handoff,
     );
@@ -214,6 +218,26 @@ function nextPendingGate(
     return { stageId: stage.id, gate: stage.gate };
   }
   return undefined;
+}
+
+/**
+ * Pick the latest version of each artifact and project to the ArtifactRef
+ * shape the HandoffCard carries (closes specs/080 Known gap 3 — reviewer
+ * blindness). Reviewer + fixer roles get the canonical artifact list so they
+ * can ground feedback in real files instead of a role title.
+ */
+function artifactRefsForReview(state: OrchestratorState): ArtifactRef[] {
+  const latest = new Map<string, Artifact>();
+  for (const a of state.artifacts) {
+    const prev = latest.get(a.id);
+    if (!prev || a.version > prev.version) latest.set(a.id, a);
+  }
+  return Array.from(latest.values()).map((a) => ({
+    id: a.id,
+    kind: a.kind,
+    title: a.title,
+    ...(a.uri !== undefined ? { uri: a.uri } : {}),
+  }));
 }
 
 function dedupeArtifacts(artifacts: Artifact[]): Artifact[] {

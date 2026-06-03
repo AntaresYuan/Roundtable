@@ -143,8 +143,82 @@ function DepChangedBanner({ notice, agents, onAskSync }) {
   );
 }
 
+/* ---- Review comments (specs/030 §ReviewCard, issue #6) ------------------- */
+const SEVERITY_COLOR = {
+  blocker: '#d04a4a',
+  major:   '#e6a23c',
+  minor:   '#5eb0ef',
+  info:    'var(--text-muted)',
+};
+const SEVERITY_LABEL = {
+  blocker: 'BLOCKER',
+  major:   'MAJOR',
+  minor:   'MINOR',
+  info:    'INFO',
+};
+function ReviewCommentList({ comments, agents, onApplyFix }) {
+  if (!comments || comments.length === 0) return null;
+  return (
+    <div style={{ borderTop: '1px solid var(--border)', background: 'var(--surface)' }}>
+      <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase',
+        color: 'var(--text-faint)', padding: '10px 14px 4px' }}>
+        Review · {comments.length} {comments.length === 1 ? 'comment' : 'comments'}
+      </div>
+      <div style={{ display: 'grid' }}>
+        {comments.map((c) => {
+          const author = c.author ? agents?.[c.author] : null;
+          const sevColor = SEVERITY_COLOR[c.severity] || SEVERITY_COLOR.info;
+          return (
+            <div key={c.id} style={{
+              display: 'flex', gap: 10, padding: '10px 14px',
+              borderTop: '1px solid var(--border)',
+            }}>
+              <span style={{
+                alignSelf: 'flex-start', fontSize: 9.5, fontWeight: 700, letterSpacing: '.06em',
+                padding: '2px 6px', borderRadius: 4, color: sevColor, flexShrink: 0,
+                background: alpha(sevColor, 14), border: '1px solid ' + alpha(sevColor, 50),
+              }}>
+                {SEVERITY_LABEL[c.severity] || (c.severity || 'INFO').toUpperCase()}
+              </span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 3 }}>
+                  {author && (
+                    <span className="mono" style={{ fontSize: 11.5, fontWeight: 700, color: author.color }}>
+                      @{author.role}
+                    </span>
+                  )}
+                  {c.line !== undefined && (
+                    <span className="mono" style={{ fontSize: 11, color: 'var(--text-faint)' }}>
+                      line {c.line}
+                    </span>
+                  )}
+                </div>
+                <div style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.45 }}>{c.body}</div>
+                {onApplyFix && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onApplyFix(c); }}
+                    style={{
+                      marginTop: 7, display: 'inline-flex', alignItems: 'center', gap: 5,
+                      padding: '5px 10px', borderRadius: 'var(--r-sm)', border: '1px solid var(--border)',
+                      background: 'var(--surface-2)', color: 'var(--text)',
+                      font: 'inherit', fontSize: 11.5, fontWeight: 500, cursor: 'pointer',
+                    }}
+                    title="Propose a fix (fixer agent edits the file). Not an auto-commit."
+                  >
+                    <Icon name="edit" size={11} /> Apply review fix
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /* ---- File artifact -------------------------------------------------------- */
-function FileArtifact({ art, owner, agents, notice, onAskSync, onOpen }) {
+function FileArtifact({ art, owner, agents, notice, onAskSync, reviewComments, onApplyFix, onOpen }) {
   const [open, setOpen] = useState(false);
   const lineCount = art.preview.split('\n').length;
   return (
@@ -181,6 +255,7 @@ function FileArtifact({ art, owner, agents, notice, onAskSync, onOpen }) {
           </button>
         )}
       </div>
+      <ReviewCommentList comments={reviewComments} agents={agents} onApplyFix={onApplyFix} />
     </OwnerCard>
   );
 }
@@ -287,12 +362,12 @@ function Seg({ active, onClick, icon, children }) {
 }
 
 /* ---- Artifact dispatcher -------------------------------------------------- */
-function ArtifactRenderer({ art, agents, notice, onAskSync, onOpen }) {
+function ArtifactRenderer({ art, agents, notice, onAskSync, reviewComments, onApplyFix, onOpen }) {
   const owner = agents[art.ownerAgentId];
   if (!owner) return null;
   const open = () => onOpen && onOpen(art);
   switch (art.kind) {
-    case 'file':    return <FileArtifact art={art} owner={owner} agents={agents} notice={notice} onAskSync={onAskSync} onOpen={open} />;
+    case 'file':    return <FileArtifact art={art} owner={owner} agents={agents} notice={notice} onAskSync={onAskSync} reviewComments={reviewComments} onApplyFix={onApplyFix} onOpen={open} />;
     case 'diff':    return <DiffArtifact art={art} owner={owner} agents={agents} onOpen={open} />;
     case 'preview': return <PreviewArtifact art={art} owner={owner} onOpen={open} />;
     default:        return (
@@ -565,5 +640,5 @@ function BreakoutChip({ data, agents }) {
 
 export {
   TodoListCard, ArtifactRenderer, HandoffCard, BreakoutChip, OwnerCard, CodeBlock, VChip, iconBtn,
-  DepChangedBanner,
+  DepChangedBanner, ReviewCommentList,
 };

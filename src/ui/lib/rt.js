@@ -335,8 +335,25 @@ export async function POST(req: Request) {
     ],
   };
 
+// ---- Dependency graph (specs/060) — fixture for #16 sidebar ---------------
+// Mirrors the live shape `DependencyGraph` exposes: { nodes: ArtifactNode[],
+// edges: { from, to, kind } }. Stays read-only — agents declare deps at
+// runtime, never user-authored.
+const DEPENDENCY_GRAPH = {
+  nodes: [
+    { artifactId: 'art-api',     version: 2, ownerAgentId: 'beam',    title: 'app/api/waitlist/route.ts' },
+    { artifactId: 'art-landing', version: 1, ownerAgentId: 'atlas',   title: 'app/page.tsx' },
+    { artifactId: 'art-spec',    version: 1, ownerAgentId: 'planner', title: 'specs/waitlist.md' },
+  ],
+  edges: [
+    { from: 'art-landing', to: 'art-api',  kind: 'references' },
+    { from: 'art-api',     to: 'art-spec', kind: 'imports' },
+  ],
+  staleNodeIds: ['art-landing'], // downstream of art-api's v1→v2 bump
+};
+
 export const RT = {
-    AGENTS, PLAN, PLAN_TIMELINE, ARTIFACTS, HANDOFF,
+    AGENTS, PLAN, PLAN_TIMELINE, ARTIFACTS, HANDOFF, DEPENDENCY_GRAPH,
     WORKBENCH, WORKBENCHES, TASKS, WORKFLOW, SCRIPT, SCENE_DURATION, DECISION,
     BUILTIN_WORKFLOWS, workflows, workflowToGalleryCard,
     ROLE_COLORS: {

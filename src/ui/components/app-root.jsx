@@ -12,6 +12,7 @@ import { MessageGroup, Composer, ConversationRail, LogoMark } from './chat';
 import { RoundtableScene, WhiteboardZoom, sceneAt, meetingNotes } from './roundtable';
 import { WorkflowView, WorkflowStrip } from './workflow';
 import { Modal, NewTaskModal, NewWorkbenchModal, AddAgentModal, EditHandoffModal } from './modals';
+import { DependencyGraphSidebar } from './dep-graph';
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -573,6 +574,7 @@ function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifa
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 8px 0' }}>
         {tabBtn('chat', 'Chat')}
         {tabBtn('files', `Files · ${created.length + provided.length}`)}
+        {tabBtn('deps', 'Deps')}
         {tabBtn('notes', 'Notes')}
         <button onClick={onClose} style={{ ...iconBtn, border: 'none', background: 'transparent' }}><Icon name="x" size={15} /></button>
       </div>
@@ -592,6 +594,18 @@ function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifa
           {created.length === 0
             ? <div style={{ fontSize: 12.5, color: 'var(--text-faint)', fontStyle: 'italic', padding: '4px 2px' }}>Nothing yet — artifacts land here as the team works.</div>
             : created.map((a) => <FileRow key={a.id} art={a} agents={agents} onOpen={onOpenArtifact} />)}
+        </div>
+      ) : tab === 'deps' ? (
+        <div style={{ flex: 1, overflowY: 'auto', padding: '14px 14px 24px' }}>
+          <DependencyGraphSidebar
+            graph={RT.DEPENDENCY_GRAPH}
+            agents={agents}
+            chatId={RT.WORKBENCH?.id || 'main'}
+            onNodeClick={(node) => {
+              const art = Object.values(RT.ARTIFACTS).find((a) => a.id === node.artifactId);
+              if (art && onOpenArtifact) onOpenArtifact(art);
+            }}
+          />
         </div>
       ) : (
         <NotesContent clock={clock} agents={agents} notes={notes} />

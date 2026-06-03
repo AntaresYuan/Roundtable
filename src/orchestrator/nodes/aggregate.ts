@@ -4,13 +4,13 @@ export function runAggregate(state: OrchestratorState): OrchestratorState {
   const completed = state.dispatch.filter((d) => d.status === 'completed').length;
   const failed = state.dispatch.filter((d) => d.status === 'failed').length;
 
-  const bullets = state.dispatch
-    .flatMap((d) =>
-      d.events
-        .filter((e) => e.type === 'file_change' || e.type === 'artifact')
-        .map((e) => describeEvent(e)),
-    )
-    .slice(0, 5);
+  const artifactBullets = state.artifacts.map((a) => a.title);
+  const fileChangeBullets = state.dispatch.flatMap((d) =>
+    d.events
+      .filter((e) => e.type === 'file_change')
+      .map((e) => describeEvent(e)),
+  );
+  const bullets = [...artifactBullets, ...fileChangeBullets].slice(0, 5);
 
   const headline =
     failed > 0
@@ -38,9 +38,5 @@ export function runAggregate(state: OrchestratorState): OrchestratorState {
 
 function describeEvent(e: { type: string } & Record<string, unknown>): string {
   if (e.type === 'file_change') return `${e['kind']}: ${e['path']}`;
-  if (e.type === 'artifact') {
-    const a = e['artifact'] as { title?: string } | undefined;
-    return a?.title ?? 'artifact';
-  }
   return e.type;
 }

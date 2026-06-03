@@ -53,6 +53,7 @@ export async function runDispatch(
 
   const cards: HandoffCard[] = [];
   const records: DispatchRecord[] = [];
+  const artifacts: Artifact[] = [];
 
   for (const task of state.plan.tasks) {
     const role = parseAssignee(task.assignee);
@@ -106,6 +107,9 @@ export async function runDispatch(
             : [rawEvent];
           for (const event of observedEvents) {
             events.push(event);
+            if (event.type === 'artifact') {
+              artifacts.push(event.artifact);
+            }
             if (!artifactWatcher) {
               const dependencyEvents = await handleDependencyEvent(event, {
                 chatId: state.chatId,
@@ -154,8 +158,21 @@ export async function runDispatch(
     ...state,
     handoffCards: [...state.handoffCards, ...cards],
     dispatch: [...state.dispatch, ...records],
+    artifacts: dedupeArtifacts([...state.artifacts, ...artifacts]),
     stage: anyCodeWriting ? 'review' : 'aggregate',
   };
+}
+
+function dedupeArtifacts(artifacts: Artifact[]): Artifact[] {
+  const seen = new Set<string>();
+  const out: Artifact[] = [];
+  for (const a of artifacts) {
+    const key = `${a.id}@${a.version}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(a);
+  }
+  return out;
 }
 
 async function handleDependencyEvent(

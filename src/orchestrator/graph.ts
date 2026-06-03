@@ -27,7 +27,7 @@ import {
   type OrchestratorState,
   type StageId,
 } from './state.js';
-import type { HandoffCard, IntakeResult, Plan } from '../contracts/index.js';
+import type { Artifact, HandoffCard, IntakeResult, Plan } from '../contracts/index.js';
 
 export interface GraphDeps {
   registry: AdapterRegistry;
@@ -55,6 +55,7 @@ const StateAnnotation = Annotation.Root({
   plan: Annotation<Plan | undefined>(lastWins<Plan | undefined>()),
   handoffCards: Annotation<HandoffCard[]>(lastWins<HandoffCard[]>()),
   dispatch: Annotation<DispatchRecord[]>(lastWins<DispatchRecord[]>()),
+  artifacts: Annotation<Artifact[]>(lastWins<Artifact[]>()),
   reviewNotes: Annotation<string[]>(lastWins<string[]>()),
   aggregate: Annotation<AggregateSummary | undefined>(lastWins<AggregateSummary | undefined>()),
   errors: Annotation<OrchestratorState['errors']>(lastWins<OrchestratorState['errors']>()),

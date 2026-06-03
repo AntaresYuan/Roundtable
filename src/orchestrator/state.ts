@@ -1,5 +1,6 @@
 import type {
   AgentEvent,
+  Artifact,
   HandoffCard,
   IntakeResult,
   Plan,
@@ -53,6 +54,7 @@ export interface OrchestratorState {
   plan?: Plan;
   handoffCards: HandoffCard[];
   dispatch: DispatchRecord[];
+  artifacts: Artifact[];
   reviewNotes: string[];
   aggregate?: AggregateSummary;
   errors: { stage: StageId; message: string }[];
@@ -65,6 +67,7 @@ export function initialState(chatId: string, userMessage: string): OrchestratorS
     stage: 'intake',
     handoffCards: [],
     dispatch: [],
+    artifacts: [],
     reviewNotes: [],
     errors: [],
   };

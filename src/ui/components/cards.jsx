@@ -100,12 +100,68 @@ function VChip({ v, changed }) {
   }}>v{v}</span>;
 }
 
+/* ---- Dependency-changed banner (#72, specs/060) --------------------------- */
+function DepChangedBanner({ notice, agents, onAskSync }) {
+  const ownerId = notice?.upstream?.ownerAgentId;
+  const owner = ownerId ? agents?.[ownerId] : null;
+  const u = notice.upstream;
+  return (
+    <div
+      role="alert"
+      style={{
+        display: 'flex', alignItems: 'center', gap: 10, padding: '9px 13px',
+        background: alpha('#d04a4a', 10),
+        borderBottom: '1px solid ' + alpha('#d04a4a', 35),
+        borderTop: '1px solid ' + alpha('#d04a4a', 35),
+      }}
+    >
+      <span style={{ fontSize: 14 }}>⚠️</span>
+      <div style={{ flex: 1, fontSize: 12.5, lineHeight: 1.4 }}>
+        <div style={{ fontWeight: 600, color: 'var(--text)' }}>Dependency changed</div>
+        <div style={{ color: 'var(--text-muted)' }}>
+          <span className="mono" style={{ background: 'var(--surface-3)', padding: '1px 5px',
+            borderRadius: 4, fontSize: 11.5 }}>{u.title || u.artifactId}</span>{' '}
+          went <b>v{u.fromVersion}→v{u.toVersion}</b>
+          {notice.kind ? <> via <i>{notice.kind}</i></> : null}.
+        </div>
+      </div>
+      {onAskSync && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onAskSync(notice); }}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 11px',
+            borderRadius: 'var(--r-sm)', border: 'none', cursor: 'pointer',
+            background: '#d04a4a', color: '#fff', font: 'inherit', fontSize: 12, fontWeight: 600,
+            flexShrink: 0,
+          }}
+          title={owner ? `Pre-fill a hand-off to @${owner.role || ownerId} to resync` : 'Open sync hand-off'}
+        >
+          <Icon name="door" size={12} /> Ask @{owner?.role || ownerId || 'owner'} to sync
+        </button>
+      )}
+    </div>
+  );
+}
+
 /* ---- File artifact -------------------------------------------------------- */
-function FileArtifact({ art, owner, onOpen }) {
+function FileArtifact({ art, owner, agents, notice, onAskSync, onOpen }) {
   const [open, setOpen] = useState(false);
   const lineCount = art.preview.split('\n').length;
   return (
-    <OwnerCard owner={owner} title={art.title} version={art.version} kindLabel={art.lang || 'file'} onOpen={onOpen}>
+    <OwnerCard
+      owner={owner}
+      title={art.title}
+      version={art.version}
+      kindLabel={art.lang || 'file'}
+      onOpen={onOpen}
+      badge={notice ? <span title="Upstream dependency changed" style={{
+        display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 7px',
+        borderRadius: 5, background: alpha('#d04a4a', 18), color: '#d04a4a',
+        fontSize: 10.5, fontWeight: 700, letterSpacing: '.04em' }}>
+        ⚠ DEP CHANGED
+      </span> : undefined}
+    >
+      {notice && <DepChangedBanner notice={notice} agents={agents} onAskSync={onAskSync} />}
       <div style={{ position: 'relative', background: 'var(--surface-2)' }}>
         <div style={{ maxHeight: open ? 'none' : 132, overflow: 'hidden' }}>
           <CodeBlock code={art.preview} />
@@ -231,12 +287,12 @@ function Seg({ active, onClick, icon, children }) {
 }
 
 /* ---- Artifact dispatcher -------------------------------------------------- */
-function ArtifactRenderer({ art, agents, onOpen }) {
+function ArtifactRenderer({ art, agents, notice, onAskSync, onOpen }) {
   const owner = agents[art.ownerAgentId];
   if (!owner) return null;
   const open = () => onOpen && onOpen(art);
   switch (art.kind) {
-    case 'file':    return <FileArtifact art={art} owner={owner} onOpen={open} />;
+    case 'file':    return <FileArtifact art={art} owner={owner} agents={agents} notice={notice} onAskSync={onAskSync} onOpen={open} />;
     case 'diff':    return <DiffArtifact art={art} owner={owner} agents={agents} onOpen={open} />;
     case 'preview': return <PreviewArtifact art={art} owner={owner} onOpen={open} />;
     default:        return (
@@ -509,4 +565,5 @@ function BreakoutChip({ data, agents }) {
 
 export {
   TodoListCard, ArtifactRenderer, HandoffCard, BreakoutChip, OwnerCard, CodeBlock, VChip, iconBtn,
+  DepChangedBanner,
 };

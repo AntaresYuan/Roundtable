@@ -1,6 +1,7 @@
 import { Command, isGraphInterrupt, MemorySaver } from '@langchain/langgraph';
 import type { AdapterRegistry } from '../adapters/index.js';
 import { buildOrchestratorGraph, type GraphDeps } from './graph.js';
+import type { ArtifactWatcherContext } from './artifact-watcher.js';
 import type { HandoffGeneratorOptions } from './handoff.js';
 import { type HandoffLog } from './handoff-log.js';
 import { type ClarifyGenerator } from './nodes/clarify.js';
@@ -25,6 +26,8 @@ export interface OrchestratorDeps {
    * prod so runs survive process restarts (see ADR-001 + issue #40).
    */
   checkpointer?: GraphDeps['checkpointer'];
+  /** Enables file_change → artifact persistence and dependency broadcasts. */
+  artifactDb?: ArtifactWatcherContext['db'];
 }
 
 export interface RunOptions {

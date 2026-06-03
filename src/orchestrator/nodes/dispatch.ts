@@ -15,6 +15,7 @@ import {
   persistDependency,
   type DependencyStore,
 } from '../dependency-store.js';
+import { ArtifactWatcher, type ArtifactWatcherContext } from '../artifact-watcher.js';
 import {
   buildHandoffSystemPrompt,
   generateHandoffCard,
@@ -35,6 +36,7 @@ export interface DispatchDeps {
   handoff?: HandoffGeneratorOptions;
   dependencyGraph?: DependencyGraph;
   dependencyStore?: DependencyStore;
+  artifactDb?: ArtifactWatcherContext['db'];
 }
 
 export async function runDispatch(
@@ -87,22 +89,39 @@ export async function runDispatch(
 
       const events: AgentEvent[] = [];
       let status: DispatchRecord['status'] = 'completed';
+      const artifactWatcher = deps.artifactDb
+        ? new ArtifactWatcher({
+            db: deps.artifactDb,
+            chatId: state.chatId,
+            ownerAgentId: role,
+            ...(deps.dependencyGraph ? { dependencyGraph: deps.dependencyGraph } : {}),
+            ...(deps.dependencyStore ? { dependencyStore: deps.dependencyStore } : {}),
+          })
+        : undefined;
 
       try {
-        for await (const event of session.send({ text: card.taskBrief })) {
-          events.push(event);
-          const dependencyEvents = await handleDependencyEvent(event, {
-            chatId: state.chatId,
-            handoffLog: deps.handoffLog,
-            ...(deps.dependencyGraph ? { graph: deps.dependencyGraph } : {}),
-            ...(deps.dependencyStore ? { store: deps.dependencyStore } : {}),
-          });
-          events.push(...dependencyEvents.events);
-          cards.push(...dependencyEvents.cards);
-          if (event.type === 'error' && !event.recoverable) {
-            status = 'failed';
-            break;
+        for await (const rawEvent of session.send({ text: card.taskBrief })) {
+          const observedEvents = artifactWatcher
+            ? await artifactWatcher.accept(rawEvent)
+            : [rawEvent];
+          for (const event of observedEvents) {
+            events.push(event);
+            if (!artifactWatcher) {
+              const dependencyEvents = await handleDependencyEvent(event, {
+                chatId: state.chatId,
+                handoffLog: deps.handoffLog,
+                ...(deps.dependencyGraph ? { graph: deps.dependencyGraph } : {}),
+                ...(deps.dependencyStore ? { store: deps.dependencyStore } : {}),
+              });
+              events.push(...dependencyEvents.events);
+              cards.push(...dependencyEvents.cards);
+            }
+            if (event.type === 'error' && !event.recoverable) {
+              status = 'failed';
+              break;
+            }
           }
+          if (status === 'failed') break;
         }
       } finally {
         await session.close();

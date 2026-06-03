@@ -1,5 +1,6 @@
 import { Command, isGraphInterrupt, MemorySaver } from '@langchain/langgraph';
 import type { AdapterRegistry } from '../adapters/index.js';
+import type { Workflow } from '../contracts/index.js';
 import { buildOrchestratorGraph, type GraphDeps } from './graph.js';
 import type { ArtifactWatcherContext } from './artifact-watcher.js';
 import type { HandoffGeneratorOptions } from './handoff.js';
@@ -9,7 +10,7 @@ import { type WorkspaceResolver } from './nodes/dispatch.js';
 import { type IntakeClassifier } from './nodes/intake.js';
 import { type Planner } from './nodes/plan.js';
 import { type Reviewer } from './nodes/review.js';
-import { initialState, type OrchestratorState } from './state.js';
+import { initialState, type GateDecision, type OrchestratorState } from './state.js';
 
 export interface OrchestratorDeps {
   registry: AdapterRegistry;
@@ -35,13 +36,22 @@ export interface RunOptions {
   userMessage: string;
   /** Stable thread id for checkpointing/resume. Defaults to `chatId`. */
   threadId?: string;
+  /** Drives the run via a customizable Workflow spec (specs/090). */
+  workflow?: Workflow;
+}
+
+export interface GateResolveResume {
+  stageId: string;
+  decision: GateDecision;
 }
 
 export interface ResumeOptions {
   chatId: string;
   threadId?: string;
   /** Answers keyed by question id, to satisfy a pending clarify interrupt. */
-  clarifyAnswers: Record<string, string>;
+  clarifyAnswers?: Record<string, string>;
+  /** Decision payload to resolve a pending workflow gate. */
+  gate?: GateResolveResume;
 }
 
 export async function runOrchestrator(
@@ -52,7 +62,11 @@ export async function runOrchestrator(
   const graph = buildOrchestratorGraph({ ...deps, checkpointer });
   const threadId = opts.threadId ?? opts.chatId;
 
-  return invoke(graph, threadId, initialState(opts.chatId, opts.userMessage));
+  return invoke(
+    graph,
+    threadId,
+    initialState(opts.chatId, opts.userMessage, opts.workflow),
+  );
 }
 
 export async function resumeOrchestrator(
@@ -63,7 +77,9 @@ export async function resumeOrchestrator(
   const graph = buildOrchestratorGraph({ ...deps, checkpointer });
   const threadId = opts.threadId ?? opts.chatId;
 
-  return invoke(graph, threadId, new Command({ resume: opts.clarifyAnswers }));
+  const resumePayload: GateResolveResume | Record<string, string> =
+    opts.gate ?? opts.clarifyAnswers ?? {};
+  return invoke(graph, threadId, new Command({ resume: resumePayload }));
 }
 
 async function invoke(

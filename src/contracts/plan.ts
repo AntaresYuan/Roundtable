@@ -14,6 +14,8 @@ export const PlanTaskSchema = z.object({
   assignee: z.string().regex(/^@/, 'assignee must start with @'),
   deps: z.array(z.string()),
   parallel: z.boolean().optional(),
+  parallelGroup: z.string().optional(),
+  workflowStageId: z.string().optional(),
   user_visible: z.boolean().default(true),
   status: PlanTaskStatusSchema.default('pending'),
 });

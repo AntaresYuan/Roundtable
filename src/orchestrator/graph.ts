@@ -19,15 +19,24 @@ import type { HandoffGeneratorOptions } from './handoff.js';
 import { heuristicIntake, type IntakeClassifier, runIntake } from './nodes/intake.js';
 import { type Planner, rolePlanner, runPlan } from './nodes/plan.js';
 import { noopReviewer, type Reviewer, runReview } from './nodes/review.js';
+import { runGatePause } from './nodes/gate.js';
 import {
   initialState,
   type AggregateSummary,
   type ClarifyState,
   type DispatchRecord,
+  type GateDecision,
   type OrchestratorState,
+  type PendingGate,
   type StageId,
 } from './state.js';
-import type { Artifact, HandoffCard, IntakeResult, Plan } from '../contracts/index.js';
+import type {
+  Artifact,
+  HandoffCard,
+  IntakeResult,
+  Plan,
+  Workflow,
+} from '../contracts/index.js';
 
 export interface GraphDeps {
   registry: AdapterRegistry;
@@ -50,6 +59,7 @@ const StateAnnotation = Annotation.Root({
   chatId: Annotation<string>(lastWins<string>()),
   userMessage: Annotation<string>(lastWins<string>()),
   stage: Annotation<StageId>(lastWins<StageId>()),
+  workflow: Annotation<Workflow | undefined>(lastWins<Workflow | undefined>()),
   intake: Annotation<IntakeResult | undefined>(lastWins<IntakeResult | undefined>()),
   clarify: Annotation<ClarifyState | undefined>(lastWins<ClarifyState | undefined>()),
   plan: Annotation<Plan | undefined>(lastWins<Plan | undefined>()),
@@ -57,6 +67,10 @@ const StateAnnotation = Annotation.Root({
   dispatch: Annotation<DispatchRecord[]>(lastWins<DispatchRecord[]>()),
   artifacts: Annotation<Artifact[]>(lastWins<Artifact[]>()),
   reviewNotes: Annotation<string[]>(lastWins<string[]>()),
+  pendingGate: Annotation<PendingGate | undefined>(lastWins<PendingGate | undefined>()),
+  gateDecisions: Annotation<Record<string, GateDecision>>(
+    lastWins<Record<string, GateDecision>>(),
+  ),
   aggregate: Annotation<AggregateSummary | undefined>(lastWins<AggregateSummary | undefined>()),
   errors: Annotation<OrchestratorState['errors']>(lastWins<OrchestratorState['errors']>()),
 });
@@ -73,6 +87,7 @@ const N = {
   dispatch: 'stage_dispatch',
   monitor: 'stage_monitor',
   review: 'stage_review',
+  gate: 'stage_gate',
   aggregate: 'stage_aggregate',
 } as const;
 
@@ -130,6 +145,7 @@ export function buildOrchestratorGraph(deps: GraphDeps) {
     )
     .addNode(N.monitor, async (s: GraphState) => ({ ...s, stage: 'review' as StageId }))
     .addNode(N.review, async (s: GraphState) => await runReview(adapt(s), reviewer))
+    .addNode(N.gate, async (s: GraphState) => runGatePause(adapt(s)))
     .addNode(N.aggregate, async (s: GraphState) => runAggregate(adapt(s)))
     .addEdge(START, N.intake)
     .addConditionalEdges(N.intake, route, [
@@ -138,6 +154,7 @@ export function buildOrchestratorGraph(deps: GraphDeps) {
       N.dispatch,
       N.monitor,
       N.review,
+      N.gate,
       N.aggregate,
       END,
     ])
@@ -147,10 +164,24 @@ export function buildOrchestratorGraph(deps: GraphDeps) {
       (s: GraphState) => (s.clarify?.resolved ? N.plan : END),
       [N.plan, END],
     )
-    .addConditionalEdges(N.plan, route, [N.dispatch, N.monitor, N.review, N.aggregate, END])
-    .addConditionalEdges(N.dispatch, route, [N.monitor, N.review, N.aggregate, END])
-    .addConditionalEdges(N.monitor, route, [N.review, N.aggregate, END])
-    .addConditionalEdges(N.review, route, [N.aggregate, END])
+    .addConditionalEdges(N.plan, route, [
+      N.dispatch,
+      N.monitor,
+      N.review,
+      N.gate,
+      N.aggregate,
+      END,
+    ])
+    .addConditionalEdges(N.dispatch, route, [
+      N.monitor,
+      N.review,
+      N.gate,
+      N.aggregate,
+      END,
+    ])
+    .addConditionalEdges(N.monitor, route, [N.review, N.gate, N.aggregate, END])
+    .addConditionalEdges(N.review, route, [N.gate, N.aggregate, END])
+    .addConditionalEdges(N.gate, route, [N.dispatch, N.review, N.aggregate, END])
     .addConditionalEdges(N.aggregate, route, [END]);
 
   return graph.compile({ checkpointer });
@@ -170,6 +201,8 @@ function route(s: GraphState): StageNode | typeof END {
       return N.monitor;
     case 'review':
       return N.review;
+    case 'gate':
+      return N.gate;
     case 'aggregate':
       return N.aggregate;
     case 'done':
@@ -177,8 +210,12 @@ function route(s: GraphState): StageNode | typeof END {
   }
 }
 
-export function buildInitialInput(chatId: string, userMessage: string): OrchestratorState {
-  return initialState(chatId, userMessage);
+export function buildInitialInput(
+  chatId: string,
+  userMessage: string,
+  workflow?: Workflow,
+): OrchestratorState {
+  return initialState(chatId, userMessage, workflow);
 }
 
 export { StateAnnotation };

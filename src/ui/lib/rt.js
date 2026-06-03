@@ -203,18 +203,6 @@ export async function POST(req: Request) {
     { id: 't4', title: 'Migrate to Postgres', meta: 'shipped · yesterday', status: 'done' },
   ];
 
-  // ---- Workflow : the packaged, customizable process the workbench runs ----
-  const WORKFLOW = {
-    template: 'Full-stack Squad',
-    stages: [
-      { id: 'intake', name: 'Intake', icon: 'clip', desc: 'Capture the goal in plain language.', who: ['user'], fixed: true },
-      { id: 'plan', name: 'Plan', icon: 'layers', desc: 'Facilitator breaks the goal into parallel tasks.', who: ['orchestrator'] },
-      { id: 'build', name: 'Build', icon: 'code', desc: 'Implementers write the code concurrently.', who: ['atlas', 'beam'], parallel: true },
-      { id: 'review', name: 'Review', icon: 'eye', desc: 'Reviewer checks quality & accessibility.', who: ['vera'], gate: true },
-      { id: 'ship', name: 'Ship', icon: 'rocket', desc: 'Deploy to production.', who: [], gate: true },
-    ],
-  };
-
   // ---- BUILTIN_WORKFLOWS : full Workflow spec objects (contracts/workflow.ts) ----
   // ONE model (specs/090-workflows.md, ADR-009). The gallery card is a PROJECTION of
   // these, never a stored second shape. NOTE: the WorkflowView editor still reads the
@@ -255,6 +243,7 @@ export async function POST(req: Request) {
     ],
   };
   const BUILTIN_WORKFLOWS = [SQUAD_WORKFLOW, RESEARCH_WORKFLOW, GROWTH_WORKFLOW];
+  const WORKFLOW = SQUAD_WORKFLOW; // the active workflow the demo workbench runs (one model)
   const workflows = []; // user-saved Workflow objects (hydrated from localStorage by the UI)
   const seatRole = (s) => (s.ref.kind === 'user' ? null : s.ref.role);
   const workflowToGalleryCard = (wf) => ({

@@ -4,6 +4,7 @@ import type {
   Artifact,
   ArtifactId,
   HandoffCard,
+  Stage,
 } from '../../contracts/index.js';
 import type { AdapterRegistry } from '../../adapters/index.js';
 import {
@@ -22,7 +23,7 @@ import {
   type HandoffGeneratorOptions,
 } from '../handoff.js';
 import type { HandoffLog } from '../handoff-log.js';
-import type { DispatchRecord, OrchestratorState } from '../state.js';
+import type { DispatchRecord, OrchestratorState, PendingGate } from '../state.js';
 import { ensureWorkspace } from '../workspace.js';
 
 export interface WorkspaceResolver {
@@ -62,7 +63,7 @@ export async function runDispatch(
       continue;
     }
 
-    const card = await generateHandoffCard(
+    const baseCard = await generateHandoffCard(
       {
         state,
         task,
@@ -70,6 +71,10 @@ export async function runDispatch(
         previousCards: cards,
       },
       deps.handoff,
+    );
+    const card = applyHandoffOverride(
+      baseCard,
+      findStageForTask(state, task.workflowStageId),
     );
     cards.push(card);
     await deps.handoffLog.append(card);
@@ -154,13 +159,61 @@ export async function runDispatch(
     r.events.some((e) => e.type === 'file_change'),
   );
 
+  const pendingGate = nextPendingGate(state, records);
+  const nextStage = pendingGate
+    ? 'gate'
+    : anyCodeWriting
+      ? 'review'
+      : 'aggregate';
+
   return {
     ...state,
     handoffCards: [...state.handoffCards, ...cards],
     dispatch: [...state.dispatch, ...records],
     artifacts: dedupeArtifacts([...state.artifacts, ...artifacts]),
-    stage: anyCodeWriting ? 'review' : 'aggregate',
+    ...(pendingGate ? { pendingGate } : {}),
+    stage: nextStage,
   };
+}
+
+function findStageForTask(
+  state: OrchestratorState,
+  workflowStageId: string | undefined,
+): Stage | undefined {
+  if (!workflowStageId || !state.workflow) return undefined;
+  return state.workflow.stages.find((s) => s.id === workflowStageId);
+}
+
+function applyHandoffOverride(card: HandoffCard, stage: Stage | undefined): HandoffCard {
+  if (!stage?.handoffOverride) return card;
+  const definedOverrides = Object.fromEntries(
+    Object.entries(stage.handoffOverride).filter(([, v]) => v !== undefined),
+  );
+  return {
+    ...card,
+    ...definedOverrides,
+    id: card.id,
+    createdAt: card.createdAt,
+  } as HandoffCard;
+}
+
+function nextPendingGate(
+  state: OrchestratorState,
+  freshRecords: DispatchRecord[],
+): PendingGate | undefined {
+  if (!state.workflow) return undefined;
+  const dispatchedStageIds = new Set(
+    [...state.dispatch, ...freshRecords]
+      .map((r) => state.plan?.tasks.find((t) => t.id === r.taskId)?.workflowStageId)
+      .filter((v): v is string => typeof v === 'string'),
+  );
+  for (const stage of state.workflow.stages) {
+    if (stage.gate.kind === 'none') continue;
+    if (!dispatchedStageIds.has(stage.id)) continue;
+    if (state.gateDecisions[stage.id]) continue;
+    return { stageId: stage.id, gate: stage.gate };
+  }
+  return undefined;
 }
 
 function dedupeArtifacts(artifacts: Artifact[]): Artifact[] {

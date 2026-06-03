@@ -1,10 +1,12 @@
 import type {
   AgentEvent,
   Artifact,
+  Gate,
   HandoffCard,
   IntakeResult,
   Plan,
   PlanTaskStatus,
+  Workflow,
 } from '../contracts/index.js';
 
 export type StageId =
@@ -14,8 +16,16 @@ export type StageId =
   | 'dispatch'
   | 'monitor'
   | 'review'
+  | 'gate'
   | 'aggregate'
   | 'done';
+
+export type GateDecision = 'approve' | 'request_changes';
+
+export interface PendingGate {
+  stageId: string;
+  gate: Gate;
+}
 
 export interface ClarifyQuestion {
   id: string;
@@ -49,6 +59,7 @@ export interface OrchestratorState {
   chatId: string;
   userMessage: string;
   stage: StageId;
+  workflow?: Workflow;
   intake?: IntakeResult;
   clarify?: ClarifyState;
   plan?: Plan;
@@ -56,19 +67,28 @@ export interface OrchestratorState {
   dispatch: DispatchRecord[];
   artifacts: Artifact[];
   reviewNotes: string[];
+  pendingGate: PendingGate | undefined;
+  gateDecisions: Record<string, GateDecision>;
   aggregate?: AggregateSummary;
   errors: { stage: StageId; message: string }[];
 }
 
-export function initialState(chatId: string, userMessage: string): OrchestratorState {
+export function initialState(
+  chatId: string,
+  userMessage: string,
+  workflow?: Workflow,
+): OrchestratorState {
   return {
     chatId,
     userMessage,
     stage: 'intake',
+    ...(workflow ? { workflow } : {}),
     handoffCards: [],
     dispatch: [],
     artifacts: [],
     reviewNotes: [],
+    pendingGate: undefined,
+    gateDecisions: {},
     errors: [],
   };
 }

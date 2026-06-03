@@ -8,7 +8,9 @@ export type {
   ClarifyQuestion,
   ClarifyState,
   DispatchRecord,
+  GateDecision,
   OrchestratorState,
+  PendingGate,
   StageId,
 } from './state.js';
 export { answerClarify } from './nodes/clarify.js';
@@ -29,7 +31,8 @@ export type {
   HandoffModelClient,
 } from './handoff.js';
 export { heuristicIntake } from './nodes/intake.js';
-export { rolePlanner } from './nodes/plan.js';
+export { rolePlanner, workflowPlanner } from './nodes/plan.js';
+export { workflowRunFromState } from './workflow-run.js';
 export { noopReviewer } from './nodes/review.js';
 export { fallbackClarify } from './nodes/clarify.js';
 export { llmIntake, llmPlanner, llmSelector, defaultOrchestratorModel, requireAnthropicKey } from './llm/index.js';

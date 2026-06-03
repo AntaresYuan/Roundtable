@@ -335,6 +335,18 @@ export async function POST(req: Request) {
     ],
   };
 
+// ---- Dependency-changed notices (specs/060 §Triggering, issue #72) --------
+// Mirrors `DepChangedNotice` from src/orchestrator/dependency-graph.ts. The
+// orchestrator emits one per affected downstream when an upstream bumps; the
+// UI attaches them to the downstream artifact card as a stale badge + sync CTA.
+const DEP_CHANGED_NOTICES = [
+  {
+    upstream:   { artifactId: 'art-api',     title: 'app/api/waitlist/route.ts', ownerAgentId: 'beam',  fromVersion: 1, toVersion: 2 },
+    downstream: { artifactId: 'art-landing', title: 'app/page.tsx',              ownerAgentId: 'atlas', hopsFromChange: 1 },
+    kind: 'references',
+  },
+];
+
 // ---- Dependency graph (specs/060) — fixture for #16 sidebar ---------------
 // Mirrors the live shape `DependencyGraph` exposes: { nodes: ArtifactNode[],
 // edges: { from, to, kind } }. Stays read-only — agents declare deps at
@@ -353,7 +365,7 @@ const DEPENDENCY_GRAPH = {
 };
 
 export const RT = {
-    AGENTS, PLAN, PLAN_TIMELINE, ARTIFACTS, HANDOFF, DEPENDENCY_GRAPH,
+    AGENTS, PLAN, PLAN_TIMELINE, ARTIFACTS, HANDOFF, DEPENDENCY_GRAPH, DEP_CHANGED_NOTICES,
     WORKBENCH, WORKBENCHES, TASKS, WORKFLOW, SCRIPT, SCENE_DURATION, DECISION,
     BUILTIN_WORKFLOWS, workflows, workflowToGalleryCard,
     ROLE_COLORS: {

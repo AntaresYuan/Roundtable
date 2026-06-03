@@ -195,4 +195,107 @@ function AddAgentModal({ onClose, onAdd }) {
   );
 }
 
-export { Modal, Btn, Pipeline, NewWorkbenchModal, NewTaskModal, AddAgentModal };
+/* ---- Edit hand-off (specs/030 §HandoffCard, issue #13) ------------------- */
+function EditHandoffModal({ ho, onClose, onSave }) {
+  const [userIntent, setUserIntent] = useStateM(ho.userIntent || '');
+  const [taskBrief, setTaskBrief] = useStateM(ho.taskBrief || '');
+  const [pinned, setPinned] = useStateM(ho.pinnedMessages || []);
+  const dirty =
+    userIntent !== ho.userIntent ||
+    taskBrief !== ho.taskBrief ||
+    JSON.stringify(pinned) !== JSON.stringify(ho.pinnedMessages || []);
+
+  const updatePinned = (idx, content) => setPinned((arr) =>
+    arr.map((p, i) => (i === idx ? { ...p, content } : p)),
+  );
+  const removePinned = (idx) => setPinned((arr) => arr.filter((_, i) => i !== idx));
+  const addPinned = () =>
+    setPinned((arr) => [...arr, { id: `p-${Date.now()}`, content: '', pinnedBy: 'user' }]);
+
+  const save = () => {
+    onSave({
+      ...ho,
+      userIntent: userIntent.trim(),
+      taskBrief: taskBrief.trim(),
+      pinnedMessages: pinned.filter((p) => p.content.trim()),
+    });
+    onClose();
+  };
+
+  return (
+    <Modal
+      title="Edit hand-off"
+      sub={`Mutating context for @${(ho.to || '').replace(/^@/, '')} — re-dispatches on save`}
+      icon="edit"
+      onClose={onClose}
+      width={620}
+      footer={
+        <>
+          <Btn onClick={onClose}>Cancel</Btn>
+          <Btn primary disabled={!dirty || !taskBrief.trim()} onClick={save}>
+            Save & re-dispatch
+          </Btn>
+        </>
+      }
+    >
+      <FieldLabel>User intent</FieldLabel>
+      <textarea
+        value={userIntent}
+        onChange={(e) => setUserIntent(e.target.value)}
+        style={{ ...fieldStyle, minHeight: 64, resize: 'vertical', fontFamily: 'inherit' }}
+      />
+
+      <FieldLabel>Task brief</FieldLabel>
+      <textarea
+        value={taskBrief}
+        onChange={(e) => setTaskBrief(e.target.value)}
+        style={{ ...fieldStyle, minHeight: 110, resize: 'vertical', fontFamily: 'inherit' }}
+      />
+
+      <FieldLabel>📌 Pinned constraints</FieldLabel>
+      <div style={{ display: 'grid', gap: 7, marginBottom: 8 }}>
+        {pinned.length === 0 && (
+          <div style={{ fontSize: 12.5, color: 'var(--text-faint)', fontStyle: 'italic' }}>
+            No pinned constraints. Add one to carry it into the brief.
+          </div>
+        )}
+        {pinned.map((p, idx) => (
+          <div key={p.id} style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+            <input
+              value={p.content}
+              onChange={(e) => updatePinned(idx, e.target.value)}
+              placeholder="e.g. Brand: calm, document-like."
+              style={{ ...fieldStyle, flex: 1 }}
+            />
+            <button
+              onClick={() => removePinned(idx)}
+              style={{ ...iconBtn, color: 'var(--bad)' }}
+              title="Remove pin"
+            >
+              <Icon name="x" size={14} />
+            </button>
+          </div>
+        ))}
+      </div>
+      <button
+        onClick={addPinned}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 11px',
+          borderRadius: 'var(--r-sm)', border: '1px dashed var(--border-strong)', background: 'transparent',
+          color: 'var(--text-muted)', font: 'inherit', fontSize: 12.5, cursor: 'pointer' }}
+      >
+        <Icon name="plus" size={12} /> Add pinned constraint
+      </button>
+    </Modal>
+  );
+}
+
+function FieldLabel({ children }) {
+  return (
+    <div style={{ fontSize: 11.5, fontWeight: 600, letterSpacing: '.04em', textTransform: 'uppercase',
+      color: 'var(--text-faint)', margin: '14px 0 6px' }}>
+      {children}
+    </div>
+  );
+}
+
+export { Modal, Btn, Pipeline, NewWorkbenchModal, NewTaskModal, AddAgentModal, EditHandoffModal };

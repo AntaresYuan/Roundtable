@@ -324,10 +324,20 @@ const parBar = (i) => ({ width: 3, height: 11, borderRadius: 2, background: 'var
   animation: `rt-blink 1.1s ease-in-out ${i * .25}s infinite` });
 
 /* ---- HandoffCard ---------------------------------------------------------- */
-function HandoffCard({ ho, agents }) {
+const SCENARIO_LABEL = {
+  dispatch: { verb: 'hand-off', glyph: '🔄' },
+  agent_handoff: { verb: 'agent → agent', glyph: '↪️' },
+  join_group: { verb: 'joining group', glyph: '➕' },
+  cross_chat: { verb: 'cross-chat', glyph: '🪟' },
+};
+function scenarioLabel(scenario) {
+  return SCENARIO_LABEL[scenario] || SCENARIO_LABEL.dispatch;
+}
+function HandoffCard({ ho, agents, onEdit }) {
   const [open, setOpen] = useState(false);
   const to = ho.to.replace('@', '');
   const toAgent = Object.values(agents).find(a => a.role === to) || agents.atlas;
+  const label = scenarioLabel(ho.scenario);
   return (
     <div className="rt-rise" style={{
       background: 'var(--surface)', borderRadius: 'var(--r-card)',
@@ -339,8 +349,8 @@ function HandoffCard({ ho, agents }) {
         width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px',
         background: 'none', border: 'none', cursor: 'pointer', font: 'inherit', color: 'var(--text)', textAlign: 'left',
       }}>
-        <span style={{ fontSize: 15 }}>🔄</span>
-        <span style={{ fontSize: 13.5, fontWeight: 500 }}>hand-off</span>
+        <span style={{ fontSize: 15 }}>{label.glyph}</span>
+        <span style={{ fontSize: 13.5, fontWeight: 500 }}>{label.verb}</span>
         <Icon name="chevron" size={13} style={{ color: 'var(--text-faint)' }} />
         <RoleTag agent={toAgent} />
         <span style={{ fontSize: 12.5, color: 'var(--text-faint)', flex: 1, overflow: 'hidden',
@@ -402,7 +412,12 @@ function HandoffCard({ ho, agents }) {
           </Field>
 
           <div style={{ display: 'flex', gap: 8, paddingTop: 2 }}>
-            <button style={ghostBtn} title="Editing arrives in a later milestone">
+            <button
+              style={ghostBtn}
+              onClick={(e) => { e.stopPropagation(); onEdit && onEdit(ho); }}
+              disabled={!onEdit}
+              title={onEdit ? 'Edit the hand-off context before re-dispatch' : 'Edit handler not wired in this view'}
+            >
               <Icon name="edit" size={13} /> Edit hand-off
             </button>
             <button style={ghostBtn}><Icon name="layers" size={13} /> Expand full history</button>

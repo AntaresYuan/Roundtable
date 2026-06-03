@@ -11,7 +11,7 @@ import { ArtifactRenderer, CodeBlock, VChip, TodoListCard, HandoffCard, Breakout
 import { MessageGroup, Composer, ConversationRail, LogoMark } from './chat';
 import { RoundtableScene, WhiteboardZoom, sceneAt, meetingNotes } from './roundtable';
 import { WorkflowView, WorkflowStrip } from './workflow';
-import { Modal, NewTaskModal, NewWorkbenchModal, AddAgentModal } from './modals';
+import { Modal, NewTaskModal, NewWorkbenchModal, AddAgentModal, EditHandoffModal } from './modals';
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -155,6 +155,8 @@ function Aggregate({ beat, agents, onAction }) {
 function Thread({ agents, scene, onOpenArtifact, onAction }) {
   const ref = useRef(null);
   const revealed = RT.SCRIPT.filter(b => b.at <= scene.clock);
+  const [handoff, setHandoff] = useState(RT.HANDOFF);
+  const [editingHandoff, setEditingHandoff] = useState(null);
   const plan = useMemo(() => {
     const tasks = RT.PLAN.tasks.map(t => ({ ...t }));
     RT.PLAN_TIMELINE.forEach(u => { if (u.at <= scene.clock) { const tk = tasks.find(x => x.id === u.id); if (tk) tk.status = u.status; } });
@@ -182,13 +184,20 @@ function Thread({ agents, scene, onOpenArtifact, onAction }) {
           if (b.kind === 'user') return <UserMsg key={b.id} text={b.text} />;
           if (b.kind === 'agent') return <MessageGroup key={b.id} beat={b} agents={agents} playing={live} onOpenArtifact={onOpenArtifact} />;
           if (b.kind === 'plan') return <TodoListCard key={b.id} plan={plan} agents={agents} />;
-          if (b.kind === 'handoff') return <HandoffCard key={b.id} ho={RT.HANDOFF} agents={agents} />;
+          if (b.kind === 'handoff') return <HandoffCard key={b.id} ho={handoff} agents={agents} onEdit={() => setEditingHandoff(handoff)} />;
           if (b.kind === 'breakout') return <div key={b.id} className="rt-rise"><BreakoutChip data={b} agents={agents} /></div>;
           if (b.kind === 'aggregate') return <Aggregate key={b.id} beat={b} agents={agents} onAction={onAction} />;
           return null;
         })}
         <div style={{ height: 8 }} />
       </div>
+      {editingHandoff && (
+        <EditHandoffModal
+          ho={editingHandoff}
+          onClose={() => setEditingHandoff(null)}
+          onSave={(next) => setHandoff(next)}
+        />
+      )}
     </div>
   );
 }

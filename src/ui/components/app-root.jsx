@@ -157,16 +157,20 @@ function Thread({ agents, scene, onOpenArtifact, onAction }) {
   const ref = useRef(null);
   const revealed = RT.SCRIPT.filter(b => b.at <= scene.clock);
   const [handoff, setHandoff] = useState(RT.HANDOFF);
-  const [editingHandoff, setEditingHandoff] = useState(null);
+  const [syncHandoffs, setSyncHandoffs] = useState([]);
+  const [editingHandoff, setEditingHandoff] = useState(null); // { ho, onSave } | null
   const noticesByArtifact = useMemo(() => {
     const m = new Map();
     (RT.DEP_CHANGED_NOTICES || []).forEach(n => m.set(n.downstream.artifactId, n));
     return m;
   }, []);
+  const openEditDispatch = () =>
+    setEditingHandoff({ ho: handoff, onSave: (next) => setHandoff(next) });
   const askSync = (notice) => {
     const owner = agents[notice.upstream.ownerAgentId];
     const prefill = {
       ...handoff,
+      id: `ho-sync-${notice.upstream.artifactId}-${notice.upstream.toVersion}`,
       to: `@${owner?.role || notice.upstream.ownerAgentId}`,
       scenario: 'agent_handoff',
       taskBrief:
@@ -175,7 +179,14 @@ function Thread({ agents, scene, onOpenArtifact, onAction }) {
         `v${notice.upstream.fromVersion}→v${notice.upstream.toVersion} ` +
         `(${notice.kind}). Repair the downstream call site.`,
     };
-    setEditingHandoff(prefill);
+    setEditingHandoff({
+      ho: prefill,
+      onSave: (next) =>
+        setSyncHandoffs((prev) => {
+          const without = prev.filter((p) => p.id !== next.id);
+          return [...without, next];
+        }),
+    });
   };
   const plan = useMemo(() => {
     const tasks = RT.PLAN.tasks.map(t => ({ ...t }));
@@ -204,18 +215,34 @@ function Thread({ agents, scene, onOpenArtifact, onAction }) {
           if (b.kind === 'user') return <UserMsg key={b.id} text={b.text} />;
           if (b.kind === 'agent') return <MessageGroup key={b.id} beat={b} agents={agents} playing={live} onOpenArtifact={onOpenArtifact} noticesByArtifact={noticesByArtifact} onAskSync={askSync} />;
           if (b.kind === 'plan') return <TodoListCard key={b.id} plan={plan} agents={agents} />;
-          if (b.kind === 'handoff') return <HandoffCard key={b.id} ho={handoff} agents={agents} onEdit={() => setEditingHandoff(handoff)} />;
+          if (b.kind === 'handoff') return <HandoffCard key={b.id} ho={handoff} agents={agents} onEdit={openEditDispatch} />;
           if (b.kind === 'breakout') return <div key={b.id} className="rt-rise"><BreakoutChip data={b} agents={agents} /></div>;
           if (b.kind === 'aggregate') return <Aggregate key={b.id} beat={b} agents={agents} onAction={onAction} />;
           return null;
         })}
+        {syncHandoffs.map((syncHo) => (
+          <HandoffCard
+            key={syncHo.id}
+            ho={syncHo}
+            agents={agents}
+            onEdit={() =>
+              setEditingHandoff({
+                ho: syncHo,
+                onSave: (next) =>
+                  setSyncHandoffs((prev) =>
+                    prev.map((p) => (p.id === syncHo.id ? next : p)),
+                  ),
+              })
+            }
+          />
+        ))}
         <div style={{ height: 8 }} />
       </div>
       {editingHandoff && (
         <EditHandoffModal
-          ho={editingHandoff}
+          ho={editingHandoff.ho}
           onClose={() => setEditingHandoff(null)}
-          onSave={(next) => setHandoff(next)}
+          onSave={editingHandoff.onSave}
         />
       )}
     </div>

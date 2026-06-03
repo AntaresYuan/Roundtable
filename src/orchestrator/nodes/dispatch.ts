@@ -89,12 +89,12 @@ export async function runDispatch(
 
       const events: AgentEvent[] = [];
       let status: DispatchRecord['status'] = 'completed';
-      const artifactWatcher = deps.artifactDb
+      const artifactWatcher = deps.artifactDb && deps.dependencyGraph
         ? new ArtifactWatcher({
             db: deps.artifactDb,
             chatId: state.chatId,
             ownerAgentId: role,
-            ...(deps.dependencyGraph ? { dependencyGraph: deps.dependencyGraph } : {}),
+            dependencyGraph: deps.dependencyGraph,
             ...(deps.dependencyStore ? { dependencyStore: deps.dependencyStore } : {}),
           })
         : undefined;

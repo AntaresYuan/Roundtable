@@ -123,16 +123,17 @@ export class ArtifactWatcher {
 
       const notices = graph.applyEvent(event);
       for (const notice of notices) {
+        const message = buildDepChangedMessage(notice);
         await this.ctx.db.insert(messages).values({
           id: randomUUID(),
           chatId: this.ctx.chatId,
           authorType: 'system',
           authorId: 'orchestrator',
-          content: buildDepChangedMessage(notice),
+          content: message,
           status: 'completed',
           event: {
             type: 'text_delta',
-            delta: buildDepChangedMessage(notice),
+            delta: message,
           },
         });
       }

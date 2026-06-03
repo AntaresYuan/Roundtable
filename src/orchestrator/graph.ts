@@ -35,6 +35,7 @@ import type {
   HandoffCard,
   IntakeResult,
   Plan,
+  ReviewComment,
   Workflow,
 } from '../contracts/index.js';
 
@@ -67,6 +68,7 @@ const StateAnnotation = Annotation.Root({
   dispatch: Annotation<DispatchRecord[]>(lastWins<DispatchRecord[]>()),
   artifacts: Annotation<Artifact[]>(lastWins<Artifact[]>()),
   reviewNotes: Annotation<string[]>(lastWins<string[]>()),
+  reviewComments: Annotation<ReviewComment[]>(lastWins<ReviewComment[]>()),
   pendingGate: Annotation<PendingGate | undefined>(lastWins<PendingGate | undefined>()),
   gateDecisions: Annotation<Record<string, GateDecision>>(
     lastWins<Record<string, GateDecision>>(),

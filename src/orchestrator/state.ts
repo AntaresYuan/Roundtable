@@ -6,6 +6,7 @@ import type {
   IntakeResult,
   Plan,
   PlanTaskStatus,
+  ReviewComment,
   Workflow,
 } from '../contracts/index.js';
 
@@ -67,6 +68,7 @@ export interface OrchestratorState {
   dispatch: DispatchRecord[];
   artifacts: Artifact[];
   reviewNotes: string[];
+  reviewComments: ReviewComment[];
   pendingGate: PendingGate | undefined;
   gateDecisions: Record<string, GateDecision>;
   aggregate?: AggregateSummary;
@@ -87,6 +89,7 @@ export function initialState(
     dispatch: [],
     artifacts: [],
     reviewNotes: [],
+    reviewComments: [],
     pendingGate: undefined,
     gateDecisions: {},
     errors: [],

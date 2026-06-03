@@ -164,6 +164,38 @@ function Thread({ agents, scene, onOpenArtifact, onAction }) {
     (RT.DEP_CHANGED_NOTICES || []).forEach(n => m.set(n.downstream.artifactId, n));
     return m;
   }, []);
+  const reviewsByArtifact = useMemo(() => {
+    const m = new Map();
+    (RT.REVIEW_COMMENTS || []).forEach(c => {
+      if (!m.has(c.artifactId)) m.set(c.artifactId, []);
+      m.get(c.artifactId).push(c);
+    });
+    return m;
+  }, []);
+  const applyReviewFix = (comment) => {
+    const art = Object.values(RT.ARTIFACTS).find(a => a.id === comment.artifactId);
+    const fixer = agents[comment.author] || agents.vera;
+    const prefill = {
+      ...handoff,
+      id: `ho-fix-${comment.id}`,
+      to: `@fixer`,
+      scenario: 'agent_handoff',
+      taskBrief:
+        `Apply ${fixer?.displayName || comment.author}'s review note ` +
+        `on ${art?.title || comment.artifactId}` +
+        (comment.line !== undefined ? `:${comment.line}` : '') +
+        `:\n\n${comment.body}\n\n` +
+        `Edit the file in place — multi-author diff lines will tint by author.`,
+    };
+    setEditingHandoff({
+      ho: prefill,
+      onSave: (next) =>
+        setSyncHandoffs((prev) => {
+          const without = prev.filter((p) => p.id !== next.id);
+          return [...without, next];
+        }),
+    });
+  };
   const openEditDispatch = () =>
     setEditingHandoff({ ho: handoff, onSave: (next) => setHandoff(next) });
   const askSync = (notice) => {
@@ -213,7 +245,7 @@ function Thread({ agents, scene, onOpenArtifact, onAction }) {
         {revealed.map(b => {
           const live = scene.playing && scene.clock < b.at + (b.dur || 1400) + 300;
           if (b.kind === 'user') return <UserMsg key={b.id} text={b.text} />;
-          if (b.kind === 'agent') return <MessageGroup key={b.id} beat={b} agents={agents} playing={live} onOpenArtifact={onOpenArtifact} noticesByArtifact={noticesByArtifact} onAskSync={askSync} />;
+          if (b.kind === 'agent') return <MessageGroup key={b.id} beat={b} agents={agents} playing={live} onOpenArtifact={onOpenArtifact} noticesByArtifact={noticesByArtifact} onAskSync={askSync} reviewsByArtifact={reviewsByArtifact} onApplyFix={applyReviewFix} />;
           if (b.kind === 'plan') return <TodoListCard key={b.id} plan={plan} agents={agents} />;
           if (b.kind === 'handoff') return <HandoffCard key={b.id} ho={handoff} agents={agents} onEdit={openEditDispatch} />;
           if (b.kind === 'breakout') return <div key={b.id} className="rt-rise"><BreakoutChip data={b} agents={agents} /></div>;

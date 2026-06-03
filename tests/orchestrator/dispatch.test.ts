@@ -187,6 +187,51 @@ describe('runDispatch', () => {
     ]);
   });
 
+  it('populates relevantArtifacts on reviewer handoffs from state.artifacts (closes specs/080 gap 3)', async () => {
+    const a1 = artifact('art-1', 1, 'implementer', 'app/page.tsx');
+    const a2 = artifact('art-2', 2, 'implementer', 'app/api/route.ts');
+    const a2OldVersion = artifact('art-2', 1, 'implementer', 'app/api/route.ts');
+    const registry = new AdapterRegistry();
+    registry.register(
+      createMockAdapter({ scriptedEvents: [{ type: 'done', finishReason: 'stop' }] }),
+    );
+    registry.bindRole('reviewer', 'mock');
+
+    const state = withPlan('@reviewer');
+    state.artifacts = [a1, a2OldVersion, a2]; // duplicate id at different versions
+
+    const result = await runDispatch(state, {
+      registry,
+      workspaces: workspaceResolver(rootDir),
+      handoffLog: inMemoryHandoffLog(),
+    });
+
+    expect(result.handoffCards[0]?.relevantArtifacts).toEqual([
+      { id: a1.id, kind: a1.kind, title: a1.title },
+      { id: a2.id, kind: a2.kind, title: a2.title },
+    ]);
+  });
+
+  it('does not populate relevantArtifacts for implementer handoffs', async () => {
+    const a1 = artifact('art-1', 1, 'implementer', 'app/page.tsx');
+    const registry = new AdapterRegistry();
+    registry.register(
+      createMockAdapter({ scriptedEvents: [{ type: 'done', finishReason: 'stop' }] }),
+    );
+    registry.bindRole('implementer', 'mock');
+
+    const state = withPlan('@implementer');
+    state.artifacts = [a1];
+
+    const result = await runDispatch(state, {
+      registry,
+      workspaces: workspaceResolver(rootDir),
+      handoffLog: inMemoryHandoffLog(),
+    });
+
+    expect(result.handoffCards[0]?.relevantArtifacts).toEqual([]);
+  });
+
   it('routes watched artifact bumps into dependency system messages when artifactDb is wired', async () => {
     const client = new PGlite();
     const db = drizzle(client, { schema });

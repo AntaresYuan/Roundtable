@@ -49,7 +49,7 @@ export interface GraphDeps {
   clarify?: ClarifyGenerator;
   planner?: Planner;
   reviewer?: Reviewer;
-  skillProposer?: SkillProposer;
+  skillProposer?: SkillProposer | undefined;
   handoffLog?: HandoffLog;
   handoff?: HandoffGeneratorOptions;
   checkpointer?: BaseCheckpointSaver;

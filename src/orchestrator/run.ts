@@ -21,6 +21,14 @@ export interface OrchestratorDeps {
   clarify?: ClarifyGenerator;
   planner?: Planner;
   reviewer?: Reviewer;
+  /**
+   * Skill proposer that runs at aggregate (spec 100 / #119). Defaults to
+   * `noopSkillProposer()` (no proposals) so existing test behavior is
+   * preserved. **Production callers should pass `llmSkillProposer()`** from
+   * `src/orchestrator/llm/index.ts` — otherwise the `propose_skill` pipeline
+   * stays dormant and the "Save as my skill" UI (#116) never fires.
+   */
+  skillProposer?: GraphDeps['skillProposer'];
   handoffLog?: HandoffLog;
   handoff?: HandoffGeneratorOptions;
   /**

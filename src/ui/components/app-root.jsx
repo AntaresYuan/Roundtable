@@ -613,6 +613,36 @@ function Dock({ st, agents, scene, onAction, onOpenChat, onOpenWorkflow }) {
 }
 
 /* ---- Inspector : tabbed Files / Notes (right, collapsible) --------------- */
+// P3.2: live message thread for the selected chat (messages.list + handoffs count).
+function LiveThread({ messages, handoffs }) {
+  return (
+    <div style={{ flex: 1, overflowY: 'auto', padding: '16px 22px' }}>
+      <div style={{ maxWidth: 720, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {handoffs && handoffs.length > 0 && (
+          <div className="mono" style={{ fontSize: 11, color: 'var(--text-faint)' }}>
+            {handoffs.length} hand-off{handoffs.length > 1 ? 's' : ''} in this chat
+          </div>
+        )}
+        {messages.length === 0 && (
+          <div style={{ fontSize: 12.5, color: 'var(--text-faint)', fontStyle: 'italic' }}>No messages yet.</div>
+        )}
+        {messages.map((m) => {
+          const mine = m.authorType === 'user';
+          return (
+            <div key={m.id} style={{ display: 'flex', justifyContent: mine ? 'flex-end' : 'flex-start' }}>
+              <div style={{ maxWidth: '80%', padding: '9px 12px', borderRadius: 12, fontSize: 13.5, lineHeight: 1.5,
+                background: mine ? 'var(--accent)' : 'var(--surface-2)', color: mine ? '#fff' : 'var(--text)',
+                border: mine ? 'none' : '1px solid var(--border)' }}>
+                {!mine && <div style={{ fontSize: 11, color: 'var(--text-faint)', marginBottom: 2 }}>{m.authorId || m.authorType}</div>}
+                {m.content}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 function FileRow({ art, agents, onOpen }) {
   const owner = agents[art.ownerAgentId];
   const icon = art.kind === 'preview' ? 'eye' : art.kind === 'diff' ? 'code' : art.kind === 'doc' ? 'clip' : 'code';
@@ -638,7 +668,7 @@ function FileRow({ art, agents, onOpen }) {
     </button>
   );
 }
-function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifact, onAction, onClose, liveArtifacts }) {
+function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifact, onAction, onClose, liveArtifacts, liveMessages, liveHandoffs }) {
   const placed = sceneAt(clock).placed;
   // P3.2: real artifacts for the selected chat when signed in; else the scripted scene.
   const created = liveArtifacts
@@ -665,7 +695,9 @@ function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifa
 
       {tab === 'chat' ? (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg)' }}>
-          <Thread agents={agents} scene={scene} onOpenArtifact={onOpenArtifact} onAction={onAction} narrow />
+          {liveMessages && liveMessages.length > 0
+            ? <LiveThread messages={liveMessages} handoffs={liveHandoffs} />
+            : <Thread agents={agents} scene={scene} onOpenArtifact={onOpenArtifact} onAction={onAction} narrow />}
         </div>
       ) : tab === 'files' ? (
         <div style={{ flex: 1, overflowY: 'auto', padding: '14px 14px 24px' }}>
@@ -993,6 +1025,16 @@ function App() {
     { enabled: authed && !!activeChatId },
   );
   const liveArtifacts = authed && artifactsQ.data ? artifactsQ.data : null;
+  const messagesQ = trpc.messages.list.useQuery(
+    { chatId: activeChatId ?? '' },
+    { enabled: authed && !!activeChatId },
+  );
+  const handoffsQ = trpc.handoffs.listByChat.useQuery(
+    { chatId: activeChatId ?? '' },
+    { enabled: authed && !!activeChatId },
+  );
+  const liveMessages = authed && messagesQ.data ? messagesQ.data : null;
+  const liveHandoffs = authed && handoffsQ.data ? handoffsQ.data : null;
   const agents = useMemo(() => palettize(t.palette), [t.palette, memberIds]);
   const scene = useScene(t.autoplay, t.speed);
   const compact = useMediaQuery('(max-width: 760px)');
@@ -1107,7 +1149,7 @@ function App() {
                 </div>
                 {notesOpen && !compact && <ResizeHandle onResize={(dx) => setInspectorW((w) => Math.max(300, Math.min(640, w + dx)))} />}
                 {notesOpen && <InspectorPanel tab={inspectorTab} setTab={setInspectorTab} clock={scene.clock} width={compact ? 'min(100vw, 420px)' : inspectorW}
-                  agents={agents} scene={scene} liveArtifacts={liveArtifacts} onOpenArtifact={setDrawerArt} onAction={onAction} onClose={() => setNotesOpen(false)} />}
+                  agents={agents} scene={scene} liveArtifacts={liveArtifacts} liveMessages={liveMessages} liveHandoffs={liveHandoffs} onOpenArtifact={setDrawerArt} onAction={onAction} onClose={() => setNotesOpen(false)} />}
               </div>
               <Dock st={st} agents={agents} scene={scene} onAction={onAction}
                 onOpenChat={() => { setInspectorTab('chat'); setNotesOpen(true); }}

@@ -103,15 +103,13 @@ function NewWorkbenchModal({ agents, onClose, onCreate }) {
               border: `1.5px solid ${active ? 'var(--accent)' : 'var(--border)'}` }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
                 <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--text)' }}>{t.name}</span>
-                {t.tag && <span style={{ fontSize: 10, fontWeight: 600, padding: '1px 7px', borderRadius: 999,
+                {t.tag && <span style={{ fontSize: 10, fontWeight: 600, padding: '1px 7px', borderRadius: 4,
                   background: tint('var(--accent)', 16), color: 'var(--accent)' }}>{t.tag}</span>}
               </div>
               <div style={{ fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.45, marginBottom: 9 }}>{t.desc}</div>
               <div style={{ display: 'flex', gap: 4 }}>
                 {t.roles.length ? t.roles.map((r, i) => (
-                  <span key={i} title={'@' + r} style={{ width: 22, height: 22, borderRadius: '50%', background: tint(roleColors[r], 22),
-                    boxShadow: `0 0 0 1.5px ${alpha(roleColors[r], 55)} inset`, display: 'grid', placeItems: 'center',
-                    fontSize: 9, fontWeight: 700, color: roleColors[r], fontFamily: 'var(--font-mono)' }}>{r[0].toUpperCase()}</span>
+                  <span key={i} title={'@' + r} style={{ display: 'inline-flex' }}><Avatar agent={{ id: r, color: roleColors[r] }} size={22} /></span>
                 )) : <span style={{ fontSize: 11.5, color: 'var(--text-faint)', fontStyle: 'italic' }}>empty — you choose</span>}
               </div>
             </button>

@@ -24,8 +24,8 @@ function highlightLine(line, key) {
     if (m[1]) c = 'var(--text-faint)';
     else if (m[2]) c = '#4cc38a';
     else if (m[3]) c = '#8b7cf6';
-    else if (m[4]) c = '#5eb0ef';
-    else if (m[5]) c = '#e6a23c';
+    else if (m[4]) c = 'var(--run)';
+    else if (m[5]) c = 'var(--warn)';
     out.push(<span key={k++} style={{ color: c }}>{m[0]}</span>);
     last = m.index + m[0].length;
   }
@@ -110,12 +110,12 @@ function DepChangedBanner({ notice, agents, onAskSync }) {
       role="alert"
       style={{
         display: 'flex', alignItems: 'center', gap: 10, padding: '9px 13px',
-        background: alpha('#d04a4a', 10),
-        borderBottom: '1px solid ' + alpha('#d04a4a', 35),
-        borderTop: '1px solid ' + alpha('#d04a4a', 35),
+        background: alpha('var(--bad)', 10),
+        borderBottom: '1px solid ' + alpha('var(--bad)', 35),
+        borderTop: '1px solid ' + alpha('var(--bad)', 35),
       }}
     >
-      <span style={{ fontSize: 14 }}>⚠️</span>
+      <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--bad)', flexShrink: 0 }} />
       <div style={{ flex: 1, fontSize: 12.5, lineHeight: 1.4 }}>
         <div style={{ fontWeight: 600, color: 'var(--text)' }}>Dependency changed</div>
         <div style={{ color: 'var(--text-muted)' }}>
@@ -131,7 +131,7 @@ function DepChangedBanner({ notice, agents, onAskSync }) {
           style={{
             display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 11px',
             borderRadius: 'var(--r-sm)', border: 'none', cursor: 'pointer',
-            background: '#d04a4a', color: '#fff', font: 'inherit', fontSize: 12, fontWeight: 600,
+            background: 'var(--bad)', color: '#fff', font: 'inherit', fontSize: 12, fontWeight: 500,
             flexShrink: 0,
           }}
           title={owner ? `Pre-fill a hand-off to @${owner.role || ownerId} to resync` : 'Open sync hand-off'}
@@ -145,9 +145,9 @@ function DepChangedBanner({ notice, agents, onAskSync }) {
 
 /* ---- Review comments (specs/030 §ReviewCard, issue #6) ------------------- */
 const SEVERITY_COLOR = {
-  blocker: '#d04a4a',
-  major:   '#e6a23c',
-  minor:   '#5eb0ef',
+  blocker: 'var(--bad)',
+  major:   'var(--warn)',
+  minor:   'var(--run)',
   info:    'var(--text-muted)',
 };
 const SEVERITY_LABEL = {
@@ -230,7 +230,7 @@ function FileArtifact({ art, owner, agents, notice, onAskSync, reviewComments, o
       onOpen={onOpen}
       badge={notice ? <span title="Upstream dependency changed" style={{
         display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 7px',
-        borderRadius: 5, background: alpha('#d04a4a', 18), color: '#d04a4a',
+        borderRadius: 5, background: alpha('var(--bad)', 18), color: 'var(--bad)',
         fontSize: 10.5, fontWeight: 700, letterSpacing: '.04em' }}>
         ⚠ DEP CHANGED
       </span> : undefined}
@@ -328,7 +328,7 @@ function PreviewArtifact({ art, owner, onOpen }) {
             boxShadow: 'var(--shadow-card)', background: '#fff' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 10px',
               background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
-              {['#e5687a', '#e6a23c', '#4cc38a'].map(c =>
+              {['#e5687a', 'var(--warn)', '#4cc38a'].map(c =>
                 <span key={c} style={{ width: 9, height: 9, borderRadius: '50%', background: c, opacity: .8 }} />)}
               <span className="mono" style={{ fontSize: 11, color: 'var(--text-faint)', marginLeft: 6 }}>localhost:3000</span>
             </div>
@@ -627,7 +627,7 @@ function BreakoutChip({ data, agents }) {
           <div style={{ padding: '11px 14px', borderTop: '1px solid var(--border)', display: 'flex',
             alignItems: 'center', gap: 10, background: 'var(--surface-2)' }}>
             <button style={{ ...ghostBtn, background: 'var(--accent)', color: '#fff', border: 'none',
-              fontWeight: 600 }}><Icon name="door" size={14} /> Step into room</button>
+              fontWeight: 500 }}><Icon name="door" size={14} /> Step into room</button>
             <span style={{ fontSize: 11.5, color: 'var(--text-faint)' }}>Full room arrives in a later batch</span>
           </div>
         </div>

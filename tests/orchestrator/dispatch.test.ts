@@ -13,6 +13,7 @@ import {
   chats,
   messages,
   pinnedMessages,
+  userProfiles,
   users,
   workbenches,
   workbenchPinnedMessages,
@@ -294,6 +295,12 @@ describe('runDispatch', () => {
         pinnedByUserId: userId,
         position: 0,
       });
+      await db.insert(userProfiles).values({
+        userId,
+        defaultBrief: 'Prefer server components.',
+        defaultSkills: [],
+        notes: '',
+      });
 
       const handoffLog = inMemoryHandoffLog();
       const result = await runDispatch(withPlan('@implementer', chatId), {
@@ -307,8 +314,17 @@ describe('runDispatch', () => {
         { id: workbenchPinId, content: 'Project pin: use App Router.' },
         { id: chatPinId, content: 'Chat pin: validate before submit.' },
       ]);
+      expect(result.handoffCards[0]?.taskBrief).toContain(
+        'User preferences:\nPrefer server components.',
+      );
       expect(result.handoffCards[0]?.contextAudit?.sources).toEqual(
         expect.arrayContaining([
+          expect.objectContaining({
+            scope: 'user',
+            kind: 'default_brief',
+            id: userId,
+            included: true,
+          }),
           expect.objectContaining({
             scope: 'workbench',
             kind: 'pinned_message',

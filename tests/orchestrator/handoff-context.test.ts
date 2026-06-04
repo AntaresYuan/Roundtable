@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from '../../src/db/index.js';
 import {
   chats,
+  userProfiles,
   users,
   workbenches,
   workbenchPinnedMessages,
@@ -107,6 +108,39 @@ describe('composeHandoffContext', () => {
     );
     expect(result.contextAudit.sources).not.toContainEqual(
       expect.objectContaining({ id: '71000000-0000-4000-8000-000000000102' }),
+    );
+  });
+
+  it('appends the user default brief as a snapshot in taskBrief', async () => {
+    await db.insert(userProfiles).values({
+      userId: USER_ID,
+      defaultBrief: 'Prefer server components and avoid client-side submit JS.',
+      defaultSkills: ['nextjs-app-router'],
+      notes: 'Personal preference.',
+    });
+
+    const result = await composeHandoffContext({
+      db,
+      state: initialState(CHAT_A, 'build project A'),
+      task: task('Create a waitlist form.'),
+      role: 'implementer',
+    });
+
+    expect(result.taskBrief).toBe(
+      [
+        'Create a waitlist form.',
+        '',
+        'User preferences:',
+        'Prefer server components and avoid client-side submit JS.',
+      ].join('\n'),
+    );
+    expect(result.contextAudit.sources).toContainEqual(
+      expect.objectContaining({
+        scope: 'user',
+        kind: 'default_brief',
+        id: USER_ID,
+        included: true,
+      }),
     );
   });
 

@@ -295,10 +295,11 @@ describe('runDispatch', () => {
         position: 0,
       });
 
+      const handoffLog = inMemoryHandoffLog();
       const result = await runDispatch(withPlan('@implementer', chatId), {
         registry,
         workspaces: workspaceResolver(rootDir),
-        handoffLog: inMemoryHandoffLog(),
+        handoffLog,
         pinnedDb: db as unknown as Db,
       });
 
@@ -306,6 +307,28 @@ describe('runDispatch', () => {
         { id: workbenchPinId, content: 'Project pin: use App Router.' },
         { id: chatPinId, content: 'Chat pin: validate before submit.' },
       ]);
+      expect(result.handoffCards[0]?.contextAudit?.sources).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            scope: 'workbench',
+            kind: 'pinned_message',
+            id: workbenchPinId,
+            included: true,
+          }),
+          expect.objectContaining({
+            scope: 'chat',
+            kind: 'pinned_message',
+            id: chatPinId,
+            included: true,
+          }),
+        ]),
+      );
+      expect(handoffLog.entries()[0]?.context_audit?.sources).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: workbenchPinId, included: true }),
+          expect.objectContaining({ id: chatPinId, included: true }),
+        ]),
+      );
     } finally {
       await client.close();
     }

@@ -130,6 +130,7 @@ export const workbenches = pgTable(
     name: text('name').notNull(),
     description: text('description'),
     workspacePath: text('workspace_path').notNull(),
+    activeWorkflowId: uuid('active_workflow_id'),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -142,6 +143,49 @@ export const workbenches = pgTable(
     workspacePathIdx: uniqueIndex('workbenches_workspace_path_idx').on(
       table.workspacePath,
     ),
+    activeWorkflowIdx: index('workbenches_active_workflow_id_idx').on(
+      table.activeWorkflowId,
+    ),
+  }),
+);
+
+export const workflowOriginEnum = pgEnum('workflow_origin', [
+  'builtin',
+  'user',
+  'fork',
+]);
+
+export const workflows = pgTable(
+  'workflows',
+  {
+    id: uuid('id').primaryKey(),
+    /** Null for built-ins or for user-saved workflows not yet bound to a workbench. */
+    workbenchId: uuid('workbench_id').references(() => workbenches.id, {
+      onDelete: 'cascade',
+    }),
+    /** Null for built-ins; the owning user for user-saved/fork workflows. */
+    ownerUserId: uuid('owner_user_id').references(() => users.id, {
+      onDelete: 'cascade',
+    }),
+    name: text('name').notNull(),
+    description: text('description'),
+    /** Full WorkflowSchema-shaped JSON (specs/090). */
+    definition: jsonb('definition').$type<unknown>().notNull(),
+    origin: workflowOriginEnum('origin').notNull().default('user'),
+    fromWorkflowId: uuid('from_workflow_id'),
+    version: integer('version').notNull().default(1),
+    builtin: boolean('builtin').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    workbenchIdx: index('workflows_workbench_id_idx').on(table.workbenchId),
+    ownerIdx: index('workflows_owner_user_id_idx').on(table.ownerUserId),
+    builtinIdx: index('workflows_builtin_idx').on(table.builtin),
   }),
 );
 

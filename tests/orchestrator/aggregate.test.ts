@@ -39,11 +39,11 @@ function stateWithArtifacts(artifacts: Artifact[]): OrchestratorState {
 }
 
 describe('runAggregate', () => {
-  it('builds bullets from state.artifacts (canonical list)', () => {
+  it('builds bullets from state.artifacts (canonical list)', async () => {
     const a1 = artifact('art-1', 1, 'implementer', 'LandingPage.tsx');
     const a2 = artifact('art-2', 1, 'implementer', 'api/waitlist.ts');
 
-    const result = runAggregate(stateWithArtifacts([a1, a2]));
+    const result = await runAggregate(stateWithArtifacts([a1, a2]));
 
     expect(result.aggregate?.bullets).toEqual([
       'LandingPage.tsx',
@@ -52,7 +52,7 @@ describe('runAggregate', () => {
     expect(result.stage).toBe('done');
   });
 
-  it('does not duplicate bullets when an artifact also appears in dispatch events', () => {
+  it('does not duplicate bullets when an artifact also appears in dispatch events', async () => {
     const a = artifact('art-1', 1, 'implementer', 'LandingPage.tsx');
     const base = stateWithArtifacts([a]);
     const state: OrchestratorState = {
@@ -65,7 +65,7 @@ describe('runAggregate', () => {
       ],
     };
 
-    const result = runAggregate(state);
+    const result = await runAggregate(state);
 
     expect(result.aggregate?.bullets).toEqual(['LandingPage.tsx']);
   });

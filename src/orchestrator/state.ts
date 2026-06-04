@@ -56,6 +56,8 @@ export interface AggregateSummary {
   quickActions: { id: string; label: string }[];
 }
 
+export type ProposeSkillEvent = Extract<AgentEvent, { type: 'propose_skill' }>;
+
 export interface OrchestratorState {
   chatId: string;
   userMessage: string;
@@ -69,6 +71,12 @@ export interface OrchestratorState {
   artifacts: Artifact[];
   reviewNotes: string[];
   reviewComments: ReviewComment[];
+  /**
+   * PM-emitted `propose_skill` events from the aggregate stage (#100 / #119).
+   * UI surfaces these as "Save as my skill" prompts; nothing persists until
+   * the user confirms via `userSkills.create` (ADR-007).
+   */
+  proposedSkills: ProposeSkillEvent[];
   pendingGate: PendingGate | undefined;
   gateDecisions: Record<string, GateDecision>;
   aggregate?: AggregateSummary;
@@ -90,6 +98,7 @@ export function initialState(
     artifacts: [],
     reviewNotes: [],
     reviewComments: [],
+    proposedSkills: [],
     pendingGate: undefined,
     gateDecisions: {},
     errors: [],

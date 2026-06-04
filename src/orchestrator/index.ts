@@ -34,6 +34,11 @@ export { heuristicIntake } from './nodes/intake.js';
 export { rolePlanner, workflowPlanner } from './nodes/plan.js';
 export { workflowRunFromState } from './workflow-run.js';
 export { noopReviewer } from './nodes/review.js';
+export {
+  MAX_SKILL_PROPOSALS_PER_RUN,
+  noopSkillProposer,
+} from './nodes/skill-proposer.js';
+export type { SkillProposer } from './nodes/skill-proposer.js';
 export { fallbackClarify } from './nodes/clarify.js';
 export { llmIntake, llmPlanner, llmSelector, defaultOrchestratorModel, requireAnthropicKey } from './llm/index.js';
 export type { LlmIntakeOpts, LlmPlannerOpts, LlmSelectorOpts } from './llm/index.js';

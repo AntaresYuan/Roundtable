@@ -14,6 +14,7 @@ import type { DependencyStore } from './dependency-store.js';
 import type { ArtifactWatcherContext } from './artifact-watcher.js';
 import { type HandoffLog, inMemoryHandoffLog } from './handoff-log.js';
 import { runAggregate } from './nodes/aggregate.js';
+import type { SkillProposer } from './nodes/skill-proposer.js';
 import { type ClarifyGenerator, fallbackClarify, runClarify } from './nodes/clarify.js';
 import { runDispatch, type WorkspaceResolver } from './nodes/dispatch.js';
 import type { HandoffGeneratorOptions } from './handoff.js';
@@ -29,6 +30,7 @@ import {
   type GateDecision,
   type OrchestratorState,
   type PendingGate,
+  type ProposeSkillEvent,
   type StageId,
 } from './state.js';
 import type {
@@ -47,6 +49,7 @@ export interface GraphDeps {
   clarify?: ClarifyGenerator;
   planner?: Planner;
   reviewer?: Reviewer;
+  skillProposer?: SkillProposer;
   handoffLog?: HandoffLog;
   handoff?: HandoffGeneratorOptions;
   checkpointer?: BaseCheckpointSaver;
@@ -71,6 +74,7 @@ const StateAnnotation = Annotation.Root({
   artifacts: Annotation<Artifact[]>(lastWins<Artifact[]>()),
   reviewNotes: Annotation<string[]>(lastWins<string[]>()),
   reviewComments: Annotation<ReviewComment[]>(lastWins<ReviewComment[]>()),
+  proposedSkills: Annotation<ProposeSkillEvent[]>(lastWins<ProposeSkillEvent[]>()),
   pendingGate: Annotation<PendingGate | undefined>(lastWins<PendingGate | undefined>()),
   gateDecisions: Annotation<Record<string, GateDecision>>(
     lastWins<Record<string, GateDecision>>(),
@@ -151,7 +155,9 @@ export function buildOrchestratorGraph(deps: GraphDeps) {
     .addNode(N.monitor, async (s: GraphState) => ({ ...s, stage: 'review' as StageId }))
     .addNode(N.review, async (s: GraphState) => await runReview(adapt(s), reviewer))
     .addNode(N.gate, async (s: GraphState) => runGatePause(adapt(s)))
-    .addNode(N.aggregate, async (s: GraphState) => runAggregate(adapt(s)))
+    .addNode(N.aggregate, async (s: GraphState) =>
+      runAggregate(adapt(s), deps.skillProposer),
+    )
     .addEdge(START, N.intake)
     .addConditionalEdges(N.intake, route, [
       N.clarify,

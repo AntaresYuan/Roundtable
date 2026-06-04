@@ -36,12 +36,20 @@ RAG. Concretely:
 2. **Every HandoffCard's context is reconstructible** from those scopes'
    rows at the time of dispatch. The composition source breakdown is logged
    to `handoffs.jsonl`.
-3. **Cross-task "recall" is a user skill library**, not a vector store.
+3. **Memory follows a storage → selection → injection → audit pipeline.**
+   The database may hold a lot; agents receive a bounded, role-aware
+   HandoffCard. If selected context exceeds budget, the Orchestrator compacts
+   it into a source-linked brief before injection.
+4. **Relationship graphs are selection aids, not hidden agent memory.**
+   Artifact deps, handoffs, reviews, workflow seats, and saved skills help
+   the Orchestrator find relevant context; the graph is not injected
+   wholesale into the model.
+5. **Cross-task "recall" is a user skill library**, not a vector store.
    The PM proposes saving useful patterns (ADR-007 propose/confirm flow);
    user clicks Save; the skill carries `source_chat_id` provenance; future
    tasks match it by visible `trigger_hint` keywords. The user can read,
    edit, or delete any skill at any time.
-4. **Embedding similarity is permitted only as a ranking aid** over the
+6. **Embedding similarity is permitted only as a ranking aid** over the
    explicit, audit-logged skill set — never as a substitute for it. Agents
    never see the embedding; they see a deterministic, logged set of mounted
    skills.
@@ -76,6 +84,9 @@ RAG. Concretely:
 - `runDispatch` composes HandoffCard context by reading layered rows
   (user → workbench → chat) and logs the composition source to
   `handoffs.jsonl`. Implementation in #95–#100.
+- A context-composition layer enforces budget, performs role-aware
+  compaction when needed, and records the source breakdown that explains the
+  final HandoffCard.
 - The user-facing UI for "where did this come from" is the existing
   HandoffCard expanded view (spec 030 / #13) — already auditable; will
   grow a "source breakdown" section as part of #99/#100.
@@ -98,4 +109,6 @@ multi-project assumption that fixtures imply but the DB hadn't realized.
 
 ## Changelog
 
+- 2026-06-04 — added pipeline / context-budget / relationship-graph /
+  compaction detail after memory design review.
 - 2026-06-04 — initial. Pairs with spec 100 (#94).

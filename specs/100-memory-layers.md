@@ -79,6 +79,48 @@ repo.)
 Anything not on this table either does not need persistence (L1/L2) or is
 platform-shipped (L6, the `skills/` directory and `BUILTIN_WORKFLOWS`).
 
+## 4.5 Memory pipeline — storage → selection → injection → audit
+
+Persistent memory is only the first step. Roundtable never treats "stored"
+as equivalent to "agent-visible." Each dispatch goes through four explicit
+steps:
+
+1. **Storage.** Durable rows live in the scoped stores above (L3/L4/L5).
+   In local development this is the local Postgres; in production this is
+   the cloud Postgres. The model itself is not the long-term store.
+2. **Selection.** The Orchestrator resolves the current user / workbench /
+   chat, then chooses only the rows relevant to the task, role, workflow
+   stage, and artifact graph.
+3. **Injection.** Selected context is folded into a small HandoffCard:
+   `userIntent`, `taskBrief`, `pinnedMessages`, `relevantArtifacts`,
+   mounted skills, and source breakdown. Agents see the HandoffCard, not
+   the whole database.
+4. **Audit.** The final HandoffCard plus its source breakdown is written to
+   `handoffs.jsonl` / the handoffs table so "why did the agent know this?"
+   is answerable after the fact.
+
+This is the load-bearing distinction from opaque memory systems: memory can
+be large, but agent-visible context must be deliberate, bounded, and logged.
+
+## 4.6 Relationship graph — useful for selection, not a hidden brain
+
+Roundtable does use graph-shaped memory, but not as a general-purpose
+"knowledge graph platform" in v1. The explicit relationship graph starts
+from product objects the user can inspect:
+
+- `chat produced artifact`
+- `artifact depends_on artifact`
+- `review_comment comments_on artifact`
+- `handoff carried artifact_ref`
+- `workflow stage uses seat/agent`
+- `user_skill saved_from chat`
+
+The graph helps the Orchestrator **find the right context**. For example,
+if a user says "sync the form," the graph can locate the frontend artifact,
+its API dependency, unresolved review comments, and any matching saved
+skill. The graph itself is not injected wholesale into the model; only the
+selected refs / comments / skills enter the HandoffCard.
+
 ## 5. Inheritance — downward, automatic
 
 When the orchestrator builds a HandoffCard for a dispatch, it composes
@@ -173,6 +215,43 @@ Implementation note: §9 is a target picture. Today, dispatch reads chat-only
 sources. The migration plan is the sub-issues (#95–#100), in roughly that
 order — see the issue thread.
 
+### 9.1 Context budget
+
+The store can grow indefinitely; the HandoffCard cannot. Each dispatch must
+enforce a context budget before agent invocation. Initial v1 rules:
+
+- Pinned messages cap at 10 after workbench + chat merge.
+- Artifacts are passed by refs by default; full content/diffs are included
+  only when the role needs them (for example reviewer/fixer).
+- Review context prefers unresolved/blocking comments over resolved history.
+- Dependency graph context is limited to directly relevant upstream /
+  downstream edges.
+- User skills are mounted only when their visible `trigger_hint` matches the
+  task; cap to the smallest useful set.
+- Chat history is summarized or referenced; full raw history is not forwarded
+  to downstream agents.
+
+Lower scope still wins inside the budget: chat-specific context is more
+important than workbench context, which is more important than user defaults.
+
+### 9.2 Role-aware compaction
+
+When selected context still exceeds the budget, the Orchestrator compacts it
+into a structured, lossy brief before injection. Compaction is role-aware:
+
+- **Implementer** gets task goal, relevant artifact refs, project constraints,
+  and acceptance criteria.
+- **Reviewer** gets changed artifact refs/diffs, acceptance criteria, and
+  known risk areas.
+- **Fixer** gets the failing check, review comments, and the narrow files to
+  touch.
+- **Sync agent** gets the upstream version bump, downstream artifact, and the
+  dependency reason.
+
+Compaction never replaces the original source rows. The compacted brief must
+record which messages, artifacts, reviews, pins, and skills it came from so
+the audit trail can reconstruct the agent-visible snapshot.
+
 ## 10. Open questions
 
 - **Cross-user collaboration.** Two users on the same workbench (paired
@@ -194,5 +273,7 @@ order — see the issue thread.
 
 ## Changelog
 
+- 2026-06-04 — added memory pipeline, relationship-graph boundary, context
+  budget, and role-aware compaction details.
 - 2026-06-04 — initial draft (#94). Frames the three scopes, inheritance,
   promotion, and invariants. Implementation lives in #95–#100.

@@ -7,8 +7,9 @@ import { defaultOrchestratorModel } from '../../orchestrator/llm/provider.js';
 
 /**
  * Small LLM helper surface for the UI. NOTE (server lane, pending review): reuses the
- * orchestrator model (Anthropic) — needs ANTHROPIC_API_KEY set, else generateText throws
- * and the client shows the error.
+ * PM-agent model via `defaultOrchestratorModel()` — the project's provider is 火山引擎 /
+ * Volcano Engine (ADR-004; live wiring on the codex/deepseek-live-workflow branch), NOT
+ * Anthropic. Needs that provider's key configured, else the call throws and the UI shows it.
  */
 export const aiRouter = createTRPCRouter({
   // Refine a non-coder's plain-language request into a crisp task brief.

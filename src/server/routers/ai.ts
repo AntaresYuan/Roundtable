@@ -1,6 +1,8 @@
 import { z } from 'zod';
-import { generateText } from 'ai';
-import { createTRPCRouter, protectedRateLimitedProcedure } from '../trpc.js';
+import { generateObject, generateText } from 'ai';
+import { desc, eq } from 'drizzle-orm';
+import { createTRPCRouter, protectedProcedure, protectedRateLimitedProcedure } from '../trpc.js';
+import { chats } from '../../db/schema.js';
 import { defaultOrchestratorModel } from '../../orchestrator/llm/provider.js';
 
 /**
@@ -24,4 +26,25 @@ export const aiRouter = createTRPCRouter({
       });
       return { text: text.trim() };
     }),
+
+  // Personalized starter suggestions derived from the user's recent chats.
+  suggestTasks: protectedProcedure.query(async ({ ctx }) => {
+    const recent = await ctx.db
+      .select({ title: chats.title })
+      .from(chats)
+      .where(eq(chats.ownerUserId, ctx.user.id))
+      .orderBy(desc(chats.updatedAt))
+      .limit(8);
+    const { object } = await generateObject({
+      model: defaultOrchestratorModel(),
+      schema: z.object({ suggestions: z.array(z.string()).length(3) }),
+      system:
+        'Suggest 3 concrete next build tasks for a non-coder building with an agent team. ' +
+        'Each <= 8 words, imperative, buildable. Bias toward what fits their recent work.',
+      prompt: recent.length
+        ? `Their recent tasks:\n${recent.map((r) => `- ${r.title}`).join('\n')}`
+        : 'No history yet — suggest 3 broadly useful starter tasks.',
+    });
+    return object.suggestions;
+  }),
 });

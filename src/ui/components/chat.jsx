@@ -245,15 +245,14 @@ function Composer({ agents, onSend }) {
 
 /* ---- ConversationRail ----------------------------------------------------- */
 /* ---- LogoMark : the rounded 3D table, as the brand mark ------------------ */
+// Roundtable mark: a solid 3D table (top ellipse + front thickness), single-colour,
+// inherits currentColor so it reads as a clean ink mark in light/dark.
 function LogoMark({ size = 26 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 40 40" aria-hidden="true">
-      {[[20, 8], [9, 13], [31, 13], [13, 24], [27, 24]].map(([cx, cy], i) => (
-        <circle key={i} cx={cx} cy={cy} r="2.4" fill="var(--accent)" opacity={i === 0 ? 1 : 0.55} />
-      ))}
-      <ellipse cx="20" cy="25" rx="13.5" ry="6.2" fill="color-mix(in oklab, var(--accent) 70%, #000 30%)" />
-      <ellipse cx="20" cy="22.5" rx="13.5" ry="6.2" fill="var(--accent)" />
-      <ellipse cx="17" cy="20.8" rx="8" ry="3" fill="#fff" opacity=".35" />
+      <path d="M4.5,20 A15.5,7.8 0 0 0 35.5,20 L35.5,23.4 A15.5,7.8 0 0 1 4.5,23.4 Z"
+        fill="currentColor" opacity="0.45" />
+      <ellipse cx="20" cy="20" rx="15.5" ry="7.8" fill="currentColor" />
     </svg>
   );
 }

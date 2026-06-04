@@ -27,7 +27,7 @@ INSERT INTO "workflows" ("id", "name", "description", "definition", "origin", "b
   'Ship a PR-ready feature',
   'Built-in workflow: intake → plan → build → reviewer sign-off → ship. The opinionated default that just works.',
   '{
-    "id": "wf-builtin-fullstack",
+    "id": "00000000-0000-4000-8000-00000000aaaa",
     "name": "Ship a PR-ready feature",
     "tag": "Most used · just works",
     "desc": "Intake → plan → build → reviewer sign-off → ship.",

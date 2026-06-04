@@ -11,6 +11,7 @@ import { type WorkspaceResolver } from './nodes/dispatch.js';
 import { type IntakeClassifier } from './nodes/intake.js';
 import { type Planner } from './nodes/plan.js';
 import { type Reviewer } from './nodes/review.js';
+import { resolveWorkbenchWorkflow } from '../server/workflows-query.js';
 import { initialState, type GateDecision, type OrchestratorState } from './state.js';
 
 export interface OrchestratorDeps {
@@ -75,10 +76,10 @@ export async function runOrchestrator(
 
   let workflow = opts.workflow;
   if (!workflow && opts.workbenchId && opts.runtimeDb) {
-    const { resolveWorkbenchWorkflow } = await import(
-      '../server/routers/workflows.js'
+    const resolved = await resolveWorkbenchWorkflow(
+      opts.runtimeDb,
+      opts.workbenchId,
     );
-    const resolved = await resolveWorkbenchWorkflow(opts.runtimeDb, opts.workbenchId);
     if (resolved) workflow = resolved;
   }
 

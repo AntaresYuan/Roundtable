@@ -3,7 +3,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { chats, messages, pinnedMessages, users } from '../../src/db/schema.js';
+import { chats, messages, pinnedMessages, users, workbenches } from '../../src/db/schema.js';
 import * as schema from '../../src/db/schema.js';
 import type { Db } from '../../src/db/index.js';
 import { createTRPCContext } from '../../src/server/context.js';
@@ -16,6 +16,8 @@ import { PIN_CAP_PER_CHAT } from '../../src/server/routers/pinned.js';
 const USER_ID = '40000000-0000-4000-8000-000000000001';
 const CHAT_ID = '40000000-0000-4000-8000-000000000099';
 const OTHER_CHAT_ID = '40000000-0000-4000-8000-000000000088';
+const WORKBENCH_A = '40000000-0000-4000-8000-0000000000a1';
+const WORKBENCH_B = '40000000-0000-4000-8000-0000000000a2';
 
 async function buildCaller() {
   resetRateLimitForTests();
@@ -28,18 +30,32 @@ async function buildCaller() {
     email: 'pin-test@roundtable.local',
     name: 'Pin Test',
   });
+  await db.insert(workbenches).values([
+    {
+      id: WORKBENCH_A,
+      ownerUserId: USER_ID,
+      name: 'pin test workbench',
+      workspacePath: `/tmp/pin-${randomUUID()}`,
+    },
+    {
+      id: WORKBENCH_B,
+      ownerUserId: USER_ID,
+      name: 'other pin test workbench',
+      workspacePath: `/tmp/pin-other-${randomUUID()}`,
+    },
+  ]);
   await db.insert(chats).values([
     {
       id: CHAT_ID,
       ownerUserId: USER_ID,
+      workbenchId: WORKBENCH_A,
       title: 'pin test chat',
-      workspacePath: `/tmp/pin-${randomUUID()}`,
     },
     {
       id: OTHER_CHAT_ID,
       ownerUserId: USER_ID,
+      workbenchId: WORKBENCH_B,
       title: 'other pin test chat',
-      workspacePath: `/tmp/pin-other-${randomUUID()}`,
     },
   ]);
 

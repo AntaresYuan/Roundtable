@@ -105,14 +105,15 @@ export const users = pgTable(
   }),
 );
 
-export const chats = pgTable(
-  'chats',
+export const workbenches = pgTable(
+  'workbenches',
   {
     id: uuid('id').primaryKey(),
     ownerUserId: uuid('owner_user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    title: text('title').notNull(),
+    name: text('name').notNull(),
+    description: text('description'),
     workspacePath: text('workspace_path').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
@@ -122,10 +123,34 @@ export const chats = pgTable(
       .defaultNow(),
   },
   (table) => ({
-    ownerIdx: index('chats_owner_user_id_idx').on(table.ownerUserId),
-    workspacePathIdx: uniqueIndex('chats_workspace_path_idx').on(
+    ownerIdx: index('workbenches_owner_user_id_idx').on(table.ownerUserId),
+    workspacePathIdx: uniqueIndex('workbenches_workspace_path_idx').on(
       table.workspacePath,
     ),
+  }),
+);
+
+export const chats = pgTable(
+  'chats',
+  {
+    id: uuid('id').primaryKey(),
+    ownerUserId: uuid('owner_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    workbenchId: uuid('workbench_id')
+      .notNull()
+      .references(() => workbenches.id, { onDelete: 'cascade' }),
+    title: text('title').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    ownerIdx: index('chats_owner_user_id_idx').on(table.ownerUserId),
+    workbenchIdx: index('chats_workbench_id_idx').on(table.workbenchId),
   }),
 );
 

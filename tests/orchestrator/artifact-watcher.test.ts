@@ -4,7 +4,7 @@ import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { AgentEvent, ArtifactId } from '../../src/contracts/index.js';
-import { artifactVersions, artifacts, chats, messages, users } from '../../src/db/schema.js';
+import { artifactVersions, artifacts, chats, messages, users, workbenches } from '../../src/db/schema.js';
 import * as schema from '../../src/db/schema.js';
 import {
   ArtifactWatcher,
@@ -16,6 +16,7 @@ import {
 const ids = {
   user: '41000000-0000-4000-8000-000000000001',
   chat: '41000000-0000-4000-8000-000000000002',
+  workbench: '41000000-0000-4000-8000-000000000003',
 };
 
 describe('ArtifactWatcher', () => {
@@ -31,11 +32,17 @@ describe('ArtifactWatcher', () => {
       id: ids.user,
       email: 'artifact-watcher@roundtable.local',
     });
+    await db.insert(workbenches).values({
+      id: ids.workbench,
+      ownerUserId: ids.user,
+      name: 'Artifact watcher workbench',
+      workspacePath: './workspaces/artifact-watcher',
+    });
     await db.insert(chats).values({
       id: ids.chat,
       ownerUserId: ids.user,
+      workbenchId: ids.workbench,
       title: 'Artifact watcher',
-      workspacePath: './workspaces/artifact-watcher',
     });
   });
 

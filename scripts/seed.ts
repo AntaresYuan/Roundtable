@@ -10,6 +10,7 @@ import {
   messages,
   pinnedMessages,
   users,
+  workbenches,
 } from '../src/db/schema.js';
 import type { Artifact, HandoffCard } from '../src/contracts/index.js';
 
@@ -26,6 +27,7 @@ const ids = {
   customAgent: '00000000-0000-4000-8000-000000000010',
   dependencyTarget: '00000000-0000-4000-8000-000000000011',
   dependencyTargetVersion: '00000000-0000-4000-8000-000000000012',
+  workbench: '00000000-0000-4000-8000-000000000013',
 };
 
 async function main() {
@@ -42,12 +44,22 @@ async function main() {
       .onConflictDoNothing();
 
     await db
+      .insert(workbenches)
+      .values({
+        id: ids.workbench,
+        ownerUserId: ids.user,
+        name: 'Demo workbench',
+        workspacePath: './workspaces/demo-project',
+      })
+      .onConflictDoNothing();
+
+    await db
       .insert(chats)
       .values({
         id: ids.chat,
         ownerUserId: ids.user,
+        workbenchId: ids.workbench,
         title: 'Demo project',
-        workspacePath: './workspaces/demo-project',
       })
       .onConflictDoNothing();
 

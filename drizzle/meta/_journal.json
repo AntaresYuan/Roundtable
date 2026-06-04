@@ -15,6 +15,13 @@
       "when": 1780220489741,
       "tag": "0001_polite_titanium_man",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1780617600000,
+      "tag": "0002_workbenches",
+      "breakpoints": true
     }
   ]
 }

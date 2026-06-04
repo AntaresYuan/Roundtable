@@ -13,6 +13,7 @@ import {
   handoffs,
   messages,
   users,
+  workbenches,
 } from '../../src/db/schema.js';
 import * as schema from '../../src/db/schema.js';
 import type { Db } from '../../src/db/index.js';
@@ -27,6 +28,8 @@ const USER_ID = '50000000-0000-4000-8000-000000000001';
 const CHAT_A = '50000000-0000-4000-8000-0000000000aa';
 const CHAT_B = '50000000-0000-4000-8000-0000000000bb';
 const ARTIFACT_ID = '50000000-0000-4000-8000-0000000000af';
+const WORKBENCH_A = '50000000-0000-4000-8000-0000000000a1';
+const WORKBENCH_B = '50000000-0000-4000-8000-0000000000b1';
 
 async function buildEnv() {
   resetRateLimitForTests();
@@ -39,18 +42,32 @@ async function buildEnv() {
     email: 'cross-chat@roundtable.local',
     name: 'Cross-chat',
   });
+  await db.insert(workbenches).values([
+    {
+      id: WORKBENCH_A,
+      ownerUserId: USER_ID,
+      name: 'source workbench',
+      workspacePath: `/tmp/cc-a-${randomUUID()}`,
+    },
+    {
+      id: WORKBENCH_B,
+      ownerUserId: USER_ID,
+      name: 'target workbench',
+      workspacePath: `/tmp/cc-b-${randomUUID()}`,
+    },
+  ]);
   await db.insert(chats).values([
     {
       id: CHAT_A,
       ownerUserId: USER_ID,
+      workbenchId: WORKBENCH_A,
       title: 'source chat',
-      workspacePath: `/tmp/cc-a-${randomUUID()}`,
     },
     {
       id: CHAT_B,
       ownerUserId: USER_ID,
+      workbenchId: WORKBENCH_B,
       title: 'target chat',
-      workspacePath: `/tmp/cc-b-${randomUUID()}`,
     },
   ]);
 

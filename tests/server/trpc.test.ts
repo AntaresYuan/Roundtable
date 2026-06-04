@@ -48,15 +48,19 @@ describe('appRouter', () => {
     });
     const caller = createCaller(ctx);
 
+    const workbench = await caller.workbenches.create({
+      name: 'tRPC smoke workbench',
+      workspacePath: './workspaces/trpc-smoke-chat',
+    });
     const created = await caller.chats.create({
       title: 'tRPC smoke chat',
-      workspacePath: './workspaces/trpc-smoke-chat',
+      workbenchId: workbench!.id,
     });
     const byId = await caller.chats.byId({ id: created?.id ?? '' });
     const list = await caller.chats.list();
 
     expect(created?.ownerUserId).toBe(userId);
-    expect(byId?.workspacePath).toBe('./workspaces/trpc-smoke-chat');
+    expect(byId?.workbenchId).toBe(workbench!.id);
     expect(list).toHaveLength(1);
   });
 

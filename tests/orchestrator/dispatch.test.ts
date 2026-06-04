@@ -8,7 +8,7 @@ import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AdapterRegistry, createMockAdapter } from '../../src/adapters/index.js';
 import type { AgentEvent, Artifact, ArtifactId } from '../../src/contracts/index.js';
-import { chats, messages, users } from '../../src/db/schema.js';
+import { chats, messages, users, workbenches } from '../../src/db/schema.js';
 import * as schema from '../../src/db/schema.js';
 import {
   DependencyGraph,
@@ -278,11 +278,18 @@ describe('runDispatch', () => {
         id: userId,
         email: 'dispatch-artifact-watcher@roundtable.local',
       });
+      const workbenchId = '65000000-0000-4000-8000-000000000010';
+      await db.insert(workbenches).values({
+        id: workbenchId,
+        ownerUserId: userId,
+        name: 'Dispatch artifact watcher workbench',
+        workspacePath: './workspaces/dispatch-artifact-watcher',
+      });
       await db.insert(chats).values({
         id: chatId,
         ownerUserId: userId,
+        workbenchId,
         title: 'Dispatch artifact watcher',
-        workspacePath: './workspaces/dispatch-artifact-watcher',
       });
 
       const result = await runDispatch(withPlan('@implementer', chatId), {

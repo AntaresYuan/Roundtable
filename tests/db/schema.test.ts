@@ -15,6 +15,7 @@ import {
   messages,
   pinnedMessages,
   users,
+  workbenches,
 } from '../../src/db/schema.js';
 import * as schema from '../../src/db/schema.js';
 
@@ -45,6 +46,7 @@ describe('database schema', () => {
       session: '10000000-0000-4000-8000-000000000009',
       pin: '10000000-0000-4000-8000-000000000010',
       customAgent: '10000000-0000-4000-8000-000000000011',
+      workbench: '10000000-0000-4000-8000-000000000012',
     };
 
     await db.insert(users).values({
@@ -53,11 +55,18 @@ describe('database schema', () => {
       name: 'Schema Test',
     });
 
+    await db.insert(workbenches).values({
+      id: ids.workbench,
+      ownerUserId: ids.user,
+      name: 'Schema smoke workbench',
+      workspacePath: './workspaces/schema-smoke-test',
+    });
+
     await db.insert(chats).values({
       id: ids.chat,
       ownerUserId: ids.user,
+      workbenchId: ids.workbench,
       title: 'Schema smoke test',
-      workspacePath: './workspaces/schema-smoke-test',
     });
 
     await db.insert(messages).values({
@@ -220,7 +229,7 @@ describe('database schema', () => {
       .from(customAgents)
       .where(eq(customAgents.id, ids.customAgent));
 
-    expect(chat?.workspacePath).toBe('./workspaces/schema-smoke-test');
+    expect(chat?.workbenchId).toBe(ids.workbench);
     expect(handoff?.card.taskBrief).toBe('Implement the schema smoke test.');
     expect(version?.snapshot.title).toBe('Generated page');
     expect(customAgent?.capabilities.fileEdits).toBe(true);
@@ -230,16 +239,23 @@ describe('database schema', () => {
     const userId = '20000000-0000-4000-8000-000000000001';
     const chatId = '20000000-0000-4000-8000-000000000002';
     const messageId = '20000000-0000-4000-8000-000000000003';
+    const workbenchId = '20000000-0000-4000-8000-000000000010';
 
     await db.insert(users).values({
       id: userId,
       email: 'pin-cap@roundtable.local',
     });
+    await db.insert(workbenches).values({
+      id: workbenchId,
+      ownerUserId: userId,
+      name: 'Pin cap workbench',
+      workspacePath: './workspaces/pin-cap-test',
+    });
     await db.insert(chats).values({
       id: chatId,
       ownerUserId: userId,
+      workbenchId,
       title: 'Pin cap test',
-      workspacePath: './workspaces/pin-cap-test',
     });
     await db.insert(messages).values({
       id: messageId,

@@ -70,6 +70,7 @@ describe('ArtifactWatcher', () => {
     const output = await watchArtifactEvents(events, {
       db,
       chatId: ids.chat,
+      workbenchId: ids.workbench,
       ownerAgentId: 'claude-code',
     });
 
@@ -103,6 +104,7 @@ describe('ArtifactWatcher', () => {
     const watcher = new ArtifactWatcher({
       db,
       chatId: ids.chat,
+      workbenchId: ids.workbench,
       ownerAgentId: 'cursor',
     });
 
@@ -149,7 +151,7 @@ describe('ArtifactWatcher', () => {
         },
         { type: 'done' },
       ],
-      { db, chatId: ids.chat, ownerAgentId: 'planner' },
+      { db, chatId: ids.chat, workbenchId: ids.workbench, ownerAgentId: 'planner' },
     );
 
     expect(output).toContainEqual(
@@ -180,7 +182,7 @@ describe('ArtifactWatcher', () => {
         },
         { type: 'done' },
       ],
-      { db, chatId: ids.chat, ownerAgentId: 'v0' },
+      { db, chatId: ids.chat, workbenchId: ids.workbench, ownerAgentId: 'v0' },
     );
 
     const artifactEvents = output.filter((event) => event.type === 'artifact');
@@ -205,7 +207,7 @@ describe('ArtifactWatcher', () => {
         },
         { type: 'done' },
       ],
-      { db, chatId: ids.chat, ownerAgentId: 'fixer' },
+      { db, chatId: ids.chat, workbenchId: ids.workbench, ownerAgentId: 'fixer' },
     );
 
     const output = await watchArtifactEvents(
@@ -218,7 +220,7 @@ describe('ArtifactWatcher', () => {
         },
         { type: 'done' },
       ],
-      { db, chatId: ids.chat, ownerAgentId: 'fixer' },
+      { db, chatId: ids.chat, workbenchId: ids.workbench, ownerAgentId: 'fixer' },
     );
 
     expect(output).toContainEqual(
@@ -235,6 +237,7 @@ describe('ArtifactWatcher', () => {
     const downstreamWatcher = new ArtifactWatcher({
       db,
       chatId: ids.chat,
+      workbenchId: ids.workbench,
       ownerAgentId: 'frontend',
       dependencyGraph: graph,
       dependencyStore: store,
@@ -242,6 +245,7 @@ describe('ArtifactWatcher', () => {
     const upstreamWatcher = new ArtifactWatcher({
       db,
       chatId: ids.chat,
+      workbenchId: ids.workbench,
       ownerAgentId: 'backend',
       dependencyGraph: graph,
       dependencyStore: store,

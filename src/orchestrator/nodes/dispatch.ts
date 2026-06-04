@@ -99,15 +99,17 @@ export async function runDispatch(
 
       const events: AgentEvent[] = [];
       let status: DispatchRecord['status'] = 'completed';
-      const artifactWatcher = deps.artifactDb && deps.dependencyGraph
-        ? new ArtifactWatcher({
-            db: deps.artifactDb,
-            chatId: state.chatId,
-            ownerAgentId: role,
-            dependencyGraph: deps.dependencyGraph,
-            ...(deps.dependencyStore ? { dependencyStore: deps.dependencyStore } : {}),
-          })
-        : undefined;
+      const artifactWatcher =
+        deps.artifactDb && deps.dependencyGraph && state.workbenchId
+          ? new ArtifactWatcher({
+              db: deps.artifactDb,
+              chatId: state.chatId,
+              workbenchId: state.workbenchId,
+              ownerAgentId: role,
+              dependencyGraph: deps.dependencyGraph,
+              ...(deps.dependencyStore ? { dependencyStore: deps.dependencyStore } : {}),
+            })
+          : undefined;
 
       try {
         for await (const rawEvent of session.send({ text: card.taskBrief })) {

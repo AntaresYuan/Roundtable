@@ -1,15 +1,28 @@
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { artifacts, artifactVersions } from '../../db/index.js';
-import { assertChatAccess } from '../access.js';
+import { assertWorkbenchAccess, chatWorkbenchId } from '../access.js';
 import { createTRPCRouter, protectedProcedure } from '../trpc.js';
 
 export const artifactsRouter = createTRPCRouter({
   listByChat: protectedProcedure
     .input(z.object({ chatId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      await assertChatAccess(ctx, input.chatId);
-      return ctx.db.select().from(artifacts).where(eq(artifacts.chatId, input.chatId));
+      const workbenchId = await chatWorkbenchId(ctx, input.chatId);
+      return ctx.db
+        .select()
+        .from(artifacts)
+        .where(eq(artifacts.workbenchId, workbenchId));
+    }),
+
+  listByWorkbench: protectedProcedure
+    .input(z.object({ workbenchId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      await assertWorkbenchAccess(ctx, input.workbenchId);
+      return ctx.db
+        .select()
+        .from(artifacts)
+        .where(eq(artifacts.workbenchId, input.workbenchId));
     }),
 
   byId: protectedProcedure
@@ -19,7 +32,7 @@ export const artifactsRouter = createTRPCRouter({
         .select()
         .from(artifacts)
         .where(eq(artifacts.id, input.id));
-      if (artifact) await assertChatAccess(ctx, artifact.chatId);
+      if (artifact) await assertWorkbenchAccess(ctx, artifact.workbenchId);
       return artifact ?? null;
     }),
 
@@ -27,11 +40,11 @@ export const artifactsRouter = createTRPCRouter({
     .input(z.object({ artifactId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       const [artifact] = await ctx.db
-        .select({ chatId: artifacts.chatId })
+        .select({ workbenchId: artifacts.workbenchId })
         .from(artifacts)
         .where(eq(artifacts.id, input.artifactId));
       if (!artifact) return [];
-      await assertChatAccess(ctx, artifact.chatId);
+      await assertWorkbenchAccess(ctx, artifact.workbenchId);
       return ctx.db
         .select()
         .from(artifactVersions)

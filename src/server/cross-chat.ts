@@ -14,7 +14,7 @@ import {
   PortableHandoffCardSchema,
 } from '../contracts/index.js';
 import type { Db } from '../db/index.js';
-import { artifacts, artifactVersions, handoffs, messages } from '../db/index.js';
+import { artifacts, artifactVersions, chats, handoffs, messages } from '../db/index.js';
 
 /**
  * Build a self-contained PortableHandoffCard from a chat's most recent
@@ -83,10 +83,18 @@ export async function injectPortableCard(
   const portable = PortableHandoffCardSchema.parse(raw);
 
   return db.transaction(async (tx) => {
+    const [targetChat] = await tx
+      .select({ workbenchId: chats.workbenchId })
+      .from(chats)
+      .where(eq(chats.id, targetChatId));
+    if (!targetChat) {
+      throw new Error(`target chat ${targetChatId} not found`);
+    }
     const importedHandoffId = randomUUID();
     const importedArtifacts = await importInlinedArtifacts(
       tx,
       targetChatId,
+      targetChat.workbenchId,
       portable,
       now,
     );
@@ -143,6 +151,7 @@ type ImportedArtifactMap = Map<ArtifactId, ArtifactRef>;
 async function importInlinedArtifacts(
   db: Pick<Db, 'insert'>,
   targetChatId: ChatId,
+  targetWorkbenchId: string,
   portable: PortableHandoffCard,
   now: () => Date,
 ): Promise<ImportedArtifactMap> {
@@ -166,7 +175,8 @@ async function importInlinedArtifacts(
 
     await db.insert(artifacts).values({
       id: importedId,
-      chatId: targetChatId,
+      workbenchId: targetWorkbenchId,
+      createdInChatId: targetChatId,
       kind: artifact.kind,
       title: artifact.title,
       ownerAgentId: artifact.ownerAgentId,
@@ -225,7 +235,7 @@ async function loadArtifactSnapshots(
     .from(artifacts)
     .where(
       and(
-        eq(artifacts.chatId, chatId),
+        eq(artifacts.createdInChatId, chatId),
         inArray(artifacts.id, ids as unknown as string[]),
       ),
     );

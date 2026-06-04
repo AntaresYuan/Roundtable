@@ -58,6 +58,7 @@ const lastWins = <T>() => ({ reducer: (_prev: T, next: T) => next });
 
 const StateAnnotation = Annotation.Root({
   chatId: Annotation<string>(lastWins<string>()),
+  workbenchId: Annotation<string | undefined>(lastWins<string | undefined>()),
   userMessage: Annotation<string>(lastWins<string>()),
   stage: Annotation<StageId>(lastWins<StageId>()),
   workflow: Annotation<Workflow | undefined>(lastWins<Workflow | undefined>()),
@@ -216,8 +217,9 @@ export function buildInitialInput(
   chatId: string,
   userMessage: string,
   workflow?: Workflow,
+  workbenchId?: string,
 ): OrchestratorState {
-  return initialState(chatId, userMessage, workflow);
+  return initialState(chatId, userMessage, workflow, workbenchId);
 }
 
 export { StateAnnotation };

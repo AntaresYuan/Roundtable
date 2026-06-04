@@ -44,7 +44,8 @@ const DemoSeedSchema = z.object({
   })),
   artifacts: z.array(z.object({
     id: z.string().uuid(),
-    chatId: z.string().uuid(),
+    workbenchId: z.string().uuid(),
+    createdInChatId: z.string().uuid().optional(),
     kind: z.enum(['file', 'diff', 'doc', 'preview', 'note']),
     title: z.string(),
     ownerAgentId: z.string(),
@@ -97,18 +98,23 @@ export function isLocalDatabaseUrl(databaseUrl: string | undefined): boolean {
 }
 
 /**
- * Idempotent demo reset: deletes existing rows for the fixture's chat ids
- * (cascades to messages / artifacts / handoffs / pins / deps via the
- * schema's `onDelete: cascade`), then inserts the fixture cleanly. Safe to
- * run repeatedly — each call produces the same final state.
+ * Idempotent demo reset: deletes existing rows for the fixture's workbench
+ * ids (after spec 100 / #95 / #96, workbench is the cascade root — drops
+ * chats, messages, artifacts, versions, deps, handoffs, pins, sessions in
+ * one stroke), then inserts the fixture cleanly. Safe to run repeatedly —
+ * each call produces the same final state.
  */
 export async function restoreDemo(db: Db, seed: DemoSeed): Promise<void> {
   const chatIds = seed.chats.map((c) => c.id);
+  const workbenchIds = seed.workbenches.map((w) => w.id);
   const now = new Date();
 
   await db.transaction(async (tx) => {
+    if (workbenchIds.length > 0) {
+      await tx.delete(workbenches).where(inArray(workbenches.id, workbenchIds));
+    }
     if (chatIds.length > 0) {
-      // Cascades through messages / artifacts / handoffs / pinned_messages / agent_sessions.
+      // Any orphan chats not under our workbenches (legacy / mixed fixtures).
       await tx.delete(chats).where(inArray(chats.id, chatIds));
     }
 
@@ -157,7 +163,8 @@ export async function restoreDemo(db: Db, seed: DemoSeed): Promise<void> {
       await tx.insert(artifacts).values(
         seed.artifacts.map((a) => ({
           id: a.id,
-          chatId: a.chatId,
+          workbenchId: a.workbenchId,
+          ...(a.createdInChatId !== undefined ? { createdInChatId: a.createdInChatId } : {}),
           kind: a.kind,
           title: a.title,
           ownerAgentId: a.ownerAgentId,

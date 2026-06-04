@@ -292,7 +292,7 @@ describe('runDispatch', () => {
         title: 'Dispatch artifact watcher',
       });
 
-      const result = await runDispatch(withPlan('@implementer', chatId), {
+      const result = await runDispatch(withPlan('@implementer', chatId, workbenchId), {
         registry,
         workspaces: workspaceResolver(rootDir),
         handoffLog: inMemoryHandoffLog(),
@@ -327,9 +327,9 @@ describe('runDispatch', () => {
   });
 });
 
-function withPlan(assignee: string, chatId = 'chat/1') {
+function withPlan(assignee: string, chatId = 'chat/1', workbenchId?: string) {
   return {
-    ...initialState(chatId, 'build a page'),
+    ...initialState(chatId, 'build a page', undefined, workbenchId),
     stage: 'dispatch' as const,
     plan: {
       id: 'plan-1',

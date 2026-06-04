@@ -41,6 +41,7 @@ type FileChangeEvent = Extract<AgentEvent, { type: 'file_change' }>;
 export interface ArtifactWatcherContext {
   db: RoundtableDb;
   chatId: string;
+  workbenchId: string;
   ownerAgentId: string;
   dependencyGraph?: DependencyGraph;
   dependencyStore?: DependencyStore;
@@ -216,7 +217,7 @@ async function persistArtifact(
 ): Promise<Artifact> {
   const now = new Date();
   const lookupCondition = and(
-    eq(artifacts.chatId, ctx.chatId),
+    eq(artifacts.workbenchId, ctx.workbenchId),
     eq(artifacts.uri, unit.uri),
   );
   if (!lookupCondition) throw new Error('Unable to build artifact lookup condition.');
@@ -254,7 +255,8 @@ async function persistArtifact(
   } else {
     await ctx.db.insert(artifacts).values({
       id: artifactId,
-      chatId: ctx.chatId,
+      workbenchId: ctx.workbenchId,
+      createdInChatId: ctx.chatId,
       kind: unit.kind,
       title: unit.title,
       ownerAgentId: ctx.ownerAgentId,

@@ -58,6 +58,7 @@ export interface AggregateSummary {
 
 export interface OrchestratorState {
   chatId: string;
+  workbenchId?: string;
   userMessage: string;
   stage: StageId;
   workflow?: Workflow;
@@ -79,11 +80,13 @@ export function initialState(
   chatId: string,
   userMessage: string,
   workflow?: Workflow,
+  workbenchId?: string,
 ): OrchestratorState {
   return {
     chatId,
     userMessage,
     stage: 'intake',
+    ...(workbenchId ? { workbenchId } : {}),
     ...(workflow ? { workflow } : {}),
     handoffCards: [],
     dispatch: [],

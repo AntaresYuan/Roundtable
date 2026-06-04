@@ -99,7 +99,8 @@ describe('database schema', () => {
     await db.insert(artifacts).values([
       {
         id: sourceArtifact.id,
-        chatId: ids.chat,
+        workbenchId: ids.workbench,
+        createdInChatId: ids.chat,
         kind: sourceArtifact.kind,
         title: sourceArtifact.title,
         ownerAgentId: sourceArtifact.ownerAgentId,
@@ -108,7 +109,8 @@ describe('database schema', () => {
       },
       {
         id: targetArtifact.id,
-        chatId: ids.chat,
+        workbenchId: ids.workbench,
+        createdInChatId: ids.chat,
         kind: targetArtifact.kind,
         title: targetArtifact.title,
         ownerAgentId: targetArtifact.ownerAgentId,

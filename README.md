@@ -42,11 +42,12 @@ Install dependencies and start the local backend services:
 
 ```bash
 corepack pnpm install --frozen-lockfile
-corepack pnpm setup
+corepack pnpm run setup
 ```
 
-`pnpm setup` starts Postgres and Redis with Docker Compose, then runs the
-Drizzle migrations and demo seed data.
+`pnpm run setup` starts Postgres and Redis with Docker Compose, then runs the
+Drizzle migrations and demo seed data. Use `run` — a bare `pnpm setup` invokes
+pnpm's own built-in command, not this script. (Requires Docker running.)
 
 Useful local commands:
 

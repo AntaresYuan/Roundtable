@@ -19,6 +19,7 @@ export interface HandoffGeneratorInput {
   state: OrchestratorState;
   task: PlanTask;
   role: AgentRoleId;
+  taskBrief?: string;
   pinnedMessages?: PinnedMessage[];
   relevantArtifacts?: ArtifactRef[];
   contextAudit?: HandoffContextAudit;
@@ -66,7 +67,7 @@ export function fallbackHandoffCard(input: HandoffGeneratorInput): HandoffCard {
     to: input.role,
     scenario: 'dispatch',
     userIntent: oneSentence(input.state.intake?.userVisibleSummary ?? input.state.userMessage),
-    taskBrief: input.task.title,
+    taskBrief: input.taskBrief ?? input.task.title,
     pinnedMessages: capPinnedMessages(input.pinnedMessages ?? []),
     rolesInGroup: [],
     relevantArtifacts: input.relevantArtifacts ?? [],
@@ -133,6 +134,7 @@ async function tryGenerate(
       to: input.role,
       scenario: 'dispatch',
       generatedBy: 'orchestrator',
+      taskBrief: fallback.taskBrief,
       pinnedMessages: capPinnedMessages(
         getPinnedMessages(raw) ?? fallback.pinnedMessages,
       ),
@@ -155,7 +157,7 @@ function toPromptPayload(input: HandoffGeneratorInput) {
   return {
     userMessage: input.state.userMessage,
     intake: input.state.intake,
-    task: input.task,
+    task: { ...input.task, title: input.taskBrief ?? input.task.title },
     recipientRole: input.role,
     pinnedMessages: capPinnedMessages(input.pinnedMessages ?? []),
     relevantArtifacts: input.relevantArtifacts ?? [],

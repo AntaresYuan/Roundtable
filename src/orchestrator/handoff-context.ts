@@ -14,6 +14,7 @@ import {
   chats,
   messages,
   pinnedMessages,
+  userProfiles,
   workbenchPinnedMessages,
 } from '../db/index.js';
 import type { OrchestratorState } from './state.js';
@@ -36,6 +37,7 @@ export interface HandoffContextInput {
 }
 
 export interface ComposedHandoffContext {
+  taskBrief: string;
   pinnedMessages: PinnedMessage[];
   relevantArtifacts: ArtifactRef[];
   contextAudit: HandoffContextAudit;
@@ -54,6 +56,7 @@ interface ContextCandidate {
 }
 
 interface MutableContext {
+  taskBrief: string;
   pinnedMessages: PinnedMessage[];
   relevantArtifacts: ArtifactRef[];
 }
@@ -65,13 +68,18 @@ export async function composeHandoffContext(
   const candidates: ContextCandidate[] = [
     userIntentCandidate(input),
     taskCandidate(input),
+    ...(await userProfileCandidates(input)),
     ...previousCardCandidates(input.previousCards ?? []),
     ...reviewCommentCandidates(input),
     ...(await pinCandidates(input)),
     ...artifactCandidates(input),
   ];
 
-  const result: MutableContext = { pinnedMessages: [], relevantArtifacts: [] };
+  const result: MutableContext = {
+    taskBrief: input.task.title,
+    pinnedMessages: [],
+    relevantArtifacts: [],
+  };
   let usedChars = 0;
   let compacted = false;
   const sources: HandoffContextSource[] = [];
@@ -103,6 +111,7 @@ export async function composeHandoffContext(
   }
 
   return {
+    taskBrief: result.taskBrief,
     pinnedMessages: result.pinnedMessages,
     relevantArtifacts: result.relevantArtifacts,
     contextAudit: {
@@ -110,6 +119,44 @@ export async function composeHandoffContext(
       sources,
     },
   };
+}
+
+async function userProfileCandidates(
+  input: HandoffContextInput,
+): Promise<ContextCandidate[]> {
+  if (!input.db) return [];
+  const [row] = await input.db
+    .select({
+      userId: chats.ownerUserId,
+      defaultBrief: userProfiles.defaultBrief,
+    })
+    .from(chats)
+    .leftJoin(userProfiles, eq(userProfiles.userId, chats.ownerUserId))
+    .where(eq(chats.id, input.state.chatId));
+
+  const defaultBrief = row?.defaultBrief?.trim();
+  if (!row || !defaultBrief) return [];
+
+  return [
+    {
+      source: {
+        scope: 'user',
+        kind: 'default_brief',
+        id: row.userId,
+        label: 'user preferences',
+        chars: defaultBrief.length,
+        included: false,
+        compacted: false,
+      },
+      apply(result, compact) {
+        result.taskBrief = appendSection(
+          result.taskBrief,
+          'User preferences',
+          compact ? compactText(defaultBrief, COMPACT_PIN_CHARS) : defaultBrief,
+        );
+      },
+    },
+  ];
 }
 
 async function pinCandidates(input: HandoffContextInput): Promise<ContextCandidate[]> {
@@ -319,4 +366,8 @@ function compactedChars(source: HandoffContextSource): number {
 function compactText(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
   return `${text.slice(0, Math.max(0, maxChars - 3)).trimEnd()}...`;
+}
+
+function appendSection(base: string, heading: string, body: string): string {
+  return `${base.trimEnd()}\n\n${heading}:\n${body.trim()}`;
 }

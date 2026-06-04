@@ -105,6 +105,21 @@ export const users = pgTable(
   }),
 );
 
+export const userProfiles = pgTable('user_profiles', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  defaultBrief: text('default_brief').notNull().default(''),
+  defaultSkills: text('default_skills')
+    .array()
+    .notNull()
+    .default(sql`ARRAY[]::text[]`),
+  notes: text('notes').notNull().default(''),
+  updatedAt: timestamp('updated_at', { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 export const workbenches = pgTable(
   'workbenches',
   {

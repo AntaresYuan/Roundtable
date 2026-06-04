@@ -1,16 +1,23 @@
 import { and, asc, eq } from 'drizzle-orm';
 import type { PinnedMessage } from '../contracts/index.js';
 import type { Db } from '../db/index.js';
-import { messages, pinnedMessages } from '../db/index.js';
+import {
+  chats,
+  messages,
+  pinnedMessages,
+  workbenchPinnedMessages,
+} from '../db/index.js';
+
+export const PINNED_HANDOFF_CAP = 10;
 
 /**
- * Load every pinned message for `chatId` in the `PinnedMessage` contract
- * shape, ready to be dropped into a `HandoffCard.pinnedMessages` field.
+ * Load inherited pins for `chatId` in the `PinnedMessage` contract shape,
+ * ready to be dropped into a `HandoffCard.pinnedMessages` field.
  *
- * Joined with `messages` to inline `content`. Ordered by `position` so the
- * downstream agent sees them in the same order the user pinned them. The
- * DB CHECK constraint already caps positions at < 10, so the array length
- * is implicitly bounded.
+ * Workbench pins are project-wide constraints; chat pins are task-specific.
+ * The HandoffCard displays project pins first, then chat pins. When the
+ * merged set exceeds the cap, chat pins win because lower scope is more
+ * specific (spec 100).
  *
  * Use from the HandoffCard generator (issue #39) like:
  *
@@ -21,7 +28,24 @@ export async function loadPinnedForHandoff(
   db: Db,
   chatId: string,
 ): Promise<PinnedMessage[]> {
-  const rows = await db
+  const [chat] = await db
+    .select({ workbenchId: chats.workbenchId })
+    .from(chats)
+    .where(eq(chats.id, chatId));
+
+  const workbenchPins = chat
+    ? await db
+        .select({
+          id: workbenchPinnedMessages.id,
+          content: workbenchPinnedMessages.content,
+          pinnedBy: workbenchPinnedMessages.pinnedByUserId,
+        })
+        .from(workbenchPinnedMessages)
+        .where(eq(workbenchPinnedMessages.workbenchId, chat.workbenchId))
+        .orderBy(asc(workbenchPinnedMessages.position))
+    : [];
+
+  const chatPins = await db
     .select({
       id: pinnedMessages.id,
       content: messages.content,
@@ -38,9 +62,29 @@ export async function loadPinnedForHandoff(
     .where(eq(pinnedMessages.chatId, chatId))
     .orderBy(asc(pinnedMessages.position));
 
-  return rows.map((r) => ({
-    id: r.id,
-    content: r.content,
-    pinnedBy: r.pinnedBy,
-  }));
+  return mergePinnedForHandoff(
+    workbenchPins.map(toPinnedMessage),
+    chatPins.map(toPinnedMessage),
+  );
+}
+
+export function mergePinnedForHandoff(
+  workbenchPins: PinnedMessage[],
+  chatPins: PinnedMessage[],
+): PinnedMessage[] {
+  const chatSlice = chatPins.slice(0, PINNED_HANDOFF_CAP);
+  const remaining = PINNED_HANDOFF_CAP - chatSlice.length;
+  return [...workbenchPins.slice(0, remaining), ...chatSlice];
+}
+
+function toPinnedMessage(row: {
+  id: string;
+  content: string;
+  pinnedBy: string;
+}): PinnedMessage {
+  return {
+    id: row.id,
+    content: row.content,
+    pinnedBy: row.pinnedBy,
+  };
 }

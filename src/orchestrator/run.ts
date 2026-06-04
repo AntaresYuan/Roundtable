@@ -1,6 +1,7 @@
 import { Command, isGraphInterrupt, MemorySaver } from '@langchain/langgraph';
 import type { AdapterRegistry } from '../adapters/index.js';
 import type { Workflow } from '../contracts/index.js';
+import type { Db } from '../db/index.js';
 import { buildOrchestratorGraph, type GraphDeps } from './graph.js';
 import type { ArtifactWatcherContext } from './artifact-watcher.js';
 import type { HandoffGeneratorOptions } from './handoff.js';
@@ -29,6 +30,8 @@ export interface OrchestratorDeps {
   checkpointer?: GraphDeps['checkpointer'];
   /** Enables file_change → artifact persistence and dependency broadcasts. */
   artifactDb?: ArtifactWatcherContext['db'];
+  /** Enables layered pinned-message inheritance for generated HandoffCards. */
+  pinnedDb?: Db;
 }
 
 export interface RunOptions {

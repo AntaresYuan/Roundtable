@@ -703,9 +703,10 @@ function FileRow({ art, agents, onOpen }) {
 }
 function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifact, onAction, onClose, live, liveArtifacts, liveMessages, liveHandoffs }) {
   const placed = sceneAt(clock).placed;
-  // P3.2: real artifacts for the selected chat when signed in; else the scripted scene.
-  const created = liveArtifacts
-    ? liveArtifacts.map((a) => ({ ...a, version: a.currentVersion, source: a.source ?? 'generated' }))
+  // P3.2: in live mode show the real chat's artifacts (empty until the orchestrator runs) —
+  // never fall back to scripted fixtures, which would contradict the live center stage.
+  const created = live
+    ? (liveArtifacts ?? []).map((a) => ({ ...a, version: a.currentVersion, source: a.source ?? 'generated' }))
     : placed.map((p) => p.art);
   // The fixture "brief" is demo-only — in live mode there are no user-provided artifacts yet.
   const provided = live ? [] : [RT.ARTIFACTS.brief];
@@ -729,8 +730,8 @@ function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifa
 
       {tab === 'chat' ? (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg)' }}>
-          {liveMessages && liveMessages.length > 0
-            ? <LiveThread messages={liveMessages} handoffs={liveHandoffs} />
+          {live
+            ? <LiveThread messages={liveMessages ?? []} handoffs={liveHandoffs} />
             : <Thread agents={agents} scene={scene} onOpenArtifact={onOpenArtifact} onAction={onAction} narrow />}
         </div>
       ) : tab === 'files' ? (
@@ -1110,7 +1111,7 @@ function App() {
       ? chatsQ.data.map((c) => ({ id: c.id, title: c.title, meta: c.workspacePath, status: 'idle' }))
       : RT.TASKS;
   const [selectedChatId, setSelectedChatId] = useState(null);
-  const activeChatId = selectedChatId ?? (authed && chatsQ.data?.[0]?.id) ?? null;
+  const activeChatId = selectedChatId ?? ((authed && chatsQ.data?.[0]?.id) || null);
   const artifactsQ = trpc.artifacts.listByChat.useQuery(
     { chatId: activeChatId ?? '' },
     { enabled: authed && !!activeChatId },

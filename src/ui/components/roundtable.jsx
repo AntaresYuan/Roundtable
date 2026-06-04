@@ -327,27 +327,30 @@ function TableBody() {
   );
 }
 
-/* ---- Figure : a smooth 3D-ish minimal person ----------------------------- */
+/* ---- Figure : a Notionists character (CC0, via DiceBear) seated at the table -
+   Colored ring = the agent's identity color; keeps the head-glow, ground shadow,
+   and the speaking halo. ---------------------------------------------------- */
 function Figure({ agent, isUser, head, size, speaking }) {
-  const color = isUser ? '#94a3b8' : agent.color;
+  const color = isUser ? '#94a3b8' : (agent.color || '#94a3b8');
   const d = size;
-  const bw = d * 1.5, bh = d * 1.12;
+  const seed = encodeURIComponent(isUser ? 'you-user' : (agent.id || agent.displayName || 'rt'));
+  const peep = `https://api.dicebear.com/9.x/notionists/svg?seed=${seed}&backgroundColor=transparent`;
+  const off = Math.round(d * 1.28);
   return (
-    <div style={{ position: 'relative', width: bw, height: d * 0.86 + bh, margin: '0 auto' }}>
-      {head && <div style={{ position: 'absolute', left: '50%', top: -d * 0.22, transform: 'translateX(-50%)',
-        width: d * 1.7, height: d * 1.7, borderRadius: '50%', zIndex: 0,
+    <div style={{ position: 'relative', width: d, height: d * 1.16, margin: '0 auto' }}>
+      {head && <div style={{ position: 'absolute', left: '50%', top: -d * 0.2, transform: 'translateX(-50%)',
+        width: d * 1.6, height: d * 1.6, borderRadius: '50%', zIndex: 0,
         background: `radial-gradient(circle, ${alpha(color, 24)} 0%, transparent 68%)` }} />}
-      <div style={{ position: 'absolute', left: '50%', bottom: -5, transform: 'translateX(-50%)',
-        width: bw * 0.9, height: 13, borderRadius: '50%', background: 'rgba(0,0,0,.22)', filter: 'blur(5px)', zIndex: 0 }} />
-      <div className={speaking ? 'rt-glow' : ''} style={{ position: 'absolute', left: '50%', bottom: 0,
-        transform: 'translateX(-50%)', width: bw, height: bh, '--glow-c': color, zIndex: 1,
-        borderRadius: `${bw * 0.72}px ${bw * 0.72}px ${bw * 0.42}px ${bw * 0.42}px / ${bh * 0.92}px ${bh * 0.92}px ${bw * 0.42}px ${bw * 0.42}px`,
-        background: `linear-gradient(158deg, color-mix(in oklab, ${color} 74%, #fff 26%) 0%, ${color} 56%, color-mix(in oklab, ${color} 82%, #000 18%) 100%)`,
-        boxShadow: `inset 0 ${d * 0.16}px ${d * 0.3}px color-mix(in oklab, #fff 34%, transparent), inset 0 -${d * 0.1}px ${d * 0.18}px rgba(0,0,0,.16)${speaking ? '' : ', 0 8px 16px -8px rgba(0,0,0,.45)'}` }} />
+      <div style={{ position: 'absolute', left: '50%', bottom: -3, transform: 'translateX(-50%)',
+        width: d * 0.84, height: 11, borderRadius: '50%', background: 'rgba(40,40,70,.20)', filter: 'blur(5px)', zIndex: 0 }} />
+      {speaking && <div className="rt-glow" style={{ position: 'absolute', left: '50%', top: 0, transform: 'translateX(-50%)',
+        width: d, height: d, borderRadius: '50%', '--glow-c': color, zIndex: 1 }} />}
       <div style={{ position: 'absolute', left: '50%', top: 0, transform: 'translateX(-50%)',
-        width: d, height: d, borderRadius: '50%', zIndex: 2,
-        background: `radial-gradient(circle at 36% 28%, color-mix(in oklab, ${color} 26%, #fff) 0%, color-mix(in oklab, ${color} 42%, var(--surface)) 48%, color-mix(in oklab, ${color} 64%, #000 10%) 100%)`,
-        boxShadow: `inset ${d * 0.1}px -${d * 0.12}px ${d * 0.2}px rgba(0,0,0,.14), inset -${d * 0.06}px ${d * 0.06}px ${d * 0.16}px color-mix(in oklab,#fff 40%,transparent), 0 ${d * 0.06}px ${d * 0.14}px rgba(0,0,0,.28)` }} />
+        width: d, height: d, borderRadius: '50%', overflow: 'hidden', zIndex: 2, background: 'var(--surface)',
+        boxShadow: `0 0 0 ${Math.max(2, d * 0.05)}px var(--surface), 0 0 0 ${Math.max(3, d * 0.075)}px ${alpha(color, 70)}, 0 ${d * 0.08}px ${d * 0.16}px -${d * 0.04}px rgba(40,40,70,.35)` }}>
+        <img src={peep} alt={agent.displayName || ''} width={off} height={off}
+          style={{ position: 'absolute', left: '-14%', top: '-9%', pointerEvents: 'none' }} />
+      </div>
     </div>
   );
 }
@@ -427,7 +430,7 @@ function Seat({ seat, agents, scene, dim, onAction, onSeatClick }) {
   const speaking = st === 'speaking' || st === 'working' || st === 'thinking';
   const showSpeech = scene.speech && scene.speech.agentId === seat.agentId && !seat.head;
   const raisingHand = scene.decision && scene.decision.agentId === seat.agentId;
-  const figSize = Math.round((seat.head ? 44 : 47) * s);
+  const figSize = Math.round((seat.head ? 56 : 60) * s);
   const clickable = !isUser && onSeatClick;
 
   return (

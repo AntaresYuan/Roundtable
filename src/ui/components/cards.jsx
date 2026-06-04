@@ -288,10 +288,8 @@ function DiffArtifact({ art, owner, agents, onOpen }) {
                   userSelect: 'none', flexShrink: 0,
                   color: l.t === 'add' ? 'var(--ok)' : l.t === 'del' ? 'var(--bad)' : 'var(--text-faint)' }}>{sign}</span>
                 <span style={{ whiteSpace: 'pre', padding: '1px 10px 1px 0', flex: 1 }}>{l.text || ' '}</span>
-                {a && <span title={`${a.displayName} · @${a.role}`} style={{ alignSelf: 'center', marginRight: 8,
-                  width: 14, height: 14, borderRadius: '50%', background: tint(a.color, 22),
-                  boxShadow: `0 0 0 1px ${alpha(a.color, 55)} inset`, color: a.color,
-                  fontSize: 8.5, fontWeight: 700, display: 'grid', placeItems: 'center' }}>{a.avatar}</span>}
+                {a && <span title={`${a.displayName} · @${a.role}`} style={{ alignSelf: 'center', marginRight: 8, display: 'inline-flex' }}>
+                  <Avatar agent={a} size={16} /></span>}
               </div>
             );
           })}

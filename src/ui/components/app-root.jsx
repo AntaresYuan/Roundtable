@@ -125,8 +125,7 @@ function Aggregate({ beat, agents, onAction }) {
   const pm = agents.orchestrator;
   return (
     <div className="rt-rise" style={{ display: 'flex', gap: 11, alignItems: 'flex-start' }}>
-      <div style={{ width: 26, height: 26, display: 'grid', placeItems: 'center', fontSize: 15, opacity: .85 }}>
-        {pm.avatar}</div>
+      <Avatar agent={pm} size={26} ring={false} />
       <div style={{ flex: 1 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 4 }}>
           <Icon name="check" size={15} style={{ color: 'var(--ok)' }} />
@@ -288,8 +287,7 @@ function UserMsg({ text }) {
       <div style={{ maxWidth: '78%', padding: '11px 15px', borderRadius: '14px 14px 4px 14px',
         background: 'var(--accent)', color: '#fff', fontSize: 14, lineHeight: 1.5,
         boxShadow: 'var(--shadow-card)' }}>{text}</div>
-      <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'var(--surface-3)', flexShrink: 0,
-        display: 'grid', placeItems: 'center', fontSize: 13, fontWeight: 600, color: 'var(--text-muted)' }}>U</div>
+      <Avatar agent={{ id: 'you-user', displayName: 'You', color: '#94a3b8' }} size={30} />
     </div>
   );
 }
@@ -339,7 +337,7 @@ function ThreadHeader({ agents, scene }) {
           </span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 4 }}>
-          <span style={{ fontSize: 12, opacity: .85 }}>{agents.orchestrator.avatar}</span>
+          <Avatar agent={agents.orchestrator} size={18} ring={false} />
           <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>facilitated by PM ·</span>
           <div style={{ display: 'flex' }}>
             {parts.map((p, i) => <span key={p} style={{ marginLeft: i ? -6 : 0, zIndex: 3 - i }}>

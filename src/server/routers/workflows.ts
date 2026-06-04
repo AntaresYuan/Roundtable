@@ -196,26 +196,6 @@ export const workflowsRouter = createTRPCRouter({
     }),
 });
 
-/**
- * Read the workbench's active workflow definition. Used by the orchestrator
- * to drive a run when no explicit workflow is passed to `runOrchestrator`.
- * Returns null when no workflow is bound — caller falls back to the
- * heuristic / LLM planner.
- */
-export async function resolveWorkbenchWorkflow(
-  db: import('../../db/index.js').Db,
-  workbenchId: string,
-): Promise<Workflow | null> {
-  const [wb] = await db
-    .select({ activeWorkflowId: workbenches.activeWorkflowId })
-    .from(workbenches)
-    .where(eq(workbenches.id, workbenchId));
-  if (!wb?.activeWorkflowId) return null;
-
-  const [wfRow] = await db
-    .select({ definition: workflows.definition })
-    .from(workflows)
-    .where(eq(workflows.id, wb.activeWorkflowId));
-  if (!wfRow) return null;
-  return WorkflowSchema.parse(wfRow.definition);
-}
+// resolveWorkbenchWorkflow moved to src/server/workflows-query.ts to avoid
+// a server→orchestrator layering cycle. Re-exported for backwards compat.
+export { resolveWorkbenchWorkflow } from '../workflows-query.js';

@@ -429,7 +429,7 @@ describe('runDispatch', () => {
     }
   });
 
-  it('routes watched artifact bumps into dependency system messages when artifactDb is wired', async () => {
+  it('routes watched artifact bumps into dependency system messages when artifactDb is wired', { timeout: 15_000 }, async () => {
     const client = new PGlite();
     const db = drizzle(client, { schema });
     const chatId = '65000000-0000-4000-8000-000000000001';

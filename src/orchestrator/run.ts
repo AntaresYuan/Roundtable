@@ -39,8 +39,16 @@ export interface RunOptions {
   userMessage: string;
   /** Stable thread id for checkpointing/resume. Defaults to `chatId`. */
   threadId?: string;
-  /** Drives the run via a customizable Workflow spec (specs/090). */
+  /**
+   * Drives the run via a customizable Workflow spec (specs/090). If omitted
+   * and `workbenchId` + `runtimeDb` are provided, the orchestrator resolves
+   * the workbench's active workflow from the DB (spec 100 / #97).
+   */
   workflow?: Workflow;
+  /** The workbench this chat lives under — required to auto-resolve a workflow. */
+  workbenchId?: string;
+  /** DB handle for workflow resolution. Reuses the existing artifactDb conn in callers. */
+  runtimeDb?: import('../db/index.js').Db;
 }
 
 export interface GateResolveResume {
@@ -65,10 +73,19 @@ export async function runOrchestrator(
   const graph = buildOrchestratorGraph({ ...deps, checkpointer });
   const threadId = opts.threadId ?? opts.chatId;
 
+  let workflow = opts.workflow;
+  if (!workflow && opts.workbenchId && opts.runtimeDb) {
+    const { resolveWorkbenchWorkflow } = await import(
+      '../server/routers/workflows.js'
+    );
+    const resolved = await resolveWorkbenchWorkflow(opts.runtimeDb, opts.workbenchId);
+    if (resolved) workflow = resolved;
+  }
+
   return invoke(
     graph,
     threadId,
-    initialState(opts.chatId, opts.userMessage, opts.workflow),
+    initialState(opts.chatId, opts.userMessage, workflow),
   );
 }
 

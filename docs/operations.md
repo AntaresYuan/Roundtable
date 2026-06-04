@@ -43,6 +43,7 @@ corepack pnpm db:seed            # insert minimal demo rows
 | `pnpm spec:lint` | ensures specs are referenced from the AGENTS.md index |
 | `pnpm orch:smoke` | runs the orchestrator through mock adapters end-to-end |
 | `pnpm demo:restore` | wipes + re-inserts the demo dataset (see § 8) |
+| `pnpm dev:seed [email]` | dev-only: seeds 2 demo chats (thread + artifacts) for an email so the live UI has content to switch between (default `demo@roundtable.local`; log in with the same email). Idempotent; refuses to run in prod. Distinct from `db:seed` (#35). |
 | `pnpm sandbox:reap` | one-shot e2b sandbox idle-reaper sweep |
 | `pnpm checkpoints:cleanup` | GC LangGraph checkpoints older than `CHECKPOINT_TTL_DAYS` |
 

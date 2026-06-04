@@ -54,6 +54,7 @@ pnpm typecheck # tsc --noEmit
 - Adapter classes live in `src/adapters/<id>/`.
 - Specs are numbered `NNN-topic.md`; **never renumber** — append-only.
 - Schema changes go through Drizzle migrations; never edit a generated migration.
+- LLM calls go through `defaultOrchestratorModel()` (`src/orchestrator/llm/provider.ts`); never import a provider SDK (`@ai-sdk/anthropic` etc.) in feature code. Provider is centralized — 火山引擎/Volcano Engine (ADR-004).
 
 ## Key decisions log
 

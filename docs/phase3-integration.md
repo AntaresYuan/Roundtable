@@ -1,11 +1,13 @@
 # Phase 3 — Wire the frontend to live data (fixtures → real)
 
-> **Status: P3.1 done & verified live** (branch `antares/phase3-plan`). The tRPC client,
-> `/api/trpc` route, Providers, and a dev login are wired — `chats.list` / `chats.create`
-> confirmed end-to-end against Postgres via the `/dev` probe. Remaining: **P3.2** (read-path
-> into the real UI; the product UI still renders `src/ui/lib/rt.js` fixtures until then),
-> **P3.4** live stream (blocked on the @Evanlin stream ticket), and the **email adapter**
-> (@Peitong ticket). The `/dev` probe + dev-credentials login are temporary scaffolding.
+> **Status: P3.1 + P3.2 done & verified live** (branch `antares/phase3`, PR #106). The tRPC
+> client, `/api/trpc` route, Providers, and a dev login are wired; the **product UI now renders
+> live per-chat data** when signed in with a selected chat (center `LiveStage` thread, live
+> Files/Notes in the Inspector), falling back to `src/ui/lib/rt.js` fixtures only for the
+> logged-out demo. Use `pnpm dev:seed [email]` to populate content for eye-testing. Remaining:
+> **P3.3** send + run, **P3.4** live stream (blocked on the @Evanlin stream ticket), and the
+> **email adapter** (@Peitong ticket). The `/dev` probe + dev-credentials login are temporary
+> scaffolding.
 
 ## Diagnosis — three seams are open
 
@@ -32,7 +34,7 @@ Everything reads behind `protectedProcedure` → the frontend needs a NextAuth s
 | Stage | What | Owner | Depends on |
 |---|---|---|---|
 | **P3.1 — Pipe** | `@trpc/client` + `@trpc/react-query` + `@tanstack/react-query`; `src/app/api/trpc/[trpc]/route.ts` (fetch adapter + `getServerSession`); `src/ui/lib/trpc.ts` (`createTRPCReact<AppRouter>`, superjson); `<TRPCProvider>` + `<SessionProvider>` in the root layout. Smoke: `chats.list` renders. | UI | — |
-| **P3.2 — Read path** | Swap static fixtures for live queries: `RT.AGENTS`→`agents.list`, `RT.ARTIFACTS`→`artifacts.listByChat`, `RT.HANDOFF`→`handoffs.listByChat`, ConversationRail tasks→`chats.list`. Keep fixtures as the fallback/empty-state. | UI | P3.1 |
+| **P3.2 — Read path** ✅ | Live per-chat queries wired into the real UI: ConversationRail tasks→`chats.list`, center `LiveStage`→`messages.list`, Inspector Files→`artifacts.listByChat`, Notes (`LiveNotes`)→artifacts + `handoffs.listByChat`. Gated on `authed && activeChatId`; fixtures stay only for the logged-out demo (never leak into a live empty/loading chat). Agents stay the fixed workbench roster by design. | UI | P3.1 |
 | **P3.3 — Send + run** | `messages.create` from the composer; a mutation that triggers `runOrchestrator(chatId, userMessage)`. | UI + **needs a backend trigger** | P3.1, Evan |
 | **P3.4 — Live stream** | Consume the `messages.stream` subscription in the chat thread (drives the roundtable scene state from real `AgentEvent`s). **Blocked on the Evan ticket below.** | UI consumer + **Evan** | P3.3 + Evan |
 | **P3.5 — Contract reconcile** | Resolve mismatches (below). | UI + contracts | rolling |
@@ -88,5 +90,6 @@ NextAuth adapter** to persist verification tokens — not configured, so email s
 
 ## Verification note
 
-P3.1's live smoke (`chats.list` returning rows) needs Postgres up (`pnpm setup`) + a signed-in user.
-Without that, P3.1 is only compile/build-verifiable; full live verification waits on local infra.
+P3.1/P3.2's live smoke needs Postgres up (`pnpm setup`) + a signed-in user. Run `pnpm dev:seed
+<your-login-email>` to give the signed-in account two chats with content, then switch between them
+to see the live read-path. Without local infra, these stages are only compile/build-verifiable.

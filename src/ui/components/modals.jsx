@@ -7,6 +7,7 @@
 import React from 'react';
 import { RT } from '../lib/rt';
 import { Icon, Avatar, tint, alpha } from './primitives';
+import { trpc } from '../lib/trpc';
 const { useState: useStateM } = React;
 const iconBtn = { display: 'grid', placeItems: 'center', width: 30, height: 30, flexShrink: 0, borderRadius: 'var(--r-sm)',
   border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-muted)', cursor: 'pointer' };
@@ -126,6 +127,7 @@ function NewWorkbenchModal({ agents, onClose, onCreate }) {
 /* ---- New Task ------------------------------------------------------------ */
 function NewTaskModal({ workbench, members, agents, onClose, onCreate }) {
   const [goal, setGoal] = useStateM('');
+  const polish = trpc.ai.polish.useMutation({ onSuccess: (r) => setGoal(r.text) });
   const examples = ['A pricing page with monthly/annual toggle', 'A REST endpoint for CSV export', 'Dark mode across the app'];
   return (
     <Modal title="New task" sub={`${workbench?.name} will pick it up and run its workflow`} icon="plus" onClose={onClose} width={560}
@@ -133,6 +135,14 @@ function NewTaskModal({ workbench, members, agents, onClose, onCreate }) {
       <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>What should the team build?</div>
       <textarea value={goal} onChange={(e) => setGoal(e.target.value)} rows={3} autoFocus
         placeholder="Describe the outcome in plain language — the facilitator will plan it." style={{ ...fieldStyle, resize: 'vertical' }} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+        <button onClick={() => goal.trim() && polish.mutate({ text: goal.trim() })} disabled={!goal.trim() || polish.isPending}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 'var(--r-chip)',
+            border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', font: 'inherit', fontSize: 12,
+            cursor: goal.trim() && !polish.isPending ? 'pointer' : 'default', opacity: goal.trim() ? 1 : 0.5 }}>
+          <Icon name="sparkle" size={13} style={{ color: 'var(--accent)' }} /> {polish.isPending ? 'Polishing…' : 'Polish with AI'}</button>
+        {polish.error && <span style={{ fontSize: 11, color: 'var(--bad)' }}>{polish.error.message}</span>}
+      </div>
       <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginTop: 10 }}>
         {examples.map((ex) => (
           <button key={ex} onClick={() => setGoal(ex)} style={{ padding: '5px 10px', borderRadius: 'var(--r-chip)', cursor: 'pointer',
@@ -140,7 +150,12 @@ function NewTaskModal({ workbench, members, agents, onClose, onCreate }) {
         ))}
       </div>
       <div style={{ marginTop: 18, padding: '12px 14px', borderRadius: 'var(--r-card)', background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
-        <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 9 }}>Members on the job</div>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 9, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)' }}>Members on the job</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: 'var(--text-faint)' }}>
+            <Icon name="eye" size={11} /> read-only · this workbench's fixed team — change members in the sidebar, or per stage in Workflow
+          </span>
+        </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {(members || []).map((id) => agents[id] && (
             <span key={id} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '4px 11px 4px 4px',

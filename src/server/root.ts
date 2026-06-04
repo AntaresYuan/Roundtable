@@ -5,6 +5,7 @@ import { handoffsRouter } from './routers/handoffs.js';
 import { messagesRouter } from './routers/messages.js';
 import { pinnedRouter } from './routers/pinned.js';
 import { userProfileRouter } from './routers/user-profile.js';
+import { userSkillsRouter } from './routers/user-skills.js';
 import { workbenchPinnedRouter } from './routers/workbench-pinned.js';
 import { workbenchesRouter } from './routers/workbenches.js';
 import { workflowsRouter } from './routers/workflows.js';
@@ -18,6 +19,7 @@ export const appRouter = createTRPCRouter({
   messages: messagesRouter,
   pinned: pinnedRouter,
   userProfile: userProfileRouter,
+  userSkills: userSkillsRouter,
   workbenches: workbenchesRouter,
   workbenchPinned: workbenchPinnedRouter,
   workflows: workflowsRouter,

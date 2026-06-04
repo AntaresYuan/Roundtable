@@ -37,6 +37,18 @@ export const AgentEventSchema = z.discriminatedUnion('type', [
     kind: DepKindSchema,
   }),
   z.object({
+    /**
+     * PM proposes saving a reusable pattern as a user-scoped skill (spec 100
+     * #100, ADR-007 propose/confirm). The UI surfaces this as a "Save as my
+     * skill" action; nothing persists until the user confirms.
+     */
+    type: z.literal('propose_skill'),
+    name: z.string().min(1).max(160),
+    triggerHint: z.string().min(1).max(500),
+    body: z.string().min(1),
+    rationale: z.string().optional(),
+  }),
+  z.object({
     type: z.literal('done'),
     usage: TokenUsageSchema.optional(),
     finishReason: z.string().optional(),

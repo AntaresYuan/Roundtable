@@ -134,9 +134,11 @@ async function seedRealHandoffCard(
 }
 
 async function seedArtifact(db: Db, chatId: string): Promise<void> {
+  const workbenchId = chatId === CHAT_A ? WORKBENCH_A : WORKBENCH_B;
   await db.insert(artifacts).values({
     id: ARTIFACT_ID,
-    chatId,
+    workbenchId,
+    createdInChatId: chatId,
     kind: 'file',
     title: 'api/login.ts',
     ownerAgentId: 'backend-agent',
@@ -235,7 +237,7 @@ describe('handoffs.import', () => {
     const importedArtifacts = await env.db
       .select()
       .from(artifacts)
-      .where(eq(artifacts.chatId, CHAT_B));
+      .where(eq(artifacts.createdInChatId, CHAT_B));
     expect(importedArtifacts).toHaveLength(1);
     expect(importedArtifacts[0]?.id).not.toBe(ARTIFACT_ID);
     expect(importedArtifacts[0]).toMatchObject({

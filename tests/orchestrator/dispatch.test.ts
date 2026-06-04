@@ -10,6 +10,7 @@ import { AdapterRegistry, createMockAdapter } from '../../src/adapters/index.js'
 import type { AgentEvent, Artifact, ArtifactId } from '../../src/contracts/index.js';
 import type { Db } from '../../src/db/index.js';
 import {
+  artifacts,
   chats,
   messages,
   pinnedMessages,
@@ -239,6 +240,84 @@ describe('runDispatch', () => {
     });
 
     expect(result.handoffCards[0]?.relevantArtifacts).toEqual([]);
+  });
+
+  it('loads workbench artifacts into reviewer handoffs across chats', async () => {
+    const client = new PGlite();
+    const db = drizzle(client, { schema });
+    const userId = '67000000-0000-4000-8000-000000000001';
+    const workbenchId = '67000000-0000-4000-8000-000000000002';
+    const sourceChatId = '67000000-0000-4000-8000-000000000003';
+    const reviewChatId = '67000000-0000-4000-8000-000000000004';
+    const artifactId = '67000000-0000-4000-8000-000000000005' as ArtifactId;
+    const registry = new AdapterRegistry();
+    registry.register(
+      createMockAdapter({ scriptedEvents: [{ type: 'done', finishReason: 'stop' }] }),
+    );
+    registry.bindRole('reviewer', 'mock');
+
+    try {
+      await migrate(db, { migrationsFolder: 'drizzle' });
+      await db.insert(users).values({
+        id: userId,
+        email: 'dispatch-workbench-artifacts@roundtable.local',
+      });
+      await db.insert(workbenches).values({
+        id: workbenchId,
+        ownerUserId: userId,
+        name: 'Dispatch workbench artifacts',
+        workspacePath: './workspaces/dispatch-workbench-artifacts',
+      });
+      await db.insert(chats).values([
+        {
+          id: sourceChatId,
+          ownerUserId: userId,
+          workbenchId,
+          title: 'Source chat',
+        },
+        {
+          id: reviewChatId,
+          ownerUserId: userId,
+          workbenchId,
+          title: 'Review chat',
+        },
+      ]);
+      await db.insert(artifacts).values({
+        id: artifactId,
+        workbenchId,
+        createdInChatId: sourceChatId,
+        kind: 'file',
+        title: 'src/shared.ts',
+        ownerAgentId: 'implementer',
+        currentVersion: 3,
+        uri: 'src/shared.ts',
+      });
+
+      const result = await runDispatch(withPlan('@reviewer', reviewChatId), {
+        registry,
+        workspaces: workspaceResolver(rootDir),
+        handoffLog: inMemoryHandoffLog(),
+        artifactDb: db,
+      });
+
+      expect(result.artifacts).toContainEqual(
+        expect.objectContaining({
+          id: artifactId,
+          title: 'src/shared.ts',
+          version: 3,
+        }),
+      );
+      expect(result.handoffCards[0]?.relevantArtifacts).toEqual([
+        {
+          id: artifactId,
+          kind: 'file',
+          title: 'src/shared.ts',
+          uri: 'src/shared.ts',
+        },
+      ]);
+    } finally {
+      await client.close();
+    }
   });
 
   it('injects workbench and chat pins into generated HandoffCards', async () => {

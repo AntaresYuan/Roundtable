@@ -108,7 +108,8 @@ async function main() {
       .values([
         {
           id: ids.artifact,
-          chatId: ids.chat,
+          workbenchId: ids.workbench,
+          createdInChatId: ids.chat,
           kind: artifactSnapshot.kind,
           title: artifactSnapshot.title,
           ownerAgentId: artifactSnapshot.ownerAgentId,
@@ -117,7 +118,8 @@ async function main() {
         },
         {
           id: dependencySnapshot.id,
-          chatId: ids.chat,
+          workbenchId: ids.workbench,
+          createdInChatId: ids.chat,
           kind: dependencySnapshot.kind,
           title: dependencySnapshot.title,
           ownerAgentId: dependencySnapshot.ownerAgentId,

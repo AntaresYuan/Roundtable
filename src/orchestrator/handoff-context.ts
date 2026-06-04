@@ -11,6 +11,7 @@ import type {
 } from '../contracts/index.js';
 import type { Db } from '../db/index.js';
 import {
+  artifacts as persistedArtifacts,
   chats,
   messages,
   pinnedMessages,
@@ -276,6 +277,52 @@ export function latestArtifactRefs(artifacts: Artifact[]): ArtifactRef[] {
     kind: artifact.kind,
     title: artifact.title,
     ...(artifact.uri !== undefined ? { uri: artifact.uri } : {}),
+  }));
+}
+
+export async function loadWorkbenchArtifactsForChat(
+  db: unknown,
+  chatId: string,
+): Promise<Artifact[]> {
+  const scopedDb = db as Pick<Db, 'select'>;
+  const [chat] = await scopedDb
+    .select({ workbenchId: chats.workbenchId })
+    .from(chats)
+    .where(eq(chats.id, chatId));
+  if (!chat) return [];
+
+  const rows = await scopedDb
+    .select({
+      id: persistedArtifacts.id,
+      kind: persistedArtifacts.kind,
+      title: persistedArtifacts.title,
+      ownerAgentId: persistedArtifacts.ownerAgentId,
+      version: persistedArtifacts.currentVersion,
+      uri: persistedArtifacts.uri,
+      preview: persistedArtifacts.preview,
+      createdAt: persistedArtifacts.createdAt,
+    })
+    .from(persistedArtifacts)
+    .where(eq(persistedArtifacts.workbenchId, chat.workbenchId)) as Array<{
+      id: string;
+      kind: Artifact['kind'];
+      title: string;
+      ownerAgentId: string;
+      version: number;
+      uri: string | null;
+      preview: string | null;
+      createdAt: Date;
+    }>;
+
+  return rows.map((row) => ({
+    id: row.id as Artifact['id'],
+    kind: row.kind,
+    title: row.title,
+    ownerAgentId: row.ownerAgentId,
+    version: row.version,
+    ...(row.uri !== null ? { uri: row.uri } : {}),
+    ...(row.preview !== null ? { preview: row.preview } : {}),
+    createdAt: row.createdAt,
   }));
 }
 

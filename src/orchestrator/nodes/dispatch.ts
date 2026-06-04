@@ -22,7 +22,10 @@ import {
   generateHandoffCard,
   type HandoffGeneratorOptions,
 } from '../handoff.js';
-import { composeHandoffContext } from '../handoff-context.js';
+import {
+  composeHandoffContext,
+  loadWorkbenchArtifactsForChat,
+} from '../handoff-context.js';
 import type { HandoffLog } from '../handoff-log.js';
 import type { DispatchRecord, OrchestratorState, PendingGate } from '../state.js';
 import { ensureWorkspace } from '../workspace.js';
@@ -58,6 +61,13 @@ export async function runDispatch(
   const cards: HandoffCard[] = [];
   const records: DispatchRecord[] = [];
   const artifacts: Artifact[] = [];
+  const persistedArtifacts = deps.artifactDb
+    ? await loadWorkbenchArtifactsForChat(deps.artifactDb, state.chatId)
+    : [];
+  const contextState: OrchestratorState = {
+    ...state,
+    artifacts: dedupeArtifacts([...persistedArtifacts, ...state.artifacts]),
+  };
 
   for (const task of state.plan.tasks) {
     const role = parseAssignee(task.assignee);
@@ -68,12 +78,12 @@ export async function runDispatch(
 
     const baseCard = await generateHandoffCard(
       {
-        state,
+        state: contextState,
         task,
         role,
         previousCards: cards,
         ...(await composeHandoffContext({
-          state,
+          state: contextState,
           task,
           role,
           previousCards: cards,
@@ -180,7 +190,7 @@ export async function runDispatch(
     ...state,
     handoffCards: [...state.handoffCards, ...cards],
     dispatch: [...state.dispatch, ...records],
-    artifacts: dedupeArtifacts([...state.artifacts, ...artifacts]),
+    artifacts: dedupeArtifacts([...contextState.artifacts, ...artifacts]),
     ...(pendingGate ? { pendingGate } : {}),
     stage: nextStage,
   };

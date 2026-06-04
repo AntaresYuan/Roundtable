@@ -1,6 +1,10 @@
 import type { AggregateSummary, OrchestratorState } from '../state.js';
+import { collectSkillProposals, type SkillProposer } from './skill-proposer.js';
 
-export function runAggregate(state: OrchestratorState): OrchestratorState {
+export async function runAggregate(
+  state: OrchestratorState,
+  proposer?: SkillProposer,
+): Promise<OrchestratorState> {
   const completed = state.dispatch.filter((d) => d.status === 'completed').length;
   const failed = state.dispatch.filter((d) => d.status === 'failed').length;
 
@@ -33,7 +37,13 @@ export function runAggregate(state: OrchestratorState): OrchestratorState {
           ],
   };
 
-  return { ...state, aggregate, stage: 'done' };
+  const proposals = await collectSkillProposals(state, proposer);
+  return {
+    ...state,
+    aggregate,
+    proposedSkills: [...state.proposedSkills, ...proposals],
+    stage: 'done',
+  };
 }
 
 function describeEvent(e: { type: string } & Record<string, unknown>): string {

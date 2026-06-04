@@ -16,6 +16,7 @@ import {
   messages,
   pinnedMessages,
   userProfiles,
+  userSkills,
   workbenchPinnedMessages,
 } from '../db/index.js';
 import type { OrchestratorState } from './state.js';
@@ -70,6 +71,7 @@ export async function composeHandoffContext(
     userIntentCandidate(input),
     taskCandidate(input),
     ...(await userProfileCandidates(input)),
+    ...(await userSkillCandidates(input)),
     ...previousCardCandidates(input.previousCards ?? []),
     ...reviewCommentCandidates(input),
     ...(await pinCandidates(input)),
@@ -158,6 +160,73 @@ async function userProfileCandidates(
       },
     },
   ];
+}
+
+/**
+ * Mount user-scoped skills (spec 100 L5 / #100) whose `trigger_hint` keyword-
+ * matches against the current task title + user message. Deterministic and
+ * audit-logged via `contextAudit.sources` — explicit alternative to RAG
+ * recall (ADR-010).
+ */
+async function userSkillCandidates(
+  input: HandoffContextInput,
+): Promise<ContextCandidate[]> {
+  if (!input.db) return [];
+
+  const [chat] = await input.db
+    .select({ ownerUserId: chats.ownerUserId })
+    .from(chats)
+    .where(eq(chats.id, input.state.chatId));
+  if (!chat) return [];
+
+  const skills = await input.db
+    .select({
+      id: userSkills.id,
+      name: userSkills.name,
+      triggerHint: userSkills.triggerHint,
+      body: userSkills.body,
+    })
+    .from(userSkills)
+    .where(eq(userSkills.ownerUserId, chat.ownerUserId));
+
+  const haystack = [
+    input.state.userMessage,
+    input.task.title,
+    input.task.assignee,
+  ]
+    .filter((s): s is string => typeof s === 'string')
+    .join(' ')
+    .toLowerCase();
+
+  const matched = skills.filter((s) => matchesTrigger(s.triggerHint, haystack));
+
+  return matched.map((skill) => {
+    const text = `${skill.name}: ${skill.body}`;
+    return {
+      source: {
+        scope: 'user' as const,
+        kind: 'mounted_skill',
+        id: skill.id,
+        label: `skill: ${skill.name}`,
+        chars: text.length,
+        included: false,
+        compacted: false,
+      },
+      apply(result, compact) {
+        const value = compact ? compactText(text, COMPACT_PIN_CHARS) : text;
+        result.taskBrief = appendSection(result.taskBrief, 'Mounted skill', value);
+      },
+    };
+  });
+}
+
+function matchesTrigger(triggerHint: string, haystack: string): boolean {
+  if (!triggerHint.trim()) return false;
+  return triggerHint
+    .split(/[,\n;]+/)
+    .map((s) => s.trim().toLowerCase())
+    .filter((s) => s.length > 0)
+    .some((kw) => haystack.includes(kw));
 }
 
 async function pinCandidates(input: HandoffContextInput): Promise<ContextCandidate[]> {

@@ -8,6 +8,7 @@ import {
   chats,
   userProfiles,
   users,
+  userSkills,
   workbenches,
   workbenchPinnedMessages,
 } from '../../src/db/schema.js';
@@ -173,6 +174,81 @@ describe('composeHandoffContext', () => {
         compacted: true,
       }),
     );
+  });
+
+  it('mounts a user skill when its trigger_hint keyword matches the task (#100)', async () => {
+    await db.insert(userSkills).values({
+      id: '71000000-0000-4000-8000-000000000301',
+      ownerUserId: USER_ID,
+      name: 'server-action form submit',
+      triggerHint: 'form submit, waitlist signup',
+      body: 'Use Next.js server actions for form submit; do not pull in client fetch.',
+    });
+
+    const result = await composeHandoffContext({
+      db,
+      state: initialState(CHAT_A, 'build a waitlist signup form'),
+      task: task('Scaffold the waitlist form'),
+      role: 'implementer',
+    });
+
+    expect(result.taskBrief).toContain('Mounted skill');
+    expect(result.taskBrief).toContain('server-action form submit');
+    expect(result.contextAudit.sources).toContainEqual(
+      expect.objectContaining({
+        kind: 'mounted_skill',
+        scope: 'user',
+        included: true,
+        label: 'skill: server-action form submit',
+      }),
+    );
+  });
+
+  it('does NOT mount a user skill whose trigger_hint does not match (no opaque recall)', async () => {
+    await db.insert(userSkills).values({
+      id: '71000000-0000-4000-8000-000000000302',
+      ownerUserId: USER_ID,
+      name: 'graphql resolver pattern',
+      triggerHint: 'graphql, resolver, apollo',
+      body: 'Use DataLoader to batch nested resolver queries.',
+    });
+
+    const result = await composeHandoffContext({
+      db,
+      state: initialState(CHAT_A, 'add a landing page hero section'),
+      task: task('Build the hero'),
+      role: 'implementer',
+    });
+
+    expect(result.taskBrief).not.toContain('graphql resolver pattern');
+    const skillSource = result.contextAudit.sources.find(
+      (s) => s.kind === 'mounted_skill',
+    );
+    expect(skillSource).toBeUndefined();
+  });
+
+  it('only mounts skills owned by the chat owner (no cross-user leak)', async () => {
+    const OTHER_USER = '71000000-0000-4000-8000-0000000000ee';
+    await db.insert(users).values({
+      id: OTHER_USER,
+      email: 'someone-else@roundtable.local',
+    });
+    await db.insert(userSkills).values({
+      id: '71000000-0000-4000-8000-000000000303',
+      ownerUserId: OTHER_USER,
+      name: "other user's secret",
+      triggerHint: 'waitlist',
+      body: 'leaked content',
+    });
+
+    const result = await composeHandoffContext({
+      db,
+      state: initialState(CHAT_A, 'build a waitlist landing page'),
+      task: task('Scaffold the waitlist page'),
+      role: 'implementer',
+    });
+
+    expect(result.taskBrief).not.toContain('leaked content');
   });
 });
 

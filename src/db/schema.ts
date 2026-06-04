@@ -460,6 +460,42 @@ export const workbenchPinnedMessages = pgTable(
   }),
 );
 
+/**
+ * User-scoped skill library (spec 100 L5 / #100). PM proposes saving useful
+ * patterns from a chat as reusable skills; the user must explicitly save
+ * (ADR-007 propose/confirm; no auto-save, no opaque RAG — ADR-010). Matched
+ * into HandoffCards by keyword `trigger_hint` for v1.
+ */
+export const userSkills = pgTable(
+  'user_skills',
+  {
+    id: uuid('id').primaryKey(),
+    ownerUserId: uuid('owner_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    triggerHint: text('trigger_hint').notNull(),
+    body: text('body').notNull(),
+    /** Where the skill was first proposed/saved from (audit). Nullable: chat may be deleted. */
+    sourceChatId: uuid('source_chat_id').references(() => chats.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    ownerIdx: index('user_skills_owner_user_id_idx').on(table.ownerUserId),
+    ownerNameIdx: uniqueIndex('user_skills_owner_name_idx').on(
+      table.ownerUserId,
+      table.name,
+    ),
+  }),
+);
+
 export const customAgents = pgTable(
   'custom_agents',
   {

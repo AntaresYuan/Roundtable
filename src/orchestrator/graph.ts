@@ -8,6 +8,7 @@ import {
   type BaseCheckpointSaver,
 } from '@langchain/langgraph';
 import type { AdapterRegistry } from '../adapters/index.js';
+import type { Db } from '../db/index.js';
 import { DependencyGraph } from './dependency-graph.js';
 import type { DependencyStore } from './dependency-store.js';
 import type { ArtifactWatcherContext } from './artifact-watcher.js';
@@ -52,6 +53,7 @@ export interface GraphDeps {
   dependencyGraph?: DependencyGraph;
   dependencyStore?: DependencyStore;
   artifactDb?: ArtifactWatcherContext['db'];
+  pinnedDb?: Db;
 }
 
 const lastWins = <T>() => ({ reducer: (_prev: T, next: T) => next });
@@ -143,6 +145,7 @@ export function buildOrchestratorGraph(deps: GraphDeps) {
         dependencyGraph,
         ...(deps.dependencyStore ? { dependencyStore: deps.dependencyStore } : {}),
         ...(deps.artifactDb ? { artifactDb: deps.artifactDb } : {}),
+        ...(deps.pinnedDb ? { pinnedDb: deps.pinnedDb } : {}),
       }),
     )
     .addNode(N.monitor, async (s: GraphState) => ({ ...s, stage: 'review' as StageId }))

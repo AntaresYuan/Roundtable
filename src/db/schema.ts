@@ -359,6 +359,42 @@ export const pinnedMessages = pgTable(
   }),
 );
 
+/**
+ * Workbench-level pinned constraints (spec 100 / #98). Project-wide rules
+ * that auto-inject into every HandoffCard in this workbench. Unlike chat-level
+ * pinned (which references a `messages` row), workbench pins carry free-form
+ * `content` because they outlive any single chat.
+ */
+export const workbenchPinnedMessages = pgTable(
+  'workbench_pinned_messages',
+  {
+    id: uuid('id').primaryKey(),
+    workbenchId: uuid('workbench_id')
+      .notNull()
+      .references(() => workbenches.id, { onDelete: 'cascade' }),
+    content: text('content').notNull(),
+    pinnedByUserId: uuid('pinned_by_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    position: integer('position').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    workbenchPositionIdx: uniqueIndex(
+      'workbench_pinned_messages_workbench_position_idx',
+    ).on(table.workbenchId, table.position),
+    workbenchIdx: index('workbench_pinned_messages_workbench_id_idx').on(
+      table.workbenchId,
+    ),
+    positionCap: check(
+      'workbench_pinned_messages_position_cap',
+      sql`${table.position} >= 0 and ${table.position} < 10`,
+    ),
+  }),
+);
+
 export const customAgents = pgTable(
   'custom_agents',
   {

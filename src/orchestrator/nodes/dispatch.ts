@@ -26,6 +26,8 @@ import {
 import type { HandoffLog } from '../handoff-log.js';
 import type { DispatchRecord, OrchestratorState, PendingGate } from '../state.js';
 import { ensureWorkspace } from '../workspace.js';
+import type { Db } from '../../db/index.js';
+import { loadPinnedForHandoff } from '../../server/pinned-helpers.js';
 
 export interface WorkspaceResolver {
   resolve(chatId: string): string;
@@ -39,6 +41,7 @@ export interface DispatchDeps {
   dependencyGraph?: DependencyGraph;
   dependencyStore?: DependencyStore;
   artifactDb?: ArtifactWatcherContext['db'];
+  pinnedDb?: Db;
 }
 
 export async function runDispatch(
@@ -70,6 +73,9 @@ export async function runDispatch(
         task,
         role,
         previousCards: cards,
+        ...(deps.pinnedDb
+          ? { pinnedMessages: await loadPinnedForHandoff(deps.pinnedDb, state.chatId) }
+          : {}),
         ...(role === 'reviewer' || role === 'fixer'
           ? { relevantArtifacts: artifactRefsForReview(state) }
           : {}),

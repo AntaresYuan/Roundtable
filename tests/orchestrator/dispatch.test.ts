@@ -8,7 +8,15 @@ import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AdapterRegistry, createMockAdapter } from '../../src/adapters/index.js';
 import type { AgentEvent, Artifact, ArtifactId } from '../../src/contracts/index.js';
-import { chats, messages, users, workbenches } from '../../src/db/schema.js';
+import type { Db } from '../../src/db/index.js';
+import {
+  chats,
+  messages,
+  pinnedMessages,
+  users,
+  workbenches,
+  workbenchPinnedMessages,
+} from '../../src/db/schema.js';
 import * as schema from '../../src/db/schema.js';
 import {
   DependencyGraph,
@@ -230,6 +238,77 @@ describe('runDispatch', () => {
     });
 
     expect(result.handoffCards[0]?.relevantArtifacts).toEqual([]);
+  });
+
+  it('injects workbench and chat pins into generated HandoffCards', async () => {
+    const client = new PGlite();
+    const db = drizzle(client, { schema });
+    const userId = '66000000-0000-4000-8000-000000000001';
+    const workbenchId = '66000000-0000-4000-8000-000000000002';
+    const chatId = '66000000-0000-4000-8000-000000000003';
+    const messageId = '66000000-0000-4000-8000-000000000004';
+    const chatPinId = '66000000-0000-4000-8000-000000000005';
+    const workbenchPinId = '66000000-0000-4000-8000-000000000006';
+    const registry = new AdapterRegistry();
+    registry.register(
+      createMockAdapter({ scriptedEvents: [{ type: 'done', finishReason: 'stop' }] }),
+    );
+    registry.bindRole('implementer', 'mock');
+
+    try {
+      await migrate(db, { migrationsFolder: 'drizzle' });
+      await db.insert(users).values({
+        id: userId,
+        email: 'dispatch-pins@roundtable.local',
+      });
+      await db.insert(workbenches).values({
+        id: workbenchId,
+        ownerUserId: userId,
+        name: 'Dispatch pins workbench',
+        workspacePath: './workspaces/dispatch-pins',
+      });
+      await db.insert(chats).values({
+        id: chatId,
+        ownerUserId: userId,
+        workbenchId,
+        title: 'Dispatch pins',
+      });
+      await db.insert(messages).values({
+        id: messageId,
+        chatId,
+        authorType: 'user',
+        authorId: userId,
+        content: 'Chat pin: validate before submit.',
+      });
+      await db.insert(workbenchPinnedMessages).values({
+        id: workbenchPinId,
+        workbenchId,
+        content: 'Project pin: use App Router.',
+        pinnedByUserId: userId,
+        position: 0,
+      });
+      await db.insert(pinnedMessages).values({
+        id: chatPinId,
+        chatId,
+        messageId,
+        pinnedByUserId: userId,
+        position: 0,
+      });
+
+      const result = await runDispatch(withPlan('@implementer', chatId), {
+        registry,
+        workspaces: workspaceResolver(rootDir),
+        handoffLog: inMemoryHandoffLog(),
+        pinnedDb: db as unknown as Db,
+      });
+
+      expect(result.handoffCards[0]?.pinnedMessages).toMatchObject([
+        { id: workbenchPinId, content: 'Project pin: use App Router.' },
+        { id: chatPinId, content: 'Chat pin: validate before submit.' },
+      ]);
+    } finally {
+      await client.close();
+    }
   });
 
   it('routes watched artifact bumps into dependency system messages when artifactDb is wired', async () => {

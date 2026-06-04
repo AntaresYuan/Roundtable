@@ -3,18 +3,29 @@ import { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { chats, messages, pinnedMessages, users, workbenches } from '../../src/db/schema.js';
+import {
+  chats,
+  messages,
+  pinnedMessages,
+  users,
+  workbenches,
+  workbenchPinnedMessages,
+} from '../../src/db/schema.js';
 import * as schema from '../../src/db/schema.js';
 import type { Db } from '../../src/db/index.js';
 import { createTRPCContext } from '../../src/server/context.js';
 import { createCaller } from '../../src/server/root.js';
 import { resetRateLimitForTests } from '../../src/server/rate-limit.js';
 import type { AuthSession } from '../../src/server/auth.js';
-import { loadPinnedForHandoff } from '../../src/server/pinned-helpers.js';
+import {
+  loadPinnedForHandoff,
+  PINNED_HANDOFF_CAP,
+} from '../../src/server/pinned-helpers.js';
 import { PIN_CAP_PER_CHAT } from '../../src/server/routers/pinned.js';
 
 const USER_ID = '40000000-0000-4000-8000-000000000001';
 const CHAT_ID = '40000000-0000-4000-8000-000000000099';
+const WORKBENCH_A_CHAT_B = '40000000-0000-4000-8000-000000000077';
 const OTHER_CHAT_ID = '40000000-0000-4000-8000-000000000088';
 const WORKBENCH_A = '40000000-0000-4000-8000-0000000000a1';
 const WORKBENCH_B = '40000000-0000-4000-8000-0000000000a2';
@@ -50,6 +61,12 @@ async function buildCaller() {
       ownerUserId: USER_ID,
       workbenchId: WORKBENCH_A,
       title: 'pin test chat',
+    },
+    {
+      id: WORKBENCH_A_CHAT_B,
+      ownerUserId: USER_ID,
+      workbenchId: WORKBENCH_A,
+      title: 'pin test chat b',
     },
     {
       id: OTHER_CHAT_ID,
@@ -272,6 +289,130 @@ describe('pinnedRouter', () => {
   });
 });
 
+describe('workbenchPinnedRouter', () => {
+  let env: Awaited<ReturnType<typeof buildCaller>>;
+  beforeEach(async () => {
+    env = await buildCaller();
+  });
+  afterEach(async () => {
+    await env.client.close();
+  });
+
+  it('pins free-form project constraints and lists them by position', async () => {
+    const r1 = await env.caller.workbenchPinned.pin({
+      workbenchId: WORKBENCH_A,
+      content: 'Use Next.js App Router.',
+    });
+    const r2 = await env.caller.workbenchPinned.pin({
+      workbenchId: WORKBENCH_A,
+      content: 'Deploy preview only after review.',
+    });
+
+    expect(r1.ok).toBe(true);
+    expect(r2.ok).toBe(true);
+    const listed = await env.caller.workbenchPinned.list({
+      workbenchId: WORKBENCH_A,
+    });
+    expect(listed.map((p) => p.content)).toEqual([
+      'Use Next.js App Router.',
+      'Deploy preview only after review.',
+    ]);
+  });
+
+  it('replacePin is idempotent when the new content is already pinned', async () => {
+    const oldPin = await env.caller.workbenchPinned.pin({
+      workbenchId: WORKBENCH_A,
+      content: 'Old project rule.',
+    });
+    const existing = await env.caller.workbenchPinned.pin({
+      workbenchId: WORKBENCH_A,
+      content: 'Already project-wide.',
+    });
+    expect(oldPin.ok).toBe(true);
+    expect(existing.ok).toBe(true);
+    if (!oldPin.pin || !existing.pin) return;
+
+    const result = await env.caller.workbenchPinned.replacePin({
+      workbenchId: WORKBENCH_A,
+      evictId: oldPin.pin.id,
+      content: 'Already project-wide.',
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.pin) return;
+    expect(result.pin.id).toBe(existing.pin.id);
+    const listed = await env.caller.workbenchPinned.list({
+      workbenchId: WORKBENCH_A,
+    });
+    expect(listed.map((p) => p.content).sort()).toEqual(
+      ['Already project-wide.', 'Old project rule.'].sort(),
+    );
+  });
+
+  it('explicitly promotes a chat pin to the chat workbench', async () => {
+    const messageId = await insertMessage(env.db, 'Always validate email.');
+    const pinResult = await env.caller.pinned.pin({ chatId: CHAT_ID, messageId });
+    expect(pinResult.ok).toBe(true);
+    if (!pinResult.ok) return;
+
+    const promoted = await env.caller.workbenchPinned.promoteFromChat({
+      workbenchId: WORKBENCH_A,
+      chatPinId: pinResult.pin.id,
+    });
+
+    expect(promoted.ok).toBe(true);
+    const listed = await env.caller.workbenchPinned.list({
+      workbenchId: WORKBENCH_A,
+    });
+    expect(listed.map((p) => p.content)).toEqual(['Always validate email.']);
+    expect(await env.caller.pinned.list({ chatId: CHAT_ID })).toHaveLength(1);
+  });
+
+  it('promoting an already project-pinned chat pin is idempotent', async () => {
+    const messageId = await insertMessage(env.db, 'Already a project rule.');
+    const chatPin = await env.caller.pinned.pin({ chatId: CHAT_ID, messageId });
+    const existing = await env.caller.workbenchPinned.pin({
+      workbenchId: WORKBENCH_A,
+      content: 'Already a project rule.',
+    });
+    expect(chatPin.ok).toBe(true);
+    expect(existing.ok).toBe(true);
+    if (!chatPin.ok || !existing.pin) return;
+
+    const promoted = await env.caller.workbenchPinned.promoteFromChat({
+      workbenchId: WORKBENCH_A,
+      chatPinId: chatPin.pin.id,
+    });
+
+    expect(promoted.ok).toBe(true);
+    if (!promoted.ok) return;
+    const promotedPin = promoted.pin;
+    if (!promotedPin) return;
+    expect(promotedPin.id).toBe(existing.pin.id);
+    const listed = await env.caller.workbenchPinned.list({
+      workbenchId: WORKBENCH_A,
+    });
+    expect(listed).toHaveLength(1);
+  });
+
+  it('rejects promotion into a different workbench', async () => {
+    const messageId = await insertMessage(env.db, 'Project A only.');
+    const pinResult = await env.caller.pinned.pin({ chatId: CHAT_ID, messageId });
+    expect(pinResult.ok).toBe(true);
+    if (!pinResult.ok) return;
+
+    const promoted = await env.caller.workbenchPinned.promoteFromChat({
+      workbenchId: WORKBENCH_B,
+      chatPinId: pinResult.pin.id,
+    });
+
+    expect(promoted).toEqual({
+      ok: false,
+      error: 'workbench_mismatch',
+    });
+  });
+});
+
 describe('loadPinnedForHandoff', () => {
   let env: Awaited<ReturnType<typeof buildCaller>>;
   beforeEach(async () => {
@@ -298,5 +439,69 @@ describe('loadPinnedForHandoff', () => {
   it('returns [] for a chat with no pins', async () => {
     const result = await loadPinnedForHandoff(env.db, CHAT_ID);
     expect(result).toEqual([]);
+  });
+
+  it('inherits workbench pins into every chat in that workbench', async () => {
+    await env.caller.workbenchPinned.pin({
+      workbenchId: WORKBENCH_A,
+      content: 'Project rule: use App Router.',
+    });
+    const chatAMessage = await insertMessage(env.db, 'Chat A task rule.', CHAT_ID);
+    const chatBMessage = await insertMessage(
+      env.db,
+      'Chat B task rule.',
+      WORKBENCH_A_CHAT_B,
+    );
+    await env.caller.pinned.pin({ chatId: CHAT_ID, messageId: chatAMessage });
+    await env.caller.pinned.pin({
+      chatId: WORKBENCH_A_CHAT_B,
+      messageId: chatBMessage,
+    });
+
+    await expect(loadPinnedForHandoff(env.db, CHAT_ID)).resolves.toMatchObject([
+      { content: 'Project rule: use App Router.' },
+      { content: 'Chat A task rule.' },
+    ]);
+    await expect(
+      loadPinnedForHandoff(env.db, WORKBENCH_A_CHAT_B),
+    ).resolves.toMatchObject([
+      { content: 'Project rule: use App Router.' },
+      { content: 'Chat B task rule.' },
+    ]);
+  });
+
+  it('does not inherit pins across workbenches', async () => {
+    await env.caller.workbenchPinned.pin({
+      workbenchId: WORKBENCH_A,
+      content: 'Project A only.',
+    });
+
+    await expect(loadPinnedForHandoff(env.db, OTHER_CHAT_ID)).resolves.toEqual([]);
+  });
+
+  it('keeps chat-level pins when merged pins exceed the HandoffCard cap', async () => {
+    for (let i = 0; i < PINNED_HANDOFF_CAP; i++) {
+      await env.db.insert(workbenchPinnedMessages).values({
+        id: randomUUID(),
+        workbenchId: WORKBENCH_A,
+        content: `project ${i}`,
+        pinnedByUserId: USER_ID,
+        position: i,
+      });
+    }
+    for (let i = 0; i < 3; i++) {
+      const id = await insertMessage(env.db, `chat ${i}`);
+      await env.caller.pinned.pin({ chatId: CHAT_ID, messageId: id });
+    }
+
+    const result = await loadPinnedForHandoff(env.db, CHAT_ID);
+
+    expect(result).toHaveLength(PINNED_HANDOFF_CAP);
+    expect(result.slice(-3).map((p) => p.content)).toEqual([
+      'chat 0',
+      'chat 1',
+      'chat 2',
+    ]);
+    expect(result.map((p) => p.content)).not.toContain('project 9');
   });
 });

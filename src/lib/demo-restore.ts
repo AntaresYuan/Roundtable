@@ -154,10 +154,12 @@ export async function restoreDemo(db: Db, seed: DemoSeed): Promise<void> {
       );
     }
     if (seed.artifacts.length > 0) {
+      const chatWorkbenches = new Map(seed.chats.map((c) => [c.id, c.workbenchId]));
       await tx.insert(artifacts).values(
         seed.artifacts.map((a) => ({
           id: a.id,
-          chatId: a.chatId,
+          workbenchId: chatWorkbenches.get(a.chatId),
+          createdInChatId: a.chatId,
           kind: a.kind,
           title: a.title,
           ownerAgentId: a.ownerAgentId,

@@ -14,7 +14,7 @@ import {
   PortableHandoffCardSchema,
 } from '../contracts/index.js';
 import type { Db } from '../db/index.js';
-import { artifacts, artifactVersions, handoffs, messages } from '../db/index.js';
+import { artifacts, artifactVersions, chats, handoffs, messages } from '../db/index.js';
 
 /**
  * Build a self-contained PortableHandoffCard from a chat's most recent
@@ -141,12 +141,13 @@ export async function injectPortableCard(
 type ImportedArtifactMap = Map<ArtifactId, ArtifactRef>;
 
 async function importInlinedArtifacts(
-  db: Pick<Db, 'insert'>,
+  db: Pick<Db, 'insert' | 'select'>,
   targetChatId: ChatId,
   portable: PortableHandoffCard,
   now: () => Date,
 ): Promise<ImportedArtifactMap> {
   const imported = new Map<ArtifactId, ArtifactRef>();
+  const targetWorkbenchId = await workbenchIdForChat(db, targetChatId);
 
   for (const artifact of portable.inlinedArtifacts) {
     const importedId = randomUUID() as ArtifactId;
@@ -166,7 +167,8 @@ async function importInlinedArtifacts(
 
     await db.insert(artifacts).values({
       id: importedId,
-      chatId: targetChatId,
+      workbenchId: targetWorkbenchId,
+      createdInChatId: targetChatId,
       kind: artifact.kind,
       title: artifact.title,
       ownerAgentId: artifact.ownerAgentId,
@@ -210,6 +212,7 @@ async function loadArtifactSnapshots(
   chatId: ChatId,
   ids: ArtifactId[],
 ): Promise<InlinedArtifact[]> {
+  const sourceWorkbenchId = await workbenchIdForChat(db, chatId);
   // `artifacts.id` is `uuid` in the DB; the contract brand `ArtifactId` is
   // just a string, so the cast is safe at the query boundary.
   const rows = await db
@@ -225,7 +228,7 @@ async function loadArtifactSnapshots(
     .from(artifacts)
     .where(
       and(
-        eq(artifacts.chatId, chatId),
+        eq(artifacts.workbenchId, sourceWorkbenchId),
         inArray(artifacts.id, ids as unknown as string[]),
       ),
     );
@@ -243,6 +246,20 @@ async function loadArtifactSnapshots(
     // carries whatever preview + uri the source had; reconstructing full
     // content is left to a later iteration if the demo proves it's needed.
   }));
+}
+
+async function workbenchIdForChat(
+  db: Pick<Db, 'select'>,
+  chatId: ChatId,
+): Promise<string> {
+  const [chat] = await db
+    .select({ workbenchId: chats.workbenchId })
+    .from(chats)
+    .where(eq(chats.id, chatId));
+  if (!chat) {
+    throw new TRPCError({ code: 'NOT_FOUND', message: 'Chat not found' });
+  }
+  return chat.workbenchId;
 }
 
 function buildImportNotice(portable: PortableHandoffCard): string {

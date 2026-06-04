@@ -16,6 +16,7 @@ import {
 const ids = {
   user: '41000000-0000-4000-8000-000000000001',
   chat: '41000000-0000-4000-8000-000000000002',
+  otherChat: '41000000-0000-4000-8000-000000000004',
   workbench: '41000000-0000-4000-8000-000000000003',
 };
 
@@ -38,12 +39,20 @@ describe('ArtifactWatcher', () => {
       name: 'Artifact watcher workbench',
       workspacePath: './workspaces/artifact-watcher',
     });
-    await db.insert(chats).values({
-      id: ids.chat,
-      ownerUserId: ids.user,
-      workbenchId: ids.workbench,
-      title: 'Artifact watcher',
-    });
+    await db.insert(chats).values([
+      {
+        id: ids.chat,
+        ownerUserId: ids.user,
+        workbenchId: ids.workbench,
+        title: 'Artifact watcher',
+      },
+      {
+        id: ids.otherChat,
+        ownerUserId: ids.user,
+        workbenchId: ids.workbench,
+        title: 'Artifact watcher follow-up',
+      },
+    ]);
   });
 
   afterEach(async () => {
@@ -88,6 +97,8 @@ describe('ArtifactWatcher', () => {
 
     const [stored] = await db.select().from(artifacts);
     expect(stored).toMatchObject({
+      workbenchId: ids.workbench,
+      createdInChatId: ids.chat,
       kind: 'code',
       currentVersion: 1,
       uri: 'src/server/router.ts',
@@ -136,6 +147,59 @@ describe('ArtifactWatcher', () => {
       .from(artifactVersions)
       .where(eq(artifactVersions.artifactId, stored?.id ?? ''));
     expect(versions.map((version) => version.parentVersion)).toEqual([null, 1]);
+  });
+
+  it('increments the same artifact across chats in one workbench', async () => {
+    const first = await watchArtifactEvents(
+      [
+        {
+          type: 'file_change',
+          path: 'src/shared.ts',
+          kind: 'create',
+          diff: '+export const shared = 1;',
+        },
+        { type: 'done' },
+      ],
+      { db, chatId: ids.chat, ownerAgentId: 'implementer' },
+    );
+    const firstArtifact = first.find((event) => event.type === 'artifact');
+
+    const second = await watchArtifactEvents(
+      [
+        {
+          type: 'file_change',
+          path: 'src/shared.ts',
+          kind: 'edit',
+          diff: '+export const shared = 2;',
+        },
+        { type: 'done' },
+      ],
+      { db, chatId: ids.otherChat, ownerAgentId: 'fixer' },
+    );
+    const secondArtifact = second.find((event) => event.type === 'artifact');
+
+    expect(firstArtifact).toMatchObject({
+      type: 'artifact',
+      artifact: { version: 1, uri: 'src/shared.ts' },
+    });
+    expect(secondArtifact).toMatchObject({
+      type: 'artifact',
+      artifact: {
+        id: firstArtifact?.type === 'artifact' ? firstArtifact.artifact.id : '',
+        version: 2,
+        uri: 'src/shared.ts',
+      },
+    });
+
+    const [stored] = await db
+      .select()
+      .from(artifacts)
+      .where(eq(artifacts.uri, 'src/shared.ts'));
+    expect(stored).toMatchObject({
+      workbenchId: ids.workbench,
+      createdInChatId: ids.chat,
+      currentVersion: 2,
+    });
   });
 
   it('infers markdown artifacts from single markdown files', async () => {

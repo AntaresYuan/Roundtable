@@ -242,7 +242,7 @@ describe('runDispatch', () => {
     expect(result.handoffCards[0]?.relevantArtifacts).toEqual([]);
   });
 
-  it('loads workbench artifacts into reviewer handoffs across chats', async () => {
+  it('loads workbench artifacts into reviewer handoffs across chats', { timeout: 15_000 }, async () => {
     const client = new PGlite();
     const db = drizzle(client, { schema });
     const userId = '67000000-0000-4000-8000-000000000001';

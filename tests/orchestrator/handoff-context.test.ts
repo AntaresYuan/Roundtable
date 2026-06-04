@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { eq } from 'drizzle-orm';
 import { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
@@ -225,6 +226,49 @@ describe('composeHandoffContext', () => {
       (s) => s.kind === 'mounted_skill',
     );
     expect(skillSource).toBeUndefined();
+  });
+
+  it('spec 100 invariant 5: updating user_profile after a HandoffCard is composed does NOT retroactively change it (snapshot-on-compose)', async () => {
+    // Compose a HandoffCard with the user profile at version "v1".
+    await db.insert(userProfiles).values({
+      userId: USER_ID,
+      defaultBrief: 'v1: prefer server components',
+    });
+
+    const first = await composeHandoffContext({
+      db,
+      state: initialState(CHAT_A, 'build a feature'),
+      task: task('Initial composition'),
+      role: 'implementer',
+    });
+
+    expect(first.taskBrief).toContain('v1: prefer server components');
+    expect(first.taskBrief).not.toContain('v2');
+    const firstSnapshot = first.taskBrief;
+
+    // User edits their profile mid-run. The composed card already in flight
+    // must NOT be mutated. Spec 100 invariant 5: "mutating a higher-scope
+    // value affects new dispatches only; in-flight runs keep the snapshot
+    // they started with."
+    await db
+      .update(userProfiles)
+      .set({ defaultBrief: 'v2: prefer client components' })
+      .where(eq(userProfiles.userId, USER_ID));
+
+    // Snapshot integrity: nothing about `first` should have changed.
+    expect(first.taskBrief).toBe(firstSnapshot);
+    expect(first.taskBrief).toContain('v1: prefer server components');
+    expect(first.taskBrief).not.toContain('v2: prefer client components');
+
+    // Sanity: a *new* composition picks up the v2 brief (downward inheritance
+    // is automatic but only at compose time, not retroactive).
+    const second = await composeHandoffContext({
+      db,
+      state: initialState(CHAT_A, 'build a feature'),
+      task: task('Second composition after profile update'),
+      role: 'implementer',
+    });
+    expect(second.taskBrief).toContain('v2: prefer client components');
   });
 
   it('only mounts skills owned by the chat owner (no cross-user leak)', async () => {

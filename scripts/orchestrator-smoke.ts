@@ -48,6 +48,11 @@ try {
   registry.bindRole('implementer', 'mock-implementer');
   registry.bindRole('reviewer', 'mock-reviewer');
 
+  // NOTE (spec 100 / #119): real production callers should pass
+  // `skillProposer: llmSkillProposer()` so the PM emits propose_skill events
+  // at aggregate. This smoke script intentionally skips it (mock adapters
+  // don't produce meaningful patterns to propose, and we don't want to
+  // require an Anthropic API key for smoke tests).
   const state = await runOrchestrator(
     {
       chatId: 'smoke-chat',

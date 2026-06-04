@@ -13,6 +13,8 @@ import { RoundtableScene, WhiteboardZoom, sceneAt, meetingNotes } from './roundt
 import { WorkflowView, WorkflowStrip } from './workflow';
 import { Modal, NewTaskModal, NewWorkbenchModal, AddAgentModal, EditHandoffModal } from './modals';
 import { DependencyGraphSidebar } from './dep-graph';
+import { useSession } from 'next-auth/react';
+import { trpc } from '@/ui/lib/trpc';
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -971,7 +973,16 @@ function App() {
   const [inspectorW, setInspectorW] = useState(392);
   const [zoomWB, setZoomWB] = useState(false);
   const [memberIds, setMemberIds] = useState(RT.WORKBENCH.members);
-  const [tasks, setTasks] = useState(RT.TASKS);
+  // P3.2: live chats when signed in; fall back to fixtures for the logged-out demo.
+  const { status: authStatus } = useSession();
+  const authed = authStatus === 'authenticated';
+  const chatsQ = trpc.chats.list.useQuery(undefined, { enabled: authed });
+  const trpcUtils = trpc.useUtils();
+  const createChat = trpc.chats.create.useMutation({ onSuccess: () => trpcUtils.chats.list.invalidate() });
+  const tasks =
+    authed && chatsQ.data
+      ? chatsQ.data.map((c) => ({ id: c.id, title: c.title, meta: c.workspacePath, status: 'idle' }))
+      : RT.TASKS;
   const agents = useMemo(() => palettize(t.palette), [t.palette, memberIds]);
   const scene = useScene(t.autoplay, t.speed);
   const compact = useMediaQuery('(max-width: 760px)');
@@ -1109,9 +1120,8 @@ function App() {
         onClose={() => setDmAgent(null)} />}
       {modal === 'task' && <NewTaskModal workbench={RT.WORKBENCH} members={memberIds} agents={agents}
         onClose={() => setModal(null)} onCreate={(goal) => {
-          setTasks((ts) => [{ id: 'new-' + Date.now(), title: goal.length > 40 ? goal.slice(0, 40) + '…' : goal, meta: 'just now · queued', status: 'queued' }, ...ts]);
+          if (authed) createChat.mutate({ title: goal.slice(0, 160), workspacePath: `workspaces/${Date.now()}` });
           setModal(null);
-          scene.replay();
         }} />}
       {modal === 'table' && <NewWorkbenchModal agents={agents} onClose={() => setModal(null)} onCreate={() => { setView('workflow'); setModal(null); }} />}
       {modal === 'agent' && <AddAgentModal onClose={() => setModal(null)} onAdd={({ role, name, color }) => {

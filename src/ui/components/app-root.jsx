@@ -638,9 +638,12 @@ function FileRow({ art, agents, onOpen }) {
     </button>
   );
 }
-function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifact, onAction, onClose }) {
+function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifact, onAction, onClose, liveArtifacts }) {
   const placed = sceneAt(clock).placed;
-  const created = placed.map((p) => p.art);
+  // P3.2: real artifacts for the selected chat when signed in; else the scripted scene.
+  const created = liveArtifacts
+    ? liveArtifacts.map((a) => ({ ...a, version: a.currentVersion, source: a.source ?? 'generated' }))
+    : placed.map((p) => p.art);
   const provided = [RT.ARTIFACTS.brief];
   const notes = meetingNotes(clock);
   const tabBtn = (id, label) => (
@@ -983,6 +986,13 @@ function App() {
     authed && chatsQ.data
       ? chatsQ.data.map((c) => ({ id: c.id, title: c.title, meta: c.workspacePath, status: 'idle' }))
       : RT.TASKS;
+  const [selectedChatId, setSelectedChatId] = useState(null);
+  const activeChatId = selectedChatId ?? (authed && chatsQ.data?.[0]?.id) ?? null;
+  const artifactsQ = trpc.artifacts.listByChat.useQuery(
+    { chatId: activeChatId ?? '' },
+    { enabled: authed && !!activeChatId },
+  );
+  const liveArtifacts = authed && artifactsQ.data ? artifactsQ.data : null;
   const agents = useMemo(() => palettize(t.palette), [t.palette, memberIds]);
   const scene = useScene(t.autoplay, t.speed);
   const compact = useMediaQuery('(max-width: 760px)');
@@ -1028,7 +1038,7 @@ function App() {
       <TopBar t={t} setTweak={setTweak} view={view} setView={setView} />
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         {railOpen && !compact && <ConversationRail workbench={RT.WORKBENCH} workbenches={RT.WORKBENCHES}
-          tasks={tasks} agents={agents} activeId={tasks[0] && tasks[0].id} onPick={() => {}}
+          tasks={tasks} agents={agents} activeId={activeChatId} onPick={setSelectedChatId}
           memberIds={memberIds} onRemoveMember={(id) => setMemberIds((m) => m.filter((x) => x !== id))}
           onAddMember={() => setModal('agent')} onNewTask={() => setModal('task')} onNewWorkbench={() => setModal('table')}
           onPickWorkbench={() => {}} onCollapse={() => setRailOpen(false)} />}
@@ -1037,7 +1047,7 @@ function App() {
             onClick={() => setRailOpen(false)}>
             <div onClick={(e) => e.stopPropagation()} style={{ width: 'min(320px, 86vw)', height: '100%' }}>
               <ConversationRail workbench={RT.WORKBENCH} workbenches={RT.WORKBENCHES}
-                tasks={tasks} agents={agents} activeId={tasks[0] && tasks[0].id} onPick={() => {}}
+                tasks={tasks} agents={agents} activeId={activeChatId} onPick={setSelectedChatId}
                 memberIds={memberIds} onRemoveMember={(id) => setMemberIds((m) => m.filter((x) => x !== id))}
                 onAddMember={() => setModal('agent')} onNewTask={() => setModal('task')} onNewWorkbench={() => setModal('table')}
                 onPickWorkbench={() => {}} onCollapse={() => setRailOpen(false)} />
@@ -1097,7 +1107,7 @@ function App() {
                 </div>
                 {notesOpen && !compact && <ResizeHandle onResize={(dx) => setInspectorW((w) => Math.max(300, Math.min(640, w + dx)))} />}
                 {notesOpen && <InspectorPanel tab={inspectorTab} setTab={setInspectorTab} clock={scene.clock} width={compact ? 'min(100vw, 420px)' : inspectorW}
-                  agents={agents} scene={scene} onOpenArtifact={setDrawerArt} onAction={onAction} onClose={() => setNotesOpen(false)} />}
+                  agents={agents} scene={scene} liveArtifacts={liveArtifacts} onOpenArtifact={setDrawerArt} onAction={onAction} onClose={() => setNotesOpen(false)} />}
               </div>
               <Dock st={st} agents={agents} scene={scene} onAction={onAction}
                 onOpenChat={() => { setInspectorTab('chat'); setNotesOpen(true); }}

@@ -18,6 +18,7 @@ export interface ClaudeCodeAdapterConfig {
   avatar?: string;
   command?: string;
   extraArgs?: readonly string[];
+  isolateConfig?: boolean;
   /** Test seam: inject a fake spawner for unit tests. */
   spawner?: (opts: SpawnCliOpts) => CliProcess;
 }
@@ -36,6 +37,7 @@ export function createClaudeCodeAdapter(config: ClaudeCodeAdapterConfig = {}): A
   const command = config.command ?? 'claude';
   const spawner = config.spawner ?? spawnCli;
   const extraArgs = config.extraArgs ?? [];
+  const isolateConfig = config.isolateConfig ?? true;
 
   return {
     id,
@@ -43,7 +45,7 @@ export function createClaudeCodeAdapter(config: ClaudeCodeAdapterConfig = {}): A
     avatar: config.avatar ?? '🤖',
     capabilities: CAPABILITIES,
     async createSession(opts: SessionOpts): Promise<AgentSession> {
-      return createSession(id, command, extraArgs, spawner, opts);
+      return createSession(id, command, extraArgs, isolateConfig, spawner, opts);
     },
   };
 }
@@ -52,6 +54,7 @@ function createSession(
   adapterId: string,
   command: string,
   extraArgs: readonly string[],
+  isolateConfig: boolean,
   spawner: (opts: SpawnCliOpts) => CliProcess,
   opts: SessionOpts,
 ): AgentSession {
@@ -62,8 +65,6 @@ function createSession(
     'stream-json',
     '--input-format',
     'stream-json',
-    '--cwd',
-    opts.cwd,
     '--verbose',
   ];
   if (opts.systemPrompt) {
@@ -84,12 +85,12 @@ function createSession(
     command,
     args,
     cwd: opts.cwd,
-    env: { CLAUDE_CONFIG_DIR: sessionDir },
+    ...(isolateConfig ? { env: { CLAUDE_CONFIG_DIR: sessionDir } } : {}),
   });
   let serverSessionId: string | undefined;
   let started = false;
   const normalizeCtx: NormalizeContext = {
-    ownerAgentId: adapterId,
+    ownerAgentId: opts.role,
     pendingToolUses: new Map(),
   };
   normalizeCtx.onSessionId = (id) => {
@@ -98,6 +99,8 @@ function createSession(
   };
 
   async function* run(input: UserInput): AsyncIterable<AgentEvent> {
+    let emittedTerminalEvent = false;
+    let emittedAnyEvent = false;
     try {
       const payload = JSON.stringify({
         type: 'user',
@@ -110,8 +113,20 @@ function createSession(
         if (serverSessionId !== undefined) normalizeCtx.sessionId = serverSessionId;
         const events = normalizeStreamJsonLine(line, normalizeCtx);
         for (const event of events) {
+          emittedAnyEvent = true;
+          if (event.type === 'done' || event.type === 'error') emittedTerminalEvent = true;
           yield event;
           if (event.type === 'done' || event.type === 'error') return;
+        }
+      }
+      if (!emittedTerminalEvent) {
+        const stderr = proc.stderrSnapshot().trim();
+        if (stderr || !emittedAnyEvent) {
+          yield {
+            type: 'error',
+            message: stderr || 'claude_code_exited_without_events',
+            recoverable: false,
+          };
         }
       }
     } catch (err) {

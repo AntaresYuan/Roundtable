@@ -13,6 +13,7 @@ export interface MockAdapterConfig {
   displayName?: string;
   avatar?: string;
   scriptedEvents?: AgentEvent[];
+  onSend?: (input: UserInput, opts: SessionOpts) => void | Promise<void>;
 }
 
 const DEFAULT_SCRIPT: AgentEvent[] = [
@@ -40,7 +41,7 @@ export function createMockAdapter(config: MockAdapterConfig = {}): AgentAdapter 
     avatar: config.avatar ?? '🧪',
     capabilities: CAPABILITIES,
     async createSession(opts: SessionOpts): Promise<AgentSession> {
-      return createMockSession(id, opts, script);
+      return createMockSession(id, opts, script, config.onSend);
     },
   };
 }
@@ -49,6 +50,7 @@ function createMockSession(
   adapterId: string,
   opts: SessionOpts,
   script: AgentEvent[],
+  onSend: MockAdapterConfig['onSend'],
 ): AgentSession {
   let interrupted = false;
   const sessionId = opts.sessionId ?? (randomUUID() as string);
@@ -57,7 +59,8 @@ function createMockSession(
     id: sessionId,
     adapterId,
     cwd: opts.cwd,
-    async *send(_input: UserInput): AsyncIterable<AgentEvent> {
+    async *send(input: UserInput): AsyncIterable<AgentEvent> {
+      await onSend?.(input, opts);
       for (const event of script) {
         if (interrupted) {
           yield { type: 'error', message: 'interrupted', recoverable: false };

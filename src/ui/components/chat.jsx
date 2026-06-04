@@ -263,6 +263,11 @@ function ConversationRail({ workbench, workbenches, tasks, agents, activeId, onP
   const dot = { live: 'var(--run)', done: 'var(--ok)', queued: 'var(--warn)', idle: 'var(--text-faint)' };
   const [wbMenu, setWbMenu] = useState(false);
   const members = (memberIds || workbench?.members || []).map((id) => agents[id]).filter(Boolean);
+  const taskMeta = (meta) => {
+    if (!meta) return '';
+    if (String(meta).trim().startsWith('[') || String(meta).length > 96) return 'Needs attention · details in chat';
+    return meta;
+  };
   return (
     <div style={{ width: 256, flexShrink: 0, background: 'var(--surface)', borderRight: '1px solid var(--border)',
       display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -355,7 +360,8 @@ function ConversationRail({ workbench, workbenches, tasks, agents, activeId, onP
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: active ? 600 : 500, overflow: 'hidden',
                   textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.title}</div>
-                <div style={{ fontSize: 11.5, color: 'var(--text-faint)' }}>{c.meta}</div>
+                <div title={c.meta} style={{ fontSize: 11.5, color: 'var(--text-faint)', overflow: 'hidden',
+                  textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{taskMeta(c.meta)}</div>
               </div>
             </button>
           );

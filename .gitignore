@@ -40,6 +40,10 @@ coverage/
 workspaces/
 tmp/
 
+# local-only workflow helpers
+scripts/roundtable-cli.ts
+.playwright-mcp/
+
 # db
 *.db
 *.sqlite

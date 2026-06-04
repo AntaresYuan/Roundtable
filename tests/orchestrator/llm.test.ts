@@ -224,6 +224,25 @@ describe('llmPlanner', () => {
     expect(plan.tasks[1]?.deps).toEqual(['T1']);
   });
 
+  it('normalizes numeric structured deps from compatible providers', async () => {
+    const planner = llmPlanner({
+      model: mockObjectModel({
+        tasks: [
+          { title: 'Build page', assignee: '@implementer', deps: [], user_visible: true },
+          { title: 'Review page', assignee: '@reviewer', deps: [1], user_visible: true },
+        ],
+      }),
+      fallback: {
+        async buildPlan() {
+          throw new Error('role fallback should not run');
+        },
+      },
+    });
+
+    const plan = await planner.buildPlan(initialState('c1', 'build page'));
+    expect(plan.tasks[1]?.deps).toEqual(['T1']);
+  });
+
   it('normalizes zero-based numeric JSON text deps', async () => {
     const planner = llmPlanner({
       model: mockObjectFailureThenTextModel({

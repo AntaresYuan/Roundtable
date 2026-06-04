@@ -136,6 +136,133 @@ describe('runDispatch', () => {
     expect(result.artifacts).toEqual([a1, a2]);
   });
 
+  it('sends the task brief plus user intent to adapter sessions', async () => {
+    const sentInputs: string[] = [];
+    const registry = new AdapterRegistry();
+    registry.register(
+      createMockAdapter({
+        scriptedEvents: [{ type: 'done', finishReason: 'stop' }],
+        onSend(input) {
+          sentInputs.push(input.text);
+        },
+      }),
+    );
+    registry.bindRole('implementer', 'mock');
+
+    await runDispatch(withPlan('@implementer'), {
+      registry,
+      workspaces: workspaceResolver(rootDir),
+      handoffLog: inMemoryHandoffLog(),
+    });
+
+    expect(sentInputs).toHaveLength(1);
+    expect(sentInputs[0]).toContain('Do the work');
+    expect(sentInputs[0]).toContain('User intent:');
+    expect(sentInputs[0]).toContain('build a page');
+  });
+
+  it('passes artifacts from earlier same-run tasks into reviewer handoffs', async () => {
+    const emittedArtifact = artifact('art-1', 1, 'implementer', 'LandingPage.tsx');
+    const sentInputs: Array<{ role: string; text: string }> = [];
+    const registry = new AdapterRegistry();
+    registry.register(
+      createMockAdapter({
+        scriptedEvents: [
+          { type: 'artifact', artifact: emittedArtifact },
+          { type: 'done', finishReason: 'stop' },
+        ],
+        onSend(input, opts) {
+          sentInputs.push({ role: opts.role, text: input.text });
+        },
+      }),
+    );
+    registry.bindRole('implementer', 'mock');
+    registry.bindRole('reviewer', 'mock');
+
+    const result = await runDispatch(withPlanTasks([
+      {
+        id: 'T1',
+        title: 'Build the landing page',
+        assignee: '@implementer',
+        deps: [],
+        user_visible: true,
+        status: 'pending' as const,
+      },
+      {
+        id: 'T2',
+        title: 'Review the landing page',
+        assignee: '@reviewer',
+        deps: ['T1'],
+        user_visible: true,
+        status: 'pending' as const,
+      },
+    ]), {
+      registry,
+      workspaces: workspaceResolver(rootDir),
+      handoffLog: inMemoryHandoffLog(),
+    });
+
+    expect(result.handoffCards[1]?.relevantArtifacts).toEqual([
+      { id: emittedArtifact.id, kind: emittedArtifact.kind, title: emittedArtifact.title },
+    ]);
+    const reviewerInput = sentInputs.find((input) => input.role === 'reviewer');
+    expect(reviewerInput?.text).toContain('Relevant artifacts:');
+    expect(reviewerInput?.text).toContain('LandingPage.tsx');
+  });
+
+  it('runs dependency-ready parallel tasks in the same dispatch wave', async () => {
+    const starts: string[] = [];
+    const finishes: string[] = [];
+    const registry = new AdapterRegistry();
+    registry.register(
+      createMockAdapter({
+        scriptedEvents: [{ type: 'done', finishReason: 'stop' }],
+        async onSend(input) {
+          const firstLine = input.text.split('\n')[0] ?? '';
+          starts.push(firstLine);
+          await new Promise((resolve) => setTimeout(resolve, 25));
+          finishes.push(firstLine);
+        },
+      }),
+    );
+    registry.bindRole('implementer', 'mock');
+
+    const run = runDispatch(withPlanTasks([
+      {
+        id: 'T1',
+        title: 'Build the UI page',
+        assignee: '@implementer',
+        deps: [],
+        parallel: true,
+        user_visible: true,
+        status: 'pending' as const,
+      },
+      {
+        id: 'T2',
+        title: 'Build the API route',
+        assignee: '@implementer',
+        deps: [],
+        parallel: true,
+        user_visible: true,
+        status: 'pending' as const,
+      },
+    ]), {
+      registry,
+      workspaces: workspaceResolver(rootDir),
+      handoffLog: inMemoryHandoffLog(),
+    });
+
+    await waitFor(() => starts.length === 2);
+    expect(finishes).toHaveLength(0);
+
+    const result = await run;
+
+    expect(finishes).toHaveLength(2);
+    expect(new Set(finishes)).toEqual(new Set(['Build the UI page', 'Build the API route']));
+    expect(result.dispatch.map((record) => record.taskId)).toEqual(['T1', 'T2']);
+    expect(result.dispatch.every((record) => record.status === 'completed')).toBe(true);
+  });
+
   it('preserves existing state.artifacts when draining new ones', async () => {
     const existing = artifact('art-existing', 1, 'planner', 'plan.md');
     const fresh = artifact('art-new', 1, 'implementer', 'LandingPage.tsx');
@@ -321,25 +448,33 @@ describe('runDispatch', () => {
 });
 
 function withPlan(assignee: string, chatId = 'chat/1') {
+  return withPlanTasks([
+    {
+      id: 'T1',
+      title: 'Do the work',
+      assignee,
+      deps: [],
+      user_visible: true,
+      status: 'pending' as const,
+    },
+  ], chatId);
+}
+
+function withPlanTasks(
+  tasks: NonNullable<ReturnType<typeof initialState>['plan']>['tasks'],
+  chatId = 'chat/1',
+) {
   return {
     ...initialState(chatId, 'build a page'),
     stage: 'dispatch' as const,
     plan: {
       id: 'plan-1',
       createdAt: new Date(),
-      tasks: [
-        {
-          id: 'T1',
-          title: 'Do the work',
-          assignee,
-          deps: [],
-          user_visible: true,
-          status: 'pending' as const,
-        },
-      ],
+      tasks,
     },
   };
 }
+
 
 function artifact(
   id: string,
@@ -355,4 +490,12 @@ function artifact(
     version,
     createdAt: new Date('2026-06-01T00:00:00Z'),
   };
+}
+
+async function waitFor(predicate: () => boolean): Promise<void> {
+  const deadline = Date.now() + 500;
+  while (!predicate()) {
+    if (Date.now() > deadline) throw new Error('condition not met before timeout');
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
 }

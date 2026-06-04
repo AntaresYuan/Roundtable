@@ -16,13 +16,13 @@ export interface LlmPlannerOpts {
 
 // The LLM produces tasks without an id (we assign T1..Tn) and without
 // createdAt (we stamp it). Everything else round-trips through the contract.
-const LlmPlanTaskSchema = PlanTaskSchema.omit({ id: true, status: true });
+const LlmPlanTaskSchema = PlanTaskSchema.omit({ id: true, status: true, deps: true }).extend({
+  deps: z.array(z.union([z.string(), z.number()])).default([]),
+});
 const LlmPlanShapeSchema = z.object({
   tasks: z.array(LlmPlanTaskSchema).min(1).max(8),
 });
-const LlmPlanTextTaskSchema = LlmPlanTaskSchema.extend({
-  deps: z.array(z.union([z.string(), z.number()])).default([]),
-});
+const LlmPlanTextTaskSchema = LlmPlanTaskSchema;
 const LlmPlanTextShapeSchema = z.object({
   tasks: z.array(LlmPlanTextTaskSchema).min(1).max(8),
 });
@@ -128,7 +128,7 @@ function assemblePlan(rawTasks: z.infer<typeof LlmPlanTaskSchema>[]): Plan {
     id: `T${i + 1}`,
     status: 'pending' as const,
     // Re-validate deps: drop any reference to a position >= this one.
-    deps: t.deps.filter((d) => {
+    deps: t.deps.map(normalizeDep).filter((d) => {
       const m = /^T(\d+)$/.exec(d);
       return m && parseInt(m[1]!, 10) - 1 < i;
     }),

@@ -1,4 +1,5 @@
 import { agentsRouter } from './routers/agents.js';
+import { aiRouter } from './routers/ai.js';
 import { artifactsRouter } from './routers/artifacts.js';
 import { chatsRouter } from './routers/chats.js';
 import { handoffsRouter } from './routers/handoffs.js';
@@ -13,6 +14,7 @@ import { createCallerFactory, createTRPCRouter } from './trpc.js';
 
 export const appRouter = createTRPCRouter({
   agents: agentsRouter,
+  ai: aiRouter,
   artifacts: artifactsRouter,
   chats: chatsRouter,
   handoffs: handoffsRouter,

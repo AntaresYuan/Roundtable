@@ -277,7 +277,6 @@ function ConversationRail({ workbench, workbenches, tasks, agents, activeId, onP
         <button onClick={() => setWbMenu((o) => !o)} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 9, padding: '9px 11px',
           borderRadius: 'var(--r-sm)', border: '1px solid var(--border)', background: 'var(--surface-2)',
           color: 'var(--text)', font: 'inherit', cursor: 'pointer' }}>
-          <span style={{ fontSize: 17, width: 20, textAlign: 'center', flexShrink: 0 }}>{workbench?.emoji || '👥'}</span>
           <div style={{ flex: 1, textAlign: 'left', minWidth: 0 }}>
             <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{workbench?.name}</div>
             <div style={{ fontSize: 10.5, color: 'var(--text-faint)' }}>workbench · {members.length} members</div>
@@ -291,7 +290,7 @@ function ConversationRail({ workbench, workbenches, tasks, agents, activeId, onP
               <button key={w.id} onClick={() => { setWbMenu(false); onPickWorkbench && onPickWorkbench(w.id); }} style={{ width: '100%', display: 'flex',
                 alignItems: 'center', gap: 9, padding: '9px 12px', border: 'none', background: w.id === workbench?.id ? 'var(--surface-2)' : 'transparent',
                 color: 'var(--text)', font: 'inherit', fontSize: 13, cursor: 'pointer', textAlign: 'left' }}>
-                <span style={{ fontSize: 15, width: 18, textAlign: 'center', flexShrink: 0 }}>{w.emoji || '👥'}</span><span style={{ flex: 1 }}>{w.name}</span>
+                <span style={{ flex: 1 }}>{w.name}</span>
                 {w.id === workbench?.id && <Icon name="check" size={13} style={{ color: 'var(--accent)' }} />}
               </button>
             ))}

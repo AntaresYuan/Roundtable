@@ -1120,7 +1120,7 @@ function App() {
                         <Icon name="layers" size={14} /> Panel
                       </button>
                     )}
-                    {!st.started && (
+                    {!st.started && !activeChatId && (
                       <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', zIndex: 45, pointerEvents: 'none' }}>
                         <div className="rt-rise" style={{ pointerEvents: 'auto', width: 'min(420px, 84%)', textAlign: 'center',
                           background: 'color-mix(in oklab, var(--surface) 92%, transparent)', backdropFilter: 'blur(6px)',

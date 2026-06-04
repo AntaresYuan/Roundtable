@@ -7,12 +7,21 @@
       "name": "Demo User"
     }
   ],
+  "workbenches": [
+    {
+      "id": "00000000-0000-4000-8000-0000000000b1",
+      "ownerUserId": "00000000-0000-4000-8000-0000000000d1",
+      "name": "Demo Workbench",
+      "description": "Project workbench for the waitlist landing page demo",
+      "workspacePath": "./workspaces/demo-waitlist"
+    }
+  ],
   "chats": [
     {
       "id": "00000000-0000-4000-8000-0000000000c1",
       "ownerUserId": "00000000-0000-4000-8000-0000000000d1",
-      "title": "Demo: build a waitlist landing page",
-      "workspacePath": "./workspaces/demo-waitlist"
+      "workbenchId": "00000000-0000-4000-8000-0000000000b1",
+      "title": "Demo: build a waitlist landing page"
     }
   ],
   "messages": [

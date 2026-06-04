@@ -10,6 +10,7 @@ import {
   messages,
   pinnedMessages,
   users,
+  workbenches,
 } from '../db/schema.js';
 import type { HandoffCard } from '../contracts/index.js';
 import { HandoffCardSchema } from '../contracts/index.js';
@@ -20,11 +21,18 @@ const DemoSeedSchema = z.object({
     email: z.string().email(),
     name: z.string(),
   })),
+  workbenches: z.array(z.object({
+    id: z.string().uuid(),
+    ownerUserId: z.string().uuid(),
+    name: z.string(),
+    description: z.string().optional(),
+    workspacePath: z.string(),
+  })).default([]),
   chats: z.array(z.object({
     id: z.string().uuid(),
     ownerUserId: z.string().uuid(),
+    workbenchId: z.string().uuid(),
     title: z.string(),
-    workspacePath: z.string(),
   })),
   messages: z.array(z.object({
     id: z.string().uuid(),
@@ -115,6 +123,20 @@ export async function restoreDemo(db: Db, seed: DemoSeed): Promise<void> {
             name: user.name,
           },
         });
+    }
+    if (seed.workbenches.length > 0) {
+      await tx
+        .insert(workbenches)
+        .values(
+          seed.workbenches.map((wb) => ({
+            id: wb.id,
+            ownerUserId: wb.ownerUserId,
+            name: wb.name,
+            workspacePath: wb.workspacePath,
+            ...(wb.description !== undefined ? { description: wb.description } : {}),
+          })),
+        )
+        .onConflictDoNothing({ target: workbenches.id });
     }
     if (seed.chats.length > 0) {
       await tx.insert(chats).values(seed.chats);

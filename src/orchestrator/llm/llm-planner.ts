@@ -1,15 +1,17 @@
 import { randomUUID } from 'node:crypto';
-import { generateObject, type LanguageModel } from 'ai';
+import { generateObject, generateText, type LanguageModel } from 'ai';
 import { z } from 'zod';
 import { PlanTaskSchema, type Plan } from '../../contracts/index.js';
 import type { Planner } from '../nodes/plan.js';
 import { rolePlanner } from '../nodes/plan.js';
 import type { OrchestratorState } from '../state.js';
+import { parseJsonFromText } from './json-text.js';
 import { defaultOrchestratorModel } from './provider.js';
 
 export interface LlmPlannerOpts {
   model?: LanguageModel;
   fallback?: Planner;
+  onError?: (error: unknown) => void;
 }
 
 // The LLM produces tasks without an id (we assign T1..Tn) and without
@@ -17,6 +19,12 @@ export interface LlmPlannerOpts {
 const LlmPlanTaskSchema = PlanTaskSchema.omit({ id: true, status: true });
 const LlmPlanShapeSchema = z.object({
   tasks: z.array(LlmPlanTaskSchema).min(1).max(8),
+});
+const LlmPlanTextTaskSchema = LlmPlanTaskSchema.extend({
+  deps: z.array(z.union([z.string(), z.number()])).default([]),
+});
+const LlmPlanTextShapeSchema = z.object({
+  tasks: z.array(LlmPlanTextTaskSchema).min(1).max(8),
 });
 
 const SYSTEM_PROMPT = `You are the Roundtable PM planner. Given a classified \
@@ -47,11 +55,59 @@ export function llmPlanner(opts: LlmPlannerOpts = {}): Planner {
           prompt: buildPrompt(state),
         });
         return assemblePlan(object.tasks);
-      } catch {
+      } catch (error) {
+        opts.onError?.(error);
+        try {
+          const rawPlan = await planViaJsonText(model, state);
+          return assemblePlan(rawPlan.tasks);
+        } catch (jsonError) {
+          opts.onError?.(jsonError);
+        }
         return fallback.buildPlan(state);
       }
     },
   };
+}
+
+async function planViaJsonText(
+  model: LanguageModel,
+  state: OrchestratorState,
+): Promise<z.infer<typeof LlmPlanShapeSchema>> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const { text } = await generateText({
+      model,
+      system: `${SYSTEM_PROMPT}
+
+Return only one valid JSON object with this exact shape:
+{"tasks":[{"title":"Short imperative task","assignee":"@implementer","deps":[],"parallel":false,"user_visible":true}]}`,
+      prompt: [
+        buildPrompt(state),
+        attempt > 0
+          ? 'Your previous response was not valid contract JSON. Return JSON only, with no prose or markdown.'
+          : '',
+      ].join('\n\n'),
+    });
+    try {
+      const parsed = parseJsonFromText(text, LlmPlanTextShapeSchema);
+      return {
+        tasks: parsed.tasks.map((task) => ({
+          ...task,
+          deps: task.deps.map(normalizeDep),
+        })),
+      };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('json_text_plan_failed');
+}
+
+function normalizeDep(dep: string | number): string {
+  if (typeof dep === 'number') return `T${Math.max(1, dep)}`;
+  if (/^\d+$/.test(dep)) return `T${Math.max(1, parseInt(dep, 10))}`;
+  if (/^T0$/.test(dep)) return 'T1';
+  return dep;
 }
 
 function buildPrompt(state: OrchestratorState): string {

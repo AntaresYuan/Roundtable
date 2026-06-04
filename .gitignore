@@ -34,6 +34,7 @@ coverage/
 .nyc_output/
 
 # runtime data
+.roundtable/
 .claude/sessions/
 .opencode/
 workspaces/

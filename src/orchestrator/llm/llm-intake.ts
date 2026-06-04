@@ -1,12 +1,14 @@
-import { generateObject, type LanguageModel } from 'ai';
+import { generateObject, generateText, type LanguageModel } from 'ai';
 import { IntakeResultSchema, type IntakeResult } from '../../contracts/index.js';
 import type { IntakeClassifier } from '../nodes/intake.js';
 import { heuristicIntake } from '../nodes/intake.js';
+import { parseJsonFromText } from './json-text.js';
 import { defaultOrchestratorModel } from './provider.js';
 
 export interface LlmIntakeOpts {
   model?: LanguageModel;
   fallback?: IntakeClassifier;
+  onError?: (error: unknown) => void;
 }
 
 const SYSTEM_PROMPT = `You are the Roundtable PM. Classify a user's incoming \
@@ -42,7 +44,13 @@ export function llmIntake(opts: LlmIntakeOpts = {}): IntakeClassifier {
           prompt: `User message:\n"""\n${message}\n"""`,
         });
         return object;
-      } catch {
+      } catch (error) {
+        opts.onError?.(error);
+        try {
+          return await classifyViaJsonText(model, message);
+        } catch (jsonError) {
+          opts.onError?.(jsonError);
+        }
         // Falling back to the heuristic is safer than failing the whole turn
         // — the heuristic always returns *something* and the worst case is a
         // clarify prompt the user can answer.
@@ -50,4 +58,32 @@ export function llmIntake(opts: LlmIntakeOpts = {}): IntakeClassifier {
       }
     },
   };
+}
+
+async function classifyViaJsonText(
+  model: LanguageModel,
+  message: string,
+): Promise<IntakeResult> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const { text } = await generateText({
+      model,
+      system: `${SYSTEM_PROMPT}
+
+Return only one valid JSON object with this exact shape:
+{"intentType":"build|modify|inspect|debug|review|control","clarity":"clear|ambiguous","ambiguityScore":0,"complexity":"single_agent|multi_agent","risk":"low|medium|high","suggestedRoles":["planner"],"userVisibleSummary":"..."}`,
+      prompt: [
+        `User message:\n"""\n${message}\n"""`,
+        attempt > 0
+          ? 'Your previous response was not valid contract JSON. Return JSON only, with no prose or markdown.'
+          : '',
+      ].join('\n\n'),
+    });
+    try {
+      return parseJsonFromText(text, IntakeResultSchema);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('json_text_intake_failed');
 }

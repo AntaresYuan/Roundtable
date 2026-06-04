@@ -189,9 +189,17 @@ function WhiteboardSurface({ tasks, agents, posted, w, h, big }) {
   const api = { x: DW - nodeW - 2, y: 4, w: nodeW, h: nodeH };
   const db = { x: (DW - dbW) / 2, y: DH - nodeH - 4, w: dbW, h: nodeH };
   const cx = (b) => b.x + b.w / 2;
+  const labelStyle = {
+    fontSize: big ? 12 : 10,
+    fontFamily: 'var(--font-mono)',
+    paintOrder: 'stroke',
+    stroke: 'var(--surface)',
+    strokeWidth: 5,
+    strokeLinejoin: 'round',
+  };
   return (
     <>
-      <div style={{ position: 'absolute', top: 16, left: 22, right: 22, display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div style={{ position: 'absolute', top: 16, left: 22, right: 64, display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
         <Icon name="layers" size={big ? 16 : 14} style={{ color: 'var(--text-faint)' }} />
         <span className="mono" style={{ fontSize: big ? 12 : 10.5, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--text-faint)' }}>Architecture</span>
         <span style={{ fontSize: big ? 14 : 12, fontWeight: 600, color: 'var(--text-muted)' }}>· waitlist app</span>
@@ -214,10 +222,10 @@ function WhiteboardSurface({ tasks, agents, posted, w, h, big }) {
               {/* API → DB (insert) */}
               <line x1={cx(api)} y1={api.y + api.h} x2={cx(db) + 8} y2={db.y - 4}
                 stroke="var(--text-faint)" strokeWidth="1.8" markerEnd="url(#wbar)" opacity={apiDone ? '.7' : '.3'} />
-              <text x={(land.x + land.w + api.x) / 2} y={land.y + land.h / 2 - 8} textAnchor="middle"
-                fill="var(--text-faint)" style={{ fontSize: big ? 12 : 10, fontFamily: 'var(--font-mono)' }}>submit</text>
+              <text x={(land.x + land.w + api.x) / 2} y={land.y + land.h + 18} textAnchor="middle"
+                fill="var(--text-faint)" style={labelStyle}>submit</text>
               <text x={(cx(api) + cx(db)) / 2 + 14} y={(api.y + api.h + db.y) / 2} textAnchor="middle"
-                fill="var(--text-faint)" style={{ fontSize: big ? 12 : 10, fontFamily: 'var(--font-mono)' }}>insert</text>
+                fill="var(--text-faint)" style={labelStyle}>insert</text>
             </svg>
             <ArchNode {...land} owner={agents.atlas} title="Landing page" sub="page.tsx · email · size" done={landingDone} big={big} />
             <ArchNode {...api} owner={agents.beam} title="POST /api/waitlist" sub="route.ts · zod validate" done={apiDone} big={big} />

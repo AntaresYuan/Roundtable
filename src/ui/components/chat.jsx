@@ -329,8 +329,8 @@ function ConversationRail({ workbench, workbenches, tasks, agents, activeId, onP
 
       <div style={{ padding: '4px 12px 10px' }}>
         <button onClick={onNewTask} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-          padding: '9px 12px', borderRadius: 'var(--r-sm)', border: 'none', background: 'var(--accent)',
-          color: '#fff', font: 'inherit', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+          padding: '8px 12px', borderRadius: 'var(--r-sm)', border: 'none', background: 'var(--accent)',
+          color: '#fff', font: 'inherit', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>
           <Icon name="plus" size={15} /> New task
         </button>
       </div>

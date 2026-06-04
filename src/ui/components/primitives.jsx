@@ -75,10 +75,9 @@ function RoleTag({ agent, showName = false, size = 'sm' }) {
   return (
     <span className="mono" style={{
       display: 'inline-flex', alignItems: 'center', gap: 5,
-      padding: pad, borderRadius: 'var(--r-chip)',
-      background: tint(agent.color, 14), color: agent.color,
-      fontSize: fz, fontWeight: 600, lineHeight: 1.3, whiteSpace: 'nowrap',
-      boxShadow: `0 0 0 1px ${alpha(agent.color, 30)} inset`,
+      padding: pad, borderRadius: 4,
+      background: tint(agent.color, 16), color: agent.color,
+      fontSize: fz, fontWeight: 500, lineHeight: 1.4, whiteSpace: 'nowrap',
     }}>
       <span style={{ width: 6, height: 6, borderRadius: '50%', background: agent.color }} />
       @{agent.role}{showName && <span style={{ opacity: .65, fontWeight: 500 }}>· {agent.displayName}</span>}

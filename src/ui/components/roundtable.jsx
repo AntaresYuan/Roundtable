@@ -376,7 +376,7 @@ function SpeechCard({ agent, speech, aggregate, onAction, s, drop }) {
             <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
               {aggregate.actions.map((a) => (
                 <button key={a.id} onClick={() => onAction(a.id)} style={{ display: 'inline-flex', alignItems: 'center',
-                  gap: 6, padding: '7px 11px', borderRadius: 'var(--r-sm)', font: 'inherit', fontSize: 12, fontWeight: 600,
+                  gap: 6, padding: '7px 11px', borderRadius: 'var(--r-sm)', font: 'inherit', fontSize: 12, fontWeight: 500,
                   cursor: 'pointer', whiteSpace: 'nowrap', border: a.kind === 'primary' ? 'none' : '1px solid var(--border)',
                   background: a.kind === 'primary' ? 'var(--accent)' : 'var(--surface-2)',
                   color: a.kind === 'primary' ? '#fff' : 'var(--text)' }}>

@@ -136,7 +136,7 @@ function Aggregate({ beat, agents, onAction }) {
           {beat.actions.map(a => (
             <button key={a.id} onClick={() => onAction(a.id)} style={{
               display: 'inline-flex', alignItems: 'center', gap: 7, padding: '9px 15px',
-              borderRadius: 'var(--r-sm)', font: 'inherit', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+              borderRadius: 'var(--r-sm)', font: 'inherit', fontSize: 13, fontWeight: 500, cursor: 'pointer',
               border: a.kind === 'primary' ? 'none' : '1px solid var(--border)',
               background: a.kind === 'primary' ? 'var(--accent)' : 'var(--surface)',
               color: a.kind === 'primary' ? '#fff' : 'var(--text)', transition: 'all .15s ease' }}>
@@ -561,7 +561,7 @@ function Dock({ st, agents, scene, onAction, onOpenChat, onOpenWorkflow }) {
         <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
           {st.aggregate.actions.map((a) => (
             <button key={a.id} onClick={() => onAction(a.id)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6,
-              padding: '6px 11px', borderRadius: 'var(--r-sm)', font: 'inherit', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
+              padding: '6px 11px', borderRadius: 'var(--r-sm)', font: 'inherit', fontSize: 12.5, fontWeight: 500, cursor: 'pointer',
               border: a.kind === 'primary' ? 'none' : '1px solid var(--border)',
               background: a.kind === 'primary' ? 'var(--accent)' : 'var(--surface)', color: a.kind === 'primary' ? '#fff' : 'var(--text)' }}>
               <Icon name={a.icon} size={13} />{a.label}

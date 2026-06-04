@@ -4,6 +4,7 @@ import type {
   AgentRoleId,
   ArtifactRef,
   HandoffCard,
+  HandoffContextAudit,
   PinnedMessage,
   PlanTask,
 } from '../contracts/index.js';
@@ -20,6 +21,7 @@ export interface HandoffGeneratorInput {
   role: AgentRoleId;
   pinnedMessages?: PinnedMessage[];
   relevantArtifacts?: ArtifactRef[];
+  contextAudit?: HandoffContextAudit;
   previousCards?: HandoffCard[];
 }
 
@@ -68,6 +70,7 @@ export function fallbackHandoffCard(input: HandoffGeneratorInput): HandoffCard {
     pinnedMessages: capPinnedMessages(input.pinnedMessages ?? []),
     rolesInGroup: [],
     relevantArtifacts: input.relevantArtifacts ?? [],
+    ...(input.contextAudit ? { contextAudit: input.contextAudit } : {}),
     fullHistoryRef: `chat:${input.state.chatId}`,
     createdAt: new Date(),
     generatedBy: 'orchestrator',
@@ -102,6 +105,7 @@ export function buildHandoffSystemPrompt(card: HandoffCard): string {
       rolesInGroup: card.rolesInGroup,
       previousAgent: card.previousAgent,
       relevantArtifacts: card.relevantArtifacts,
+      contextAudit: card.contextAudit,
       fullHistoryRef: card.fullHistoryRef,
     },
   };
@@ -133,6 +137,7 @@ async function tryGenerate(
         getPinnedMessages(raw) ?? fallback.pinnedMessages,
       ),
       relevantArtifacts: getRelevantArtifacts(raw) ?? fallback.relevantArtifacts,
+      contextAudit: fallback.contextAudit,
       fullHistoryRef: `chat:${input.state.chatId}`,
       createdAt: new Date(),
     });
@@ -154,6 +159,7 @@ function toPromptPayload(input: HandoffGeneratorInput) {
     recipientRole: input.role,
     pinnedMessages: capPinnedMessages(input.pinnedMessages ?? []),
     relevantArtifacts: input.relevantArtifacts ?? [],
+    contextAudit: input.contextAudit,
     recentHandoffCards: summarizePreviousCards(input.previousCards ?? []),
     fullHistoryRef: `chat:${input.state.chatId}`,
   };
@@ -164,6 +170,7 @@ function summarizePreviousCards(cards: HandoffCard[]): HandoffCard[] {
     ...card,
     pinnedMessages: capPinnedMessages(card.pinnedMessages),
     previousAgent: undefined,
+    contextAudit: undefined,
   }));
 }
 

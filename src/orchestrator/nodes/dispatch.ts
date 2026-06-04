@@ -3,7 +3,6 @@ import type {
   AgentRoleId,
   Artifact,
   ArtifactId,
-  ArtifactRef,
   HandoffCard,
   Stage,
 } from '../../contracts/index.js';
@@ -23,11 +22,11 @@ import {
   generateHandoffCard,
   type HandoffGeneratorOptions,
 } from '../handoff.js';
+import { composeHandoffContext } from '../handoff-context.js';
 import type { HandoffLog } from '../handoff-log.js';
 import type { DispatchRecord, OrchestratorState, PendingGate } from '../state.js';
 import { ensureWorkspace } from '../workspace.js';
 import type { Db } from '../../db/index.js';
-import { loadPinnedForHandoff } from '../../server/pinned-helpers.js';
 
 export interface WorkspaceResolver {
   resolve(chatId: string): string;
@@ -73,12 +72,13 @@ export async function runDispatch(
         task,
         role,
         previousCards: cards,
-        ...(deps.pinnedDb
-          ? { pinnedMessages: await loadPinnedForHandoff(deps.pinnedDb, state.chatId) }
-          : {}),
-        ...(role === 'reviewer' || role === 'fixer'
-          ? { relevantArtifacts: artifactRefsForReview(state) }
-          : {}),
+        ...(await composeHandoffContext({
+          state,
+          task,
+          role,
+          previousCards: cards,
+          ...(deps.pinnedDb ? { db: deps.pinnedDb } : {}),
+        })),
       },
       deps.handoff,
     );
@@ -224,26 +224,6 @@ function nextPendingGate(
     return { stageId: stage.id, gate: stage.gate };
   }
   return undefined;
-}
-
-/**
- * Pick the latest version of each artifact and project to the ArtifactRef
- * shape the HandoffCard carries (closes specs/080 Known gap 3 — reviewer
- * blindness). Reviewer + fixer roles get the canonical artifact list so they
- * can ground feedback in real files instead of a role title.
- */
-function artifactRefsForReview(state: OrchestratorState): ArtifactRef[] {
-  const latest = new Map<string, Artifact>();
-  for (const a of state.artifacts) {
-    const prev = latest.get(a.id);
-    if (!prev || a.version > prev.version) latest.set(a.id, a);
-  }
-  return Array.from(latest.values()).map((a) => ({
-    id: a.id,
-    kind: a.kind,
-    title: a.title,
-    ...(a.uri !== undefined ? { uri: a.uri } : {}),
-  }));
 }
 
 function dedupeArtifacts(artifacts: Artifact[]): Artifact[] {

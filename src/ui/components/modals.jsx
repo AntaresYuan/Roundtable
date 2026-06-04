@@ -8,6 +8,7 @@ import React from 'react';
 import { RT } from '../lib/rt';
 import { Icon, Avatar, tint, alpha } from './primitives';
 import { trpc } from '../lib/trpc';
+import { useSession } from 'next-auth/react';
 const { useState: useStateM } = React;
 const iconBtn = { display: 'grid', placeItems: 'center', width: 30, height: 30, flexShrink: 0, borderRadius: 'var(--r-sm)',
   border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-muted)', cursor: 'pointer' };
@@ -128,7 +129,14 @@ function NewWorkbenchModal({ agents, onClose, onCreate }) {
 function NewTaskModal({ workbench, members, agents, onClose, onCreate }) {
   const [goal, setGoal] = useStateM('');
   const polish = trpc.ai.polish.useMutation({ onSuccess: (r) => setGoal(r.text) });
-  const examples = ['A pricing page with monthly/annual toggle', 'A REST endpoint for CSV export', 'Dark mode across the app'];
+  const { status: authStatus } = useSession();
+  const suggestQ = trpc.ai.suggestTasks.useQuery(undefined, {
+    enabled: authStatus === 'authenticated',
+    retry: false,
+    staleTime: 60_000,
+  });
+  // Personalized suggestions when signed in (+ LLM key); static fallback otherwise.
+  const examples = suggestQ.data ?? ['A pricing page with monthly/annual toggle', 'A REST endpoint for CSV export', 'Dark mode across the app'];
   return (
     <Modal title="New task" sub={`${workbench?.name} will pick it up and run its workflow`} icon="plus" onClose={onClose} width={560}
       footer={<><Btn onClick={onClose}>Cancel</Btn><Btn primary disabled={!goal.trim()} onClick={() => onCreate(goal)}>Start task</Btn></>}>

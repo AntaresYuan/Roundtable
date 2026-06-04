@@ -45,7 +45,7 @@ function WorkingChip({ ev, working }) {
         display: 'inline-flex', alignItems: 'center', gap: 8, padding: '6px 11px',
         borderRadius: 'var(--r-chip)', cursor: 'pointer', font: 'inherit', fontSize: 12.5,
         background: 'var(--surface-2)', border: '1px solid var(--border)', color: 'var(--text-muted)' }}>
-        <span style={{ fontSize: 13 }}>🤖</span>
+        <Icon name="wrench" size={13} style={{ color: 'var(--text-faint)' }} />
         {working
           ? <><Spinner size={13} color="var(--text-muted)" /><span>{ev.name} is working…</span></>
           : <><Icon name="check" size={13} style={{ color: 'var(--ok)' }} /><span>{ev.name} · ran <span className="mono">{cmd}</span></span></>}
@@ -296,7 +296,7 @@ function ConversationRail({ workbench, workbenches, tasks, agents, activeId, onP
             ))}
             <button onClick={() => { setWbMenu(false); onNewWorkbench && onNewWorkbench(); }} style={{ width: '100%', display: 'flex',
               alignItems: 'center', gap: 9, padding: '10px 12px', border: 'none', borderTop: '1px solid var(--border)', background: 'transparent',
-              color: 'var(--accent)', font: 'inherit', fontSize: 13, fontWeight: 600, cursor: 'pointer', textAlign: 'left' }}>
+              color: 'var(--accent)', font: 'inherit', fontSize: 13, fontWeight: 500, cursor: 'pointer', textAlign: 'left' }}>
               <Icon name="plus" size={15} /> New workbench
             </button>
           </div>
@@ -356,7 +356,7 @@ function ConversationRail({ workbench, workbenches, tasks, agents, activeId, onP
 
       <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)', display: 'flex',
         alignItems: 'center', gap: 10 }}>
-        <Avatar agent={{ id: 'you-user', displayName: 'You', color: '#94a3b8' }} size={28} />
+        <Avatar agent={{ id: 'you-user', displayName: 'You', color: '#8076a0' }} size={28} />
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 12.5, fontWeight: 500 }}>You</div>
           <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>Building, not coding</div>

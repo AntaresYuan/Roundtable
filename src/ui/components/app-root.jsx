@@ -287,7 +287,7 @@ function UserMsg({ text }) {
       <div style={{ maxWidth: '78%', padding: '11px 15px', borderRadius: '14px 14px 4px 14px',
         background: 'var(--accent)', color: '#fff', fontSize: 14, lineHeight: 1.5,
         boxShadow: 'var(--shadow-card)' }}>{text}</div>
-      <Avatar agent={{ id: 'you-user', displayName: 'You', color: '#94a3b8' }} size={30} />
+      <Avatar agent={{ id: 'you-user', displayName: 'You', color: '#8076a0' }} size={30} />
     </div>
   );
 }
@@ -544,7 +544,7 @@ function Dock({ st, agents, scene, onAction, onOpenChat, onOpenWorkflow }) {
         <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
           {st.decision.options.map((o, i) => (
             <button key={o.id} onClick={() => onAction('decide:' + o.id)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6,
-              padding: '6px 12px', borderRadius: 'var(--r-sm)', font: 'inherit', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
+              padding: '6px 12px', borderRadius: 'var(--r-sm)', font: 'inherit', fontSize: 12.5, fontWeight: 500, cursor: 'pointer',
               border: i === 0 ? 'none' : '1px solid var(--border)', background: i === 0 ? 'var(--accent)' : 'var(--surface)',
               color: i === 0 ? '#fff' : 'var(--text)' }}>
               {o.label}{o.hint && <span style={{ fontSize: 10, opacity: .8, fontWeight: 500 }}>{o.hint}</span>}
@@ -1202,7 +1202,7 @@ function App() {
                             {['Plan', 'Build', 'Review', 'Ship'].map((s, i) => (
                               <React.Fragment key={s}>
                                 {i > 0 && <Icon name="chevron" size={12} style={{ color: 'var(--text-faint)', alignSelf: 'center' }} />}
-                                <span style={{ fontSize: 11.5, fontWeight: 600, padding: '3px 10px', borderRadius: 999,
+                                <span style={{ fontSize: 11.5, fontWeight: 500, padding: '3px 10px', borderRadius: 4,
                                   background: 'var(--surface-2)', color: 'var(--text-muted)' }}>{s}</span>
                               </React.Fragment>
                             ))}
@@ -1210,7 +1210,7 @@ function App() {
                           <div style={{ display: 'flex', gap: 9, justifyContent: 'center' }}>
                             <button onClick={() => setModal('task')} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '10px 16px',
                               borderRadius: 'var(--r-sm)', border: 'none', cursor: 'pointer', background: 'var(--accent)', color: '#fff',
-                              font: 'inherit', fontSize: 13, fontWeight: 600 }}><Icon name="plus" size={15} /> Start a task</button>
+                              font: 'inherit', fontSize: 13, fontWeight: 500 }}><Icon name="plus" size={15} /> Start a task</button>
                           </div>
                         </div>
                       </div>

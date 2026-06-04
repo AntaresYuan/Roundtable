@@ -331,7 +331,7 @@ function TableBody() {
    Colored ring = the agent's identity color; keeps the head-glow, ground shadow,
    and the speaking halo. ---------------------------------------------------- */
 function Figure({ agent, isUser, head, size, speaking }) {
-  const color = isUser ? '#94a3b8' : (agent.color || '#94a3b8');
+  const color = isUser ? '#8076a0' : (agent.color || '#8076a0');
   const d = size;
   const seed = encodeURIComponent(isUser ? 'you-user' : (agent.id || agent.displayName || 'rt'));
   const peep = `https://api.dicebear.com/9.x/notionists/svg?seed=${seed}&backgroundColor=transparent`;
@@ -396,7 +396,7 @@ function SpeechCard({ agent, speech, aggregate, onAction, s, drop }) {
           </div>
         ) : speech.mode === 'working' ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: 'var(--text-muted)' }}>
-            <Spinner size={13} color={accent} /><span>🤖 {speech.tool?.name} is working…</span>
+            <Spinner size={13} color={accent} /><span>{speech.tool?.name} is working…</span>
           </div>
         ) : (
           <div style={{ fontSize: 14.5, color: 'var(--text)', lineHeight: 1.5 }}>{speech.text}<span className="rt-caret" /></div>

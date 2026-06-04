@@ -126,7 +126,7 @@ export function DependencyGraphSidebar({ graph, agents, chatId, onNodeClick }) {
           display: 'flex', alignItems: 'center', gap: 8, padding: '8px 11px',
           borderRadius: 'var(--r-sm)', border: '1px solid var(--border)',
           background: 'var(--surface-2)', color: 'var(--text)', font: 'inherit',
-          fontSize: 12.5, fontWeight: 600, cursor: 'pointer', width: '100%', textAlign: 'left',
+          fontSize: 12.5, fontWeight: 500, cursor: 'pointer', width: '100%', textAlign: 'left',
         }}
         title={open ? 'Hide dependency graph' : 'Show dependency graph'}
       >

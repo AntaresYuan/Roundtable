@@ -32,7 +32,7 @@ function WhoChips({ who, agents, onRemove, onAdd }) {
         if (id === 'user') return (
           <span key={id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 9px 3px 4px', borderRadius: 999,
             background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
-            <Avatar agent={{ id: 'you-user', displayName: 'You', color: '#94a3b8' }} size={18} ring={false} />
+            <Avatar agent={{ id: 'you-user', displayName: 'You', color: '#8076a0' }} size={18} ring={false} />
             <span style={{ fontSize: 11.5 }}>You</span>
           </span>
         );
@@ -161,7 +161,7 @@ function WorkflowView({ agents, onAddAgent, onOpenTemplates }) {
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={onOpenTemplates} style={ghostBtn}><Icon name="layers" size={14} /> Start from template</button>
-            <button onClick={saveTemplate} style={{ ...ghostBtn, background: saved ? 'var(--ok)' : 'var(--accent)', color: '#fff', border: 'none', fontWeight: 600 }}>
+            <button onClick={saveTemplate} style={{ ...ghostBtn, background: saved ? 'var(--ok)' : 'var(--accent)', color: '#fff', border: 'none', fontWeight: 500 }}>
               <Icon name="check" size={14} /> {saved ? 'Saved to gallery' : 'Save as template'}</button>
           </div>
         </div>

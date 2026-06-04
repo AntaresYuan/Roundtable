@@ -701,13 +701,14 @@ function FileRow({ art, agents, onOpen }) {
     </button>
   );
 }
-function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifact, onAction, onClose, liveArtifacts, liveMessages, liveHandoffs }) {
+function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifact, onAction, onClose, live, liveArtifacts, liveMessages, liveHandoffs }) {
   const placed = sceneAt(clock).placed;
   // P3.2: real artifacts for the selected chat when signed in; else the scripted scene.
   const created = liveArtifacts
     ? liveArtifacts.map((a) => ({ ...a, version: a.currentVersion, source: a.source ?? 'generated' }))
     : placed.map((p) => p.art);
-  const provided = [RT.ARTIFACTS.brief];
+  // The fixture "brief" is demo-only — in live mode there are no user-provided artifacts yet.
+  const provided = live ? [] : [RT.ARTIFACTS.brief];
   const notes = meetingNotes(clock);
   const tabBtn = (id, label) => (
     <button onClick={() => setTab(id)} style={{ flex: 1, padding: '10px 0', border: 'none', cursor: 'pointer', font: 'inherit',
@@ -734,27 +735,38 @@ function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifa
         </div>
       ) : tab === 'files' ? (
         <div style={{ flex: 1, overflowY: 'auto', padding: '14px 14px 24px' }}>
+          {provided.length > 0 && (
+            <>
+              <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase',
+                color: 'var(--text-faint)', margin: '0 0 9px' }}>Provided by you</div>
+              {provided.map((a) => <FileRow key={a.id} art={a} agents={agents} onOpen={onOpenArtifact} />)}
+            </>
+          )}
           <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase',
-            color: 'var(--text-faint)', margin: '0 0 9px' }}>Provided by you</div>
-          {provided.map((a) => <FileRow key={a.id} art={a} agents={agents} onOpen={onOpenArtifact} />)}
-          <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase',
-            color: 'var(--text-faint)', margin: '16px 0 9px' }}>Created in this run · {created.length}</div>
+            color: 'var(--text-faint)', margin: provided.length > 0 ? '16px 0 9px' : '0 0 9px' }}>Created in this run · {created.length}</div>
           {created.length === 0
             ? <div style={{ fontSize: 12.5, color: 'var(--text-faint)', fontStyle: 'italic', padding: '4px 2px' }}>Nothing yet — artifacts land here as the team works.</div>
             : created.map((a) => <FileRow key={a.id} art={a} agents={agents} onOpen={onOpenArtifact} />)}
         </div>
       ) : tab === 'deps' ? (
         <div style={{ flex: 1, overflowY: 'auto', padding: '14px 14px 24px' }}>
-          <DependencyGraphSidebar
-            graph={RT.DEPENDENCY_GRAPH}
-            agents={agents}
-            chatId={RT.WORKBENCH?.id || 'main'}
-            onNodeClick={(node) => {
-              const art = Object.values(RT.ARTIFACTS).find((a) => a.id === node.artifactId);
-              if (art && onOpenArtifact) onOpenArtifact(art);
-            }}
-          />
+          {live ? (
+            <div style={{ fontSize: 12.5, color: 'var(--text-faint)', fontStyle: 'italic', padding: '4px 2px' }}>
+              The dependency graph isn&rsquo;t wired to live data yet — it&rsquo;ll map artifacts as the team links them.</div>
+          ) : (
+            <DependencyGraphSidebar
+              graph={RT.DEPENDENCY_GRAPH}
+              agents={agents}
+              chatId={RT.WORKBENCH?.id || 'main'}
+              onNodeClick={(node) => {
+                const art = Object.values(RT.ARTIFACTS).find((a) => a.id === node.artifactId);
+                if (art && onOpenArtifact) onOpenArtifact(art);
+              }}
+            />
+          )}
         </div>
+      ) : live ? (
+        <LiveNotes agents={agents} artifacts={created} handoffs={liveHandoffs} />
       ) : (
         <NotesContent clock={clock} agents={agents} notes={notes} />
       )}
@@ -764,6 +776,52 @@ function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifa
         <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--run)', animation: 'rt-blink 1.4s infinite' }} />
         live · kept by the facilitator
       </div>
+    </div>
+  );
+}
+
+/* ---- live notes: real deliverables + hand-offs for the selected chat ------ */
+function LiveNotes({ agents, artifacts, handoffs }) {
+  const arts = artifacts || [];
+  const hos = handoffs || [];
+  if (arts.length === 0 && hos.length === 0) {
+    return (
+      <div style={{ flex: 1, padding: '16px 16px 24px' }}>
+        <div style={{ fontSize: 12.5, color: 'var(--text-faint)', fontStyle: 'italic' }}>
+          Notes fill in as the team works — deliverables, hand-offs, and reviews land here once the orchestrator runs.</div>
+      </div>
+    );
+  }
+  return (
+    <div style={{ flex: 1, overflowY: 'auto', padding: '16px 16px 24px' }}>
+      {hos.length > 0 && (
+        <div style={{ marginBottom: 18 }}>
+          <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase',
+            color: 'var(--text-faint)', marginBottom: 8 }}>Activity</div>
+          <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start' }}>
+            <Icon name="layers" size={13} style={{ color: 'var(--text-faint)', marginTop: 3, flexShrink: 0 }} />
+            <span style={{ fontSize: 12.5, color: 'var(--text)', lineHeight: 1.45 }}>
+              {hos.length} hand-off{hos.length > 1 ? 's' : ''} coordinated by the facilitator</span>
+          </div>
+        </div>
+      )}
+      {arts.length > 0 && (
+        <div style={{ marginBottom: 18 }}>
+          <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase',
+            color: 'var(--text-faint)', marginBottom: 8 }}>Deliverables · {arts.length}</div>
+          {arts.map((a) => {
+            const ow = agents[a.ownerAgentId];
+            return (
+              <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 8 }}>
+                <Avatar agent={ow} size={20} ring={false} />
+                <span className="mono" style={{ fontSize: 12, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {a.title.split('/').pop()}</span>
+                <span className="mono tnum" style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>v{a.version}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -1187,7 +1245,7 @@ function App() {
                 </div>
                 {notesOpen && !compact && <ResizeHandle onResize={(dx) => setInspectorW((w) => Math.max(300, Math.min(640, w + dx)))} />}
                 {notesOpen && <InspectorPanel tab={inspectorTab} setTab={setInspectorTab} clock={scene.clock} width={compact ? 'min(100vw, 420px)' : inspectorW}
-                  agents={agents} scene={scene} liveArtifacts={liveArtifacts} liveMessages={liveMessages} liveHandoffs={liveHandoffs} onOpenArtifact={setDrawerArt} onAction={onAction} onClose={() => setNotesOpen(false)} />}
+                  agents={agents} scene={scene} live={authed && !!activeChatId} liveArtifacts={liveArtifacts} liveMessages={liveMessages} liveHandoffs={liveHandoffs} onOpenArtifact={setDrawerArt} onAction={onAction} onClose={() => setNotesOpen(false)} />}
               </div>
               <Dock st={st} agents={agents} scene={scene} onAction={onAction}
                 onOpenChat={() => { setInspectorTab('chat'); setNotesOpen(true); }}

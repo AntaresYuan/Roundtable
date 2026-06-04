@@ -63,6 +63,7 @@ The user sees a friendly group-work surface while the system controls real CLI t
 | Dependency graph | 060 |
 | Skills system (build + runtime) | 070 |
 | Customizable workflows | 090 |
+| Memory layers (chat / workbench / user) | 100 |
 
 ## Tech stack & why
 
@@ -88,5 +89,6 @@ The user sees a friendly group-work surface while the system controls real CLI t
 
 ## Changelog
 
+- 2026-06-04 — added Memory layers (spec 100) to the pillars table.
 - 2026-05-25 — reframed as consumer-friendly multi-CLI vibe coding workbench.
 - 2026-05-24 — initial draft.

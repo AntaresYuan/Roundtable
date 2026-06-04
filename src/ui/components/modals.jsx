@@ -26,7 +26,7 @@ function Modal({ title, sub, icon, onClose, children, footer, width = 540 }) {
             {icon && <span style={{ display: 'grid', placeItems: 'center', width: 32, height: 32, borderRadius: 9,
               background: tint('var(--accent)', 14), color: 'var(--accent)' }}><Icon name={icon} size={17} /></span>}
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 15, fontWeight: 700 }}>{title}</div>
+              <div style={{ fontSize: 15, fontWeight: 600 }}>{title}</div>
               {sub && <div style={{ fontSize: 12.5, color: 'var(--text-faint)' }}>{sub}</div>}
             </div>
             <button onClick={onClose} style={iconBtn}><Icon name="x" size={16} /></button>
@@ -41,11 +41,15 @@ function Modal({ title, sub, icon, onClose, children, footer, width = 540 }) {
 }
 function Btn({ children, primary, onClick, disabled }) {
   return (
-    <button onClick={onClick} disabled={disabled} style={{ display: 'inline-flex', alignItems: 'center', gap: 7,
-      padding: '9px 16px', borderRadius: 'var(--r-sm)', font: 'inherit', fontSize: 13, fontWeight: 600,
+    <button onClick={onClick} disabled={disabled}
+      onMouseEnter={(e) => { if (!disabled) e.currentTarget.style.background = primary ? '#6a59ab' : 'var(--surface-2)'; }}
+      onMouseLeave={(e) => { if (!disabled) e.currentTarget.style.background = primary ? 'var(--accent)' : 'var(--surface)'; }}
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 6,
+      padding: '6px 13px', borderRadius: 'var(--r-sm)', font: 'inherit', fontSize: 13.5, fontWeight: 500,
       cursor: disabled ? 'default' : 'pointer', border: primary ? 'none' : '1px solid var(--border)',
       background: primary ? (disabled ? 'var(--surface-3)' : 'var(--accent)') : 'var(--surface)',
-      color: primary ? (disabled ? 'var(--text-faint)' : '#fff') : 'var(--text)', transition: 'all .15s' }}>{children}</button>
+      color: primary ? (disabled ? 'var(--text-faint)' : '#fff') : 'var(--text)',
+      boxShadow: primary ? 'none' : '0 1px 1px rgba(40,40,70,.04)', transition: 'background .12s' }}>{children}</button>
   );
 }
 const fieldStyle = { width: '100%', padding: '10px 12px', borderRadius: 'var(--r-sm)', border: '1px solid var(--border)',
@@ -192,9 +196,7 @@ function AddAgentModal({ onClose, onAdd }) {
       footer={<><Btn onClick={onClose}>Cancel</Btn><Btn primary disabled={!name.trim()} onClick={() => onAdd({ role, name: name.trim(), color: roleColors[role] })}>Add to workbench</Btn></>}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 13, marginBottom: 18, padding: '14px', borderRadius: 'var(--r-card)',
         background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
-        <div style={{ width: 44, height: 44, borderRadius: '50%', flexShrink: 0,
-          background: `radial-gradient(circle at 36% 30%, color-mix(in oklab, ${roleColors[role]} 30%, #fff), color-mix(in oklab, ${roleColors[role]} 58%, #000 8%))`,
-          boxShadow: `inset 0 -4px 8px rgba(0,0,0,.18), 0 3px 8px -3px rgba(0,0,0,.4)` }} />
+        <Avatar agent={{ id: name || role, displayName: name, color: roleColors[role] }} size={44} />
         <div>
           <div style={{ fontSize: 15, fontWeight: 700 }}>{name || 'New agent'}</div>
           <div className="mono" style={{ fontSize: 12, color: roleColors[role] }}>@{role}</div>

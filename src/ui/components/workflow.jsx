@@ -32,8 +32,7 @@ function WhoChips({ who, agents, onRemove, onAdd }) {
         if (id === 'user') return (
           <span key={id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 9px 3px 4px', borderRadius: 999,
             background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
-            <span style={{ width: 18, height: 18, borderRadius: '50%', background: 'var(--surface-3)', display: 'grid',
-              placeItems: 'center', fontSize: 9, fontWeight: 700, color: 'var(--text-muted)' }}>U</span>
+            <Avatar agent={{ id: 'you-user', displayName: 'You', color: '#94a3b8' }} size={18} ring={false} />
             <span style={{ fontSize: 11.5 }}>You</span>
           </span>
         );

@@ -95,35 +95,36 @@
   --font-ui:    "IBM Plex Sans", system-ui, sans-serif;
   --font-prose: "IBM Plex Sans", system-ui, sans-serif;
   --font-mono:  "IBM Plex Mono", ui-monospace, monospace;
-  --r-card: 12px; --r-sm: 8px;
+  --r-card: 10px; --r-sm: 6px;
   --shadow-card: 0 1px 2px rgba(40,36,30,.05), 0 6px 20px -10px rgba(40,36,30,.13);
   --prose-size: 1em; --prose-tracking: -0.005em;
-  --accent: #a86240;
+  /* 紫陽花 / Hydrangea — chosen palette (blue → lavender, dreamy summer) */
+  --accent: #7e72c9;
 }
 [data-aesthetic="neutral"][data-theme="light"] {
-  --bg:        #ece7de;
-  --surface:   #fbf9f4;
-  --surface-2: #f3efe6;
-  --surface-3: #e9e3d6;
-  --border:    #e2dccd;
-  --border-strong:#d0c8b4;
-  --text:      #2a2620;
-  --text-muted:#6b6356;
-  --text-faint:#a59c89;
-  --pm:        #8a8276;
+  --bg:        #eeeaf6;
+  --surface:   #ffffff;
+  --surface-2: #f5f2fb;
+  --surface-3: #ebe6f4;
+  --border:    #e2dbef;
+  --border-strong:#cfc5e2;
+  --text:      #36304f;
+  --text-muted:#6e6588;
+  --text-faint:#9c95b4;
+  --pm:        #8076a0;
 }
 [data-aesthetic="neutral"][data-theme="dark"] {
-  --bg:        #14120d;
-  --surface:   #1c1a14;
-  --surface-2: #232019;
-  --surface-3: #2b281f;
-  --border:    #2c281e;
-  --border-strong:#3d382c;
-  --text:      #ece6d8;
-  --text-muted:#a59c88;
-  --text-faint:#6c6456;
-  --pm:        #938a79;
-  --accent:    #c87a52;
+  --bg:        #14121c;
+  --surface:   #1c1926;
+  --surface-2: #232030;
+  --surface-3: #2b2740;
+  --border:    #2c2940;
+  --border-strong:#3d3a55;
+  --text:      #ece8f6;
+  --text-muted:#a39db8;
+  --text-faint:#6a6680;
+  --pm:        #908aa6;
+  --accent:    #a99ae0;
   --shadow-card: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.55);
 }
 

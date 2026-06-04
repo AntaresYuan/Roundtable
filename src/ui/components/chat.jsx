@@ -103,8 +103,7 @@ function MessageGroup({ beat, agents, playing, onOpenArtifact, noticesByArtifact
   if (isPM) {
     return (
       <div className="rt-rise" style={{ display: 'flex', gap: 11, padding: '2px 0', alignItems: 'flex-start' }}>
-        <div style={{ width: 26, height: 26, display: 'grid', placeItems: 'center', fontSize: 15,
-          opacity: .85, flexShrink: 0 }}>{agent.avatar}</div>
+        <Avatar agent={agent} size={26} ring={false} />
         <div style={{ flex: 1, paddingTop: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
             <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--pm)' }}>{agent.displayName}</span>
@@ -343,20 +342,15 @@ function ConversationRail({ workbench, workbenches, tasks, agents, activeId, onP
           const active = c.id === activeId;
           return (
             <button key={c.id} onClick={() => onPick && onPick(c.id)} style={{ width: '100%', textAlign: 'left',
-              display: 'flex', gap: 10, padding: '10px 11px', marginBottom: 2, borderRadius: 'var(--r-sm)',
+              display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', marginBottom: 1, borderRadius: 'var(--r-sm)',
               border: 'none', cursor: 'pointer', font: 'inherit',
-              background: active ? 'var(--surface-3)' : 'transparent', color: 'var(--text)',
-              boxShadow: active ? `inset 2px 0 0 var(--accent)` : 'none' }}
+              background: active ? 'var(--surface-3)' : 'transparent', color: 'var(--text)' }}
               onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = 'var(--surface-2)'; }}
               onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = 'transparent'; }}>
-              <span style={{ width: 7, height: 7, borderRadius: '50%', marginTop: 6, flexShrink: 0,
-                background: dot[c.status] || 'var(--text-faint)',
-                boxShadow: c.status === 'live' ? `0 0 0 3px ${alpha('var(--run)', 22)}` : 'none' }} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: active ? 600 : 500, overflow: 'hidden',
-                  textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.title}</div>
-                <div style={{ fontSize: 11.5, color: 'var(--text-faint)' }}>{c.meta}</div>
-              </div>
+              <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, fontWeight: 500,
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.title}</span>
+              {c.status === 'live' && <span style={{ width: 6, height: 6, borderRadius: '50%',
+                background: dot[c.status], flexShrink: 0 }} />}
             </button>
           );
         })}
@@ -364,8 +358,7 @@ function ConversationRail({ workbench, workbenches, tasks, agents, activeId, onP
 
       <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)', display: 'flex',
         alignItems: 'center', gap: 10 }}>
-        <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--surface-3)',
-          display: 'grid', placeItems: 'center', fontSize: 13, fontWeight: 600, color: 'var(--text-muted)' }}>U</div>
+        <Avatar agent={{ id: 'you-user', displayName: 'You', color: '#94a3b8' }} size={28} />
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 12.5, fontWeight: 500 }}>You</div>
           <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>Building, not coding</div>

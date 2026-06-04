@@ -643,39 +643,6 @@ function LiveThread({ messages, handoffs }) {
     </div>
   );
 }
-// P3.2: center stage for a real, signed-in chat. Shows the task's live thread, or an
-// honest "not started" state when the orchestrator hasn't produced anything yet. The
-// scripted RoundtableScene stays for the logged-out demo / replay.
-function LiveStage({ chat, messages, handoffs, artifacts }) {
-  const msgs = messages || [];
-  const arts = artifacts || [];
-  return (
-    <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', background: 'var(--bg)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 22px', borderBottom: '1px solid var(--border)' }}>
-        <LogoMark size={22} />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 15, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {chat?.title || 'Untitled task'}</div>
-          <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>
-            {arts.length} artifact{arts.length === 1 ? '' : 's'} · {msgs.length} message{msgs.length === 1 ? '' : 's'}</div>
-        </div>
-      </div>
-      {msgs.length === 0 ? (
-        <div style={{ flex: 1, display: 'grid', placeItems: 'center', padding: 24 }}>
-          <div style={{ maxWidth: 380, textAlign: 'center' }}>
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}><LogoMark size={28} /></div>
-            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 6 }}>The table hasn&rsquo;t convened yet</div>
-            <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-              This task is created, but the facilitator hasn&rsquo;t started the round. Messages and artifacts
-              will appear here once the orchestrator runs.</div>
-          </div>
-        </div>
-      ) : (
-        <LiveThread messages={msgs} handoffs={handoffs} />
-      )}
-    </div>
-  );
-}
 function FileRow({ art, agents, onOpen }) {
   const owner = agents[art.ownerAgentId];
   const icon = art.kind === 'preview' ? 'eye' : art.kind === 'diff' ? 'code' : art.kind === 'doc' ? 'clip' : 'code';
@@ -1200,14 +1167,21 @@ function App() {
             <>
               <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
                 <div style={{ flex: 1, position: 'relative', overflow: 'hidden', minWidth: 0 }}>
-                    {authed && activeChatId ? (
-                      <LiveStage chat={tasks.find((tk) => tk.id === activeChatId)}
-                        messages={liveMessages} handoffs={liveHandoffs} artifacts={liveArtifacts} />
-                    ) : (
+                    {/* The roundtable IS the centre — always. Live per-chat data (thread, files)
+                        lives in the Inspector panel; the scene stays the visual identity. */}
                     <RoundtableScene agents={agents} scene={st} onOpenArtifact={setDrawerArt}
                       onAction={onAction} onOpenBreakouts={() => setHubOpen(true)} onSeatClick={(id) => setDmAgent(id)}
                       onOpenFiles={() => { setInspectorTab('files'); setNotesOpen(true); }}
                       onZoomWhiteboard={() => setZoomWB(true)} wide={!railOpen && !notesOpen} memberIds={memberIds} />
+                    {authed && activeChatId && (
+                      <div style={{ position: 'absolute', top: 14, left: '50%', transform: 'translateX(-50%)', zIndex: 40,
+                        display: 'inline-flex', alignItems: 'center', gap: 7, padding: '5px 13px', borderRadius: 'var(--r-chip)',
+                        border: '1px solid var(--border)', background: 'color-mix(in oklab, var(--surface) 90%, transparent)',
+                        backdropFilter: 'blur(6px)', boxShadow: 'var(--shadow-card)', maxWidth: '60%' }}>
+                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--run)', flexShrink: 0 }} />
+                        <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {tasks.find((tk) => tk.id === activeChatId)?.title ?? 'Untitled task'}</span>
+                      </div>
                     )}
                     {!notesOpen && (
                       <button onClick={() => setNotesOpen(true)} style={{ position: 'absolute', top: 14, right: 14, zIndex: 50,

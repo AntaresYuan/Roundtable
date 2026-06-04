@@ -197,12 +197,12 @@ export const artifacts = pgTable(
   'artifacts',
   {
     id: uuid('id').primaryKey(),
-    workbenchId: uuid('workbench_id').references(() => workbenches.id, {
-      onDelete: 'cascade',
-    }),
-    createdInChatId: uuid('created_in_chat_id')
+    workbenchId: uuid('workbench_id')
       .notNull()
-      .references(() => chats.id, { onDelete: 'cascade' }),
+      .references(() => workbenches.id, { onDelete: 'cascade' }),
+    createdInChatId: uuid('created_in_chat_id').references(() => chats.id, {
+      onDelete: 'set null',
+    }),
     kind: artifactKindEnum('kind').$type<ArtifactKind>().notNull(),
     title: text('title').notNull(),
     ownerAgentId: text('owner_agent_id').notNull(),

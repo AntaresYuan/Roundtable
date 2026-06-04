@@ -1,16 +1,32 @@
 /* ============================================================================
    Roundtable — workflow.jsx
    The packaged, customizable WORKFLOW as a first-class surface.
-   Novices start from a proven workflow; power users reshape every stage.
-   This is the process the team runs at the table, made visible and editable.
+   Novices start from a proven workflow; power users reshape every stage via the
+   StageDrawer. Backed by ONE editable Workflow object (contracts/workflow.ts,
+   specs/090-workflows.md, ADR-009) — seats, parallelGroup, Gate union; never a canvas.
    ============================================================================ */
 import React from 'react';
 import { RT } from '../lib/rt';
 import { Avatar, Icon, alpha, tint } from './primitives';
 const { useState: useStateW, useEffect: useEffectW } = React;
+
+const ROLES = ['architect', 'planner', 'implementer', 'reviewer', 'fixer'];
 const ghostBtn = { display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 14px', borderRadius: 'var(--r-sm)',
   border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-muted)', font: 'inherit',
   fontSize: 12.5, fontWeight: 500, cursor: 'pointer' };
+
+const seatColor = (s, agents) => {
+  if (s.ref.kind === 'user') return 'var(--text-muted)';
+  const a = s.ref.agentId && agents[s.ref.agentId];
+  return a ? a.color : (RT.ROLE_COLORS[s.ref.role] || 'var(--text-faint)');
+};
+const seatLabel = (s, agents) => {
+  if (s.ref.kind === 'user') return 'You';
+  const a = s.ref.agentId && agents[s.ref.agentId];
+  return a ? a.displayName : '@' + s.ref.role;
+};
+const gateLabel = (gate) =>
+  !gate || gate.kind === 'none' ? null : gate.kind === 'user_approval' ? 'My approval' : 'Reviewer sign-off';
 
 function Toggle({ on, onClick, label }) {
   return (
@@ -25,46 +41,43 @@ function Toggle({ on, onClick, label }) {
   );
 }
 
-function WhoChips({ who, agents, onRemove, onAdd }) {
+/* ---- WhoChips : renders Seat[] (user / role[+agent]) --------------------- */
+function WhoChips({ seats, agents, onRemove }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-      {who.map((id) => {
-        if (id === 'user') return (
-          <span key={id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 9px 3px 4px', borderRadius: 999,
-            background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
-            <span style={{ width: 18, height: 18, borderRadius: '50%', background: 'var(--surface-3)', display: 'grid',
-              placeItems: 'center', fontSize: 9, fontWeight: 700, color: 'var(--text-muted)' }}>U</span>
-            <span style={{ fontSize: 11.5 }}>You</span>
-          </span>
-        );
-        const a = agents[id]; if (!a) return null;
+      {seats.map((s, i) => {
+        const color = seatColor(s, agents);
+        const a = s.ref.kind === 'role' && s.ref.agentId ? agents[s.ref.agentId] : null;
         return (
-          <span key={id} className="rt-member" style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 6,
-            padding: '3px 9px 3px 4px', borderRadius: 999, background: 'var(--surface-2)', border: `1px solid ${alpha(a.color, 35)}` }}>
-            <Avatar agent={a} size={18} ring={false} /><span style={{ fontSize: 11.5 }}>{a.displayName}</span>
-            {onRemove && <button onClick={() => onRemove(id)} className="rt-member-x" style={{ position: 'absolute', top: -5, right: -5,
+          <span key={i} className="rt-member" style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 6,
+            padding: '3px 9px 3px 4px', borderRadius: 999, background: 'var(--surface-2)', border: `1px solid ${alpha(color, 35)}` }}>
+            {a ? <Avatar agent={a} size={18} ring={false} />
+              : <span style={{ width: 18, height: 18, borderRadius: '50%', background: alpha(color, 18), color,
+                  display: 'grid', placeItems: 'center', fontSize: 9, fontWeight: 700 }}>
+                  {s.ref.kind === 'user' ? 'U' : s.ref.role[0].toUpperCase()}</span>}
+            <span style={{ fontSize: 11.5 }}>{seatLabel(s, agents)}</span>
+            {onRemove && <button onClick={() => onRemove(i)} className="rt-member-x" title="Remove" style={{ position: 'absolute', top: -5, right: -5,
               width: 15, height: 15, borderRadius: '50%', border: 'none', background: 'var(--bad)', color: '#fff', cursor: 'pointer',
               display: 'none', placeItems: 'center', padding: 0 }}><Icon name="x" size={9} /></button>}
           </span>
         );
       })}
-      {onAdd && <button onClick={onAdd} title="Assign agent" style={{ width: 24, height: 24, borderRadius: '50%', display: 'grid',
-        placeItems: 'center', border: '1.5px dashed var(--border-strong)', background: 'transparent', color: 'var(--text-faint)', cursor: 'pointer' }}>
-        <Icon name="plus" size={12} /></button>}
+      {seats.length === 0 && <span style={{ fontSize: 11.5, color: 'var(--text-faint)', fontStyle: 'italic' }}>no one yet</span>}
     </div>
   );
 }
 
-function StageCard({ stage, idx, agents, onToggle, onRemove, onAddAgent, onRemoveAgent, onEdit, onMove, canLeft, canRight }) {
+function StageCard({ stage, idx, agents, onToggle, onRemove, onEdit, onMove, onCustomize, canLeft, canRight }) {
   const moveBtn = (enabled) => ({ width: 22, height: 24, borderRadius: 7, border: '1px solid var(--border)',
     background: 'var(--surface)', color: 'var(--text-muted)', cursor: enabled ? 'pointer' : 'default',
     opacity: enabled ? 1 : 0.35, display: 'grid', placeItems: 'center', padding: 0 });
   const editFocus = (e) => (e.currentTarget.style.borderColor = 'var(--border)');
   const editBlur = (e) => (e.currentTarget.style.borderColor = 'transparent');
+  const gated = gateLabel(stage.gate);
   return (
-    <div style={{ width: 230, flexShrink: 0, background: 'var(--surface)', borderRadius: 'var(--r-card)',
+    <div style={{ width: 234, flexShrink: 0, background: 'var(--surface)', borderRadius: 'var(--r-card)',
       border: '1px solid var(--border)', boxShadow: 'var(--shadow-card)', overflow: 'hidden', position: 'relative' }}>
-      {stage.parallel && <div style={{ position: 'absolute', inset: 0, borderRadius: 'var(--r-card)', pointerEvents: 'none',
+      {stage.parallelGroup && <div style={{ position: 'absolute', inset: 0, borderRadius: 'var(--r-card)', pointerEvents: 'none',
         boxShadow: `0 8px 0 -4px var(--surface), 0 9px 0 -4px var(--border), 0 16px 0 -8px var(--surface), 0 17px 0 -8px var(--border)` }} />}
       <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '12px 13px', borderBottom: '1px solid var(--border)' }}>
         <span style={{ display: 'grid', placeItems: 'center', width: 30, height: 30, borderRadius: 9, flexShrink: 0,
@@ -75,7 +88,7 @@ function StageCard({ stage, idx, agents, onToggle, onRemove, onAddAgent, onRemov
             style={{ width: '100%', font: 'inherit', fontSize: 13.5, fontWeight: 700, color: 'var(--text)', background: 'transparent',
               border: '1px solid transparent', borderRadius: 6, outline: 'none', padding: '1px 4px', margin: '-1px -4px' }} />
           <div className="mono" style={{ fontSize: 9.5, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-faint)', marginTop: 3 }}>
-            stage {idx + 1}{stage.parallel ? ' · parallel' : ''}</div>
+            stage {idx + 1}{stage.parallelGroup ? ' · parallel' : ''}</div>
         </div>
         <div style={{ display: 'flex', gap: 3, flexShrink: 0 }}>
           <button onClick={() => canLeft && onMove(-1)} disabled={!canLeft} title="Move earlier" style={moveBtn(canLeft)}>
@@ -94,12 +107,21 @@ function StageCard({ stage, idx, agents, onToggle, onRemove, onAddAgent, onRemov
             minHeight: 38, resize: 'vertical', background: 'transparent', border: '1px solid transparent', borderRadius: 6,
             outline: 'none', padding: '4px', boxSizing: 'border-box' }} />
         <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--text-faint)', marginBottom: 7 }}>Who runs it</div>
-        <WhoChips who={stage.who} agents={agents} onRemove={stage.fixed ? null : (id) => onRemoveAgent(id)} onAdd={stage.fixed ? null : onAddAgent} />
+        <WhoChips seats={stage.seats} agents={agents} />
+        {gated && (
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 10, padding: '3px 9px', borderRadius: 999,
+            background: alpha('var(--warn)', 14), color: 'var(--warn)', fontSize: 11, fontWeight: 600 }}>
+            <Icon name="eye" size={11} /> Gate · {gated}</div>
+        )}
         {!stage.fixed && (
-          <div style={{ display: 'flex', gap: 14, marginTop: 13, paddingTop: 11, borderTop: '1px solid var(--border)', flexWrap: 'wrap' }}>
-            <Toggle on={!!stage.parallel} onClick={() => onToggle('parallel')} label="Parallel" />
-            <Toggle on={!!stage.gate} onClick={() => onToggle('gate')} label="Approval gate" />
-          </div>
+          <>
+            <div style={{ display: 'flex', gap: 14, marginTop: 13, paddingTop: 11, borderTop: '1px solid var(--border)', flexWrap: 'wrap' }}>
+              <Toggle on={!!stage.parallelGroup} onClick={() => onToggle('parallel')} label="Parallel" />
+              <Toggle on={!!gated} onClick={() => onToggle('gate')} label="Gate" />
+            </div>
+            <button onClick={onCustomize} style={{ ...ghostBtn, width: '100%', justifyContent: 'center', marginTop: 11, fontWeight: 600 }}>
+              <Icon name="sparkle" size={13} /> Customize</button>
+          </>
         )}
       </div>
     </div>
@@ -114,27 +136,119 @@ function AddStageButton({ onClick }) {
   );
 }
 
-function WorkflowView({ agents, onAddAgent, onOpenTemplates }) {
-  const [stages, setStages] = useStateW(() => RT.WORKFLOW.stages.map((s) => ({ ...s, who: [...s.who] })));
+/* ---- StageDrawer : per-stage deep editor (slide-over, not a modal) -------- */
+function RolePicker({ onPick }) {
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+      {ROLES.map((r) => (
+        <button key={r} onClick={() => onPick({ kind: 'role', role: r })} style={{ display: 'inline-flex', alignItems: 'center', gap: 6,
+          padding: '5px 10px', borderRadius: 999, cursor: 'pointer', font: 'inherit', fontSize: 12,
+          border: `1px solid ${alpha(RT.ROLE_COLORS[r], 40)}`, background: 'var(--surface)', color: 'var(--text)' }}>
+          <span style={{ width: 8, height: 8, borderRadius: '50%', background: RT.ROLE_COLORS[r] }} />@{r}</button>
+      ))}
+      <button onClick={() => onPick({ kind: 'user' })} style={{ display: 'inline-flex', alignItems: 'center', gap: 6,
+        padding: '5px 10px', borderRadius: 999, cursor: 'pointer', font: 'inherit', fontSize: 12,
+        border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)' }}>
+        <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--text-muted)' }} />+ You</button>
+    </div>
+  );
+}
+
+function StageDrawer({ stage, agents, onClose, onAddSeat, onRemoveSeat, onSetGate, onToggleParallel }) {
+  const gk = stage.gate ? stage.gate.kind : 'none';
+  const Section = ({ label, children }) => (
+    <div style={{ marginBottom: 20 }}>
+      <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--text-faint)', marginBottom: 9 }}>{label}</div>
+      {children}
+    </div>
+  );
+  const gateOpt = (val, label, hint) => (
+    <button onClick={() => onSetGate(val)} style={{ width: '100%', textAlign: 'left', display: 'flex', alignItems: 'flex-start', gap: 10,
+      padding: '10px 12px', borderRadius: 'var(--r-sm)', cursor: 'pointer', font: 'inherit', marginBottom: 7,
+      background: gk === val ? tint('var(--accent)', 8) : 'var(--surface-2)', border: `1.5px solid ${gk === val ? 'var(--accent)' : 'var(--border)'}` }}>
+      <span style={{ width: 14, height: 14, borderRadius: '50%', marginTop: 1, flexShrink: 0,
+        border: `1.5px solid ${gk === val ? 'var(--accent)' : 'var(--border-strong)'}`, background: gk === val ? 'var(--accent)' : 'transparent' }} />
+      <span><span style={{ fontSize: 13, fontWeight: 600 }}>{label}</span>
+        <span style={{ display: 'block', fontSize: 11.5, color: 'var(--text-faint)' }}>{hint}</span></span>
+    </button>
+  );
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 110, background: alpha('#000', 28), display: 'flex', justifyContent: 'flex-end' }}>
+      <div onClick={(e) => e.stopPropagation()} className="rt-rise" style={{ width: 'min(420px, 94vw)', height: '100%', background: 'var(--surface)',
+        borderLeft: '1px solid var(--border)', boxShadow: 'var(--shadow-pop)', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '15px 18px', borderBottom: '1px solid var(--border)' }}>
+          <span style={{ display: 'grid', placeItems: 'center', width: 30, height: 30, borderRadius: 9, background: tint('var(--accent)', 13), color: 'var(--accent)' }}>
+            <Icon name={stage.icon} size={16} /></span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 15, fontWeight: 700 }}>{stage.name}</div>
+            <div className="mono" style={{ fontSize: 10.5, color: 'var(--text-faint)' }}>Customize stage</div>
+          </div>
+          <button onClick={onClose} style={{ ...ghostBtn, padding: 8 }}><Icon name="x" size={15} /></button>
+        </div>
+        <div style={{ flex: 1, overflowY: 'auto', padding: 18 }}>
+          <Section label="Who runs it">
+            <div style={{ marginBottom: 11 }}><WhoChips seats={stage.seats} agents={agents} onRemove={onRemoveSeat} /></div>
+            <div style={{ fontSize: 11, color: 'var(--text-faint)', marginBottom: 7 }}>Add a role or yourself:</div>
+            <RolePicker onPick={onAddSeat} />
+          </Section>
+          <Section label="Approval gate">
+            {gateOpt('none', 'No gate', 'Stage completes and the run moves on.')}
+            {gateOpt('user_approval', 'Requires my approval', 'The run pauses until you click continue.')}
+            {gateOpt('reviewer_signoff', 'Requires reviewer sign-off', 'A @reviewer must clear open comments first.')}
+          </Section>
+          <Section label="Parallelism">
+            <Toggle on={!!stage.parallelGroup} onClick={onToggleParallel} label="Run alongside the next stage" />
+          </Section>
+          <Section label="Instructions & skills">
+            <div style={{ fontSize: 12, color: 'var(--text-faint)', fontStyle: 'italic' }}>
+              Per-seat instructions, mounted skills, and the hand-off preview land in a later pass (spec 090 §S3).
+            </div>
+          </Section>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WorkflowView({ agents, onOpenTemplates }) {
+  const [stages, setStages] = useStateW(() =>
+    RT.WORKFLOW.stages.map((s) => ({ ...s, seats: s.seats.map((x) => ({ ...x, ref: { ...x.ref } })) })),
+  );
   const [saved, setSaved] = useStateW(false);
-  // hydrate workflows the user saved in a previous session
+  const [drawer, setDrawer] = useStateW(null); // open stage index or null
   useEffectW(() => {
     try {
-      const raw = localStorage.getItem('rt.userTemplates');
-      if (raw) RT.userTemplates = JSON.parse(raw);
+      const raw = localStorage.getItem('rt.workflows');
+      if (raw) RT.workflows = JSON.parse(raw);
     } catch { /* ignore */ }
   }, []);
+
   const saveTemplate = () => {
-    const tpl = { id: 'tpl-' + Date.now(), name: RT.WORKBENCH.name + ' workflow', tag: 'Yours',
+    const wf = {
+      id: 'wf-user-' + ((RT.workflows || []).length + 1), name: RT.WORKBENCH.name + ' workflow', tag: 'Yours',
       desc: 'Saved from this workbench — ' + stages.map((s) => s.name).join(' → ') + '.',
-      roles: ['planner', 'implementer', 'reviewer'],
-      pipe: stages.map((s) => ({ icon: s.icon, label: s.name })) };
-    RT.userTemplates = [...(RT.userTemplates || []), tpl];
-    try { localStorage.setItem('rt.userTemplates', JSON.stringify(RT.userTemplates)); } catch { /* ignore */ }
+      origin: { kind: 'user' }, planning: RT.WORKFLOW.planning, stages, version: 1, updatedAt: new Date().toISOString(),
+    };
+    RT.workflows = [...(RT.workflows || []), wf];
+    try { localStorage.setItem('rt.workflows', JSON.stringify(RT.workflows)); } catch { /* ignore */ }
     setSaved(true); setTimeout(() => setSaved(false), 2600);
   };
-  const toggle = (i, key) => setStages((ss) => ss.map((s, j) => (j === i ? { ...s, [key]: !s[key] } : s)));
-  const editStage = (i, field, val) => setStages((ss) => ss.map((s, j) => (j === i ? { ...s, [field]: val } : s)));
+
+  const patch = (i, fn) => setStages((ss) => ss.map((s, j) => (j === i ? fn(s) : s)));
+  const editStage = (i, field, val) => patch(i, (s) => ({ ...s, [field]: val }));
+  const toggle = (i, key) => patch(i, (s) => {
+    if (key === 'parallel') return { ...s, parallelGroup: s.parallelGroup ? undefined : s.id + '-grp' };
+    if (key === 'gate') return { ...s, gate: s.gate && s.gate.kind !== 'none' ? { kind: 'none' } : { kind: 'user_approval' } };
+    return s;
+  });
+  const setGate = (i, kind) => patch(i, (s) => ({
+    ...s,
+    gate: kind === 'reviewer_signoff'
+      ? { kind, reviewer: { kind: 'role', role: 'reviewer' }, blockOn: 'open_comments' }
+      : { kind },
+  }));
+  const addSeat = (i, ref) => patch(i, (s) => ({ ...s, seats: [...s.seats, { ref }] }));
+  const removeSeat = (i, seatIdx) => patch(i, (s) => ({ ...s, seats: s.seats.filter((_, k) => k !== seatIdx) }));
   const moveStage = (i, dir) => setStages((ss) => {
     const j = i + dir;
     if (j < 0 || j >= ss.length) return ss;
@@ -144,14 +258,22 @@ function WorkflowView({ agents, onAddAgent, onOpenTemplates }) {
     return n;
   });
   const removeStage = (i) => setStages((ss) => ss.filter((_, j) => j !== i));
-  const removeAgent = (i, id) => setStages((ss) => ss.map((s, j) => (j === i ? { ...s, who: s.who.filter((x) => x !== id) } : s)));
   const addStage = (i) => setStages((ss) => {
-    const n = [...ss]; n.splice(i, 0, { id: 'custom-' + Date.now(), name: 'New stage', icon: 'dot', desc: 'Describe what happens here.', who: [] }); return n;
+    const n = [...ss];
+    n.splice(i, 0, { id: 'custom-' + Date.now(), name: 'New stage', icon: 'dot', kind: 'custom', desc: 'Describe what happens here.', seats: [], gate: { kind: 'none' } });
+    return n;
   });
+
+  const reviewGate = stages.some((s) => s.gate && s.gate.kind !== 'none');
+  const chip = (on, label) => (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, padding: '4px 11px', borderRadius: 999,
+      background: on ? alpha('var(--ok)', 13) : 'var(--surface-3)', color: on ? 'var(--ok)' : 'var(--text-faint)' }}>
+      <span style={{ width: 6, height: 6, borderRadius: '50%', background: on ? 'var(--ok)' : 'var(--text-faint)' }} />{label}</span>
+  );
+
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px 60px', background: 'var(--bg)' }}>
       <div style={{ maxWidth: 1180, margin: '0 auto' }}>
-        {/* header */}
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, marginBottom: 8, flexWrap: 'wrap' }}>
           <div style={{ flex: 1, minWidth: 280 }}>
             <h2 style={{ margin: '0 0 5px', fontSize: 21, fontWeight: 700, letterSpacing: '-.01em' }}>Workflow</h2>
@@ -163,22 +285,23 @@ function WorkflowView({ agents, onAddAgent, onOpenTemplates }) {
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={onOpenTemplates} style={ghostBtn}><Icon name="layers" size={14} /> Start from template</button>
             <button onClick={saveTemplate} style={{ ...ghostBtn, background: saved ? 'var(--ok)' : 'var(--accent)', color: '#fff', border: 'none', fontWeight: 600 }}>
-              <Icon name="check" size={14} /> {saved ? 'Saved to gallery' : 'Save as template'}</button>
+              <Icon name="check" size={14} /> {saved ? 'Saved to gallery' : 'Save as my workflow'}</button>
           </div>
         </div>
 
-        {/* current template + audience hint */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '14px 0 22px', padding: '11px 15px',
+        {/* quality rail — quality is the spec's visible identity (spec 090 §S2) */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '14px 0 22px', padding: '11px 15px',
           borderRadius: 'var(--r-card)', background: 'var(--surface-2)', border: '1px solid var(--border)', flexWrap: 'wrap' }}>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 12.5, fontWeight: 600 }}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--accent)' }} />Based on “{RT.WORKFLOW.template}”</span>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--accent)' }} />{RT.WORKFLOW.name}</span>
           <span style={{ width: 1, height: 16, background: 'var(--border)' }} />
-          <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>New here? This template just works. Power user? Edit any stage below.</span>
+          {chip(reviewGate, 'Review gate')}
+          {chip(true, 'Dependency-sync')}
+          {chip(RT.WORKFLOW.planning.cut === 'by_role', 'Plan: by role')}
           <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--run)' }} /> running now at the table</span>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--run)' }} /> runs on every task</span>
         </div>
 
-        {/* pipeline */}
         <div style={{ display: 'flex', alignItems: 'stretch', gap: 0, overflowX: 'auto', paddingBottom: 14 }}>
           {stages.map((s, i) => (
             <React.Fragment key={s.id}>
@@ -190,8 +313,8 @@ function WorkflowView({ agents, onAddAgent, onOpenTemplates }) {
               </div>}
               <StageCard stage={s} idx={i} agents={agents}
                 onToggle={(k) => toggle(i, k)} onRemove={() => removeStage(i)}
-                onAddAgent={onAddAgent} onRemoveAgent={(id) => removeAgent(i, id)}
                 onEdit={(field, val) => editStage(i, field, val)} onMove={(dir) => moveStage(i, dir)}
+                onCustomize={() => setDrawer(i)}
                 canLeft={i > 0} canRight={i < stages.length - 1} />
             </React.Fragment>
           ))}
@@ -201,6 +324,12 @@ function WorkflowView({ agents, onAddAgent, onOpenTemplates }) {
           <Icon name="sparkle" size={13} /> Every task this workbench runs follows these stages — change them once, and the whole team adapts.
         </div>
       </div>
+
+      {drawer != null && stages[drawer] && (
+        <StageDrawer stage={stages[drawer]} agents={agents} onClose={() => setDrawer(null)}
+          onAddSeat={(ref) => addSeat(drawer, ref)} onRemoveSeat={(k) => removeSeat(drawer, k)}
+          onSetGate={(kind) => setGate(drawer, kind)} onToggleParallel={() => toggle(drawer, 'parallel')} />
+      )}
     </div>
   );
 }

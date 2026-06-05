@@ -18,6 +18,7 @@ import {
   type DependencyStore,
 } from '../dependency-store.js';
 import { ArtifactWatcher, type ArtifactWatcherContext } from '../artifact-watcher.js';
+import { evaluateAutonomyAction, riskForGate } from '../autonomy.js';
 import {
   buildHandoffSystemPrompt,
   generateHandoffCard,
@@ -31,6 +32,12 @@ import type { HandoffLog } from '../handoff-log.js';
 import type { DispatchRecord, OrchestratorState, PendingGate } from '../state.js';
 import { ensureWorkspace } from '../workspace.js';
 import type { Db } from '../../db/index.js';
+
+interface GateEvaluation {
+  pendingGate?: PendingGate;
+  gateDecisions: OrchestratorState['gateDecisions'];
+  autonomyDecisions: OrchestratorState['autonomyDecisions'];
+}
 
 export interface WorkspaceResolver {
   resolve(chatId: string): string | Promise<string>;
@@ -152,8 +159,8 @@ export async function runDispatch(
     r.events.some((e) => e.type === 'file_change'),
   );
 
-  const pendingGate = nextPendingGate(state, records);
-  const nextStage = pendingGate
+  const gateEvaluation = nextPendingGate(state, records);
+  const nextStage = gateEvaluation.pendingGate
     ? 'gate'
     : anyCodeWriting
       ? 'review'
@@ -164,7 +171,9 @@ export async function runDispatch(
     handoffCards: [...state.handoffCards, ...cards],
     dispatch: [...state.dispatch, ...records],
     artifacts: dedupeArtifacts([...contextState.artifacts, ...artifacts]),
-    ...(pendingGate ? { pendingGate } : {}),
+    gateDecisions: gateEvaluation.gateDecisions,
+    autonomyDecisions: gateEvaluation.autonomyDecisions,
+    ...(gateEvaluation.pendingGate ? { pendingGate: gateEvaluation.pendingGate } : {}),
     stage: nextStage,
   };
 }
@@ -321,8 +330,10 @@ function applyHandoffOverride(card: HandoffCard, stage: Stage | undefined): Hand
 function nextPendingGate(
   state: OrchestratorState,
   freshRecords: DispatchRecord[],
-): PendingGate | undefined {
-  if (!state.workflow) return undefined;
+): GateEvaluation {
+  const gateDecisions = { ...state.gateDecisions };
+  const autonomyDecisions = [...state.autonomyDecisions];
+  if (!state.workflow) return { gateDecisions, autonomyDecisions };
   const dispatchedStageIds = new Set(
     [...state.dispatch, ...freshRecords]
       .map((r) => state.plan?.tasks.find((t) => t.id === r.taskId)?.workflowStageId)
@@ -331,10 +342,26 @@ function nextPendingGate(
   for (const stage of state.workflow.stages) {
     if (stage.gate.kind === 'none') continue;
     if (!dispatchedStageIds.has(stage.id)) continue;
-    if (state.gateDecisions[stage.id]) continue;
-    return { stageId: stage.id, gate: stage.gate };
+    if (gateDecisions[stage.id]) continue;
+    const risk = riskForGate(stage, stage.gate);
+    const decision = evaluateAutonomyAction({
+      policy: state.autonomyPolicy,
+      action: 'approve_gate',
+      risk,
+      reason: `Gate ${stage.id} (${stage.gate.kind}) completed.`,
+    });
+    autonomyDecisions.push(decision);
+    if (decision.decision === 'auto_approved') {
+      gateDecisions[stage.id] = 'approve';
+      continue;
+    }
+    return {
+      pendingGate: { stageId: stage.id, gate: stage.gate },
+      gateDecisions,
+      autonomyDecisions,
+    };
   }
-  return undefined;
+  return { gateDecisions, autonomyDecisions };
 }
 
 function dedupeArtifacts(artifacts: Artifact[]): Artifact[] {

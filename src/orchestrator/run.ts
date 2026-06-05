@@ -1,6 +1,6 @@
 import { Command, isGraphInterrupt, MemorySaver } from '@langchain/langgraph';
 import type { AdapterRegistry } from '../adapters/index.js';
-import type { Workflow } from '../contracts/index.js';
+import type { AutonomyPolicy, Workflow } from '../contracts/index.js';
 import type { Db } from '../db/index.js';
 import { buildOrchestratorGraph, type GraphDeps } from './graph.js';
 import type { ArtifactWatcherContext } from './artifact-watcher.js';
@@ -54,6 +54,8 @@ export interface RunOptions {
    * the workbench's active workflow from the DB (spec 100 / #97).
    */
   workflow?: Workflow;
+  /** Controls gates, retries, and safe auto-actions. Defaults to ask every time. */
+  autonomyPolicy?: AutonomyPolicy;
   /** The workbench this chat lives under — required to auto-resolve a workflow. */
   workbenchId?: string;
   /** DB handle for workflow resolution. Reuses the existing artifactDb conn in callers. */
@@ -94,7 +96,7 @@ export async function runOrchestrator(
   return invoke(
     graph,
     threadId,
-    initialState(opts.chatId, opts.userMessage, workflow),
+    initialState(opts.chatId, opts.userMessage, workflow, opts.autonomyPolicy),
   );
 }
 

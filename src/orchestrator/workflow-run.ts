@@ -25,6 +25,8 @@ export function workflowRunFromState(state: OrchestratorState): WorkflowRun | un
   return {
     specId: workflow.id,
     specVersion: workflow.version,
+    autonomyPolicy: state.autonomyPolicy,
+    autonomyDecisions: state.autonomyDecisions,
     stageStates,
     ...(activeStageId ? { activeStageId } : {}),
     ...(state.pendingGate

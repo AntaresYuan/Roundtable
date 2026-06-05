@@ -16,11 +16,26 @@ const btn = {
 export default function DevPage() {
   const { data: session, status } = useSession();
   const authed = status === 'authenticated';
+  const workbenches = trpc.workbenches.list.useQuery(undefined, { enabled: authed });
   const chats = trpc.chats.list.useQuery(undefined, { enabled: authed });
   const utils = trpc.useUtils();
+  const createWorkbench = trpc.workbenches.create.useMutation({
+    onSuccess: () => utils.workbenches.list.invalidate(),
+  });
   const create = trpc.chats.create.useMutation({
     onSuccess: () => utils.chats.list.invalidate(),
   });
+
+  const handleCreateChat = async () => {
+    const workbench =
+      workbenches.data?.[0] ??
+      (await createWorkbench.mutateAsync({
+        name: 'Dev workbench',
+        workspacePath: `workspaces/dev-${Date.now()}`,
+      }));
+    if (!workbench) return;
+    create.mutate({ title: 'Test chat', workbenchId: workbench.id });
+  };
 
   return (
     <main style={{ maxWidth: 640, margin: '40px auto', padding: 24, fontFamily: 'system-ui' }}>
@@ -42,14 +57,18 @@ export default function DevPage() {
         {authed && chats.data && (
           <>
             <p>{chats.data.length} chat(s):</p>
-            <ul>{chats.data.map((c) => <li key={c.id}>{c.title} <code>{c.workspacePath}</code></li>)}</ul>
+            <ul>{chats.data.map((c) => <li key={c.id}>{c.title} <code>{c.workbenchId}</code></li>)}</ul>
+            {workbenches.data?.[0] && (
+              <p>default workbench: <code>{workbenches.data[0].workspacePath}</code></p>
+            )}
             <button
               style={btn}
-              disabled={create.isPending}
-              onClick={() => create.mutate({ title: 'Test chat', workspacePath: `workspaces/test-${Date.now()}` })}
+              disabled={create.isPending || createWorkbench.isPending}
+              onClick={() => void handleCreateChat()}
             >
-              {create.isPending ? 'creating…' : '+ create test chat'}
+              {create.isPending || createWorkbench.isPending ? 'creating…' : '+ create test chat'}
             </button>
+            {createWorkbench.error && <p style={{ color: 'crimson' }}>{createWorkbench.error.message}</p>}
             {create.error && <p style={{ color: 'crimson' }}>{create.error.message}</p>}
           </>
         )}

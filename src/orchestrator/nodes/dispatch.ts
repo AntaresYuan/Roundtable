@@ -266,18 +266,19 @@ async function runPreparedTask(
   deps: DispatchDeps,
 ): Promise<TaskRunResult> {
   const { task, role, card } = prepared;
-  const cwd = await deps.workspaces.resolve(state.chatId);
   const startedAt = new Date();
   const attempts: AttemptResult[] = [];
   const autonomyDecisions: AutonomyDecision[] = [];
 
   try {
+    const cwd = await deps.workspaces.resolve(state.chatId);
     await ensureWorkspace(cwd);
 
     const adapter = deps.registry.resolve(role);
     let latest = await runTaskAttempt({
       adapter,
       role,
+      task,
       card,
       cwd,
       state,
@@ -299,6 +300,7 @@ async function runPreparedTask(
       latest = await runTaskAttempt({
         adapter,
         role,
+        task,
         card,
         cwd,
         state,
@@ -363,17 +365,20 @@ async function runPreparedTask(
 async function runTaskAttempt(input: {
   adapter: ReturnType<AdapterRegistry['resolve']>;
   role: AgentRoleId;
+  task: PlanTask;
   card: HandoffCard;
   cwd: string;
   state: OrchestratorState;
   deps: DispatchDeps;
 }): Promise<AttemptResult> {
-  const { adapter, role, card, cwd, state, deps } = input;
+  const { adapter, role, task, card, cwd, state, deps } = input;
+  const allowedTools = allowedToolsForTask(state, role, task);
   const session = await adapter.createSession({
     cwd,
     role,
     agentMeta: { displayName: adapter.displayName, color: '#888' },
     systemPrompt: buildHandoffSystemPrompt(card),
+    ...(allowedTools ? { allowedTools } : {}),
   });
   const events: AgentEvent[] = [];
   const artifacts: Artifact[] = [];
@@ -447,6 +452,30 @@ function findStageForTask(
 ): Stage | undefined {
   if (!workflowStageId || !state.workflow) return undefined;
   return state.workflow.stages.find((s) => s.id === workflowStageId);
+}
+
+function allowedToolsForTask(
+  state: OrchestratorState,
+  role: AgentRoleId,
+  task: PlanTask,
+): string[] | undefined {
+  const stage = findStageForTask(state, task.workflowStageId);
+  if (!stage) return undefined;
+
+  const seatIndex = task.id.startsWith(`${stage.id}__`)
+    ? Number(task.id.slice(stage.id.length + 2))
+    : NaN;
+  const indexedSeat = Number.isInteger(seatIndex) ? stage.seats[seatIndex] : undefined;
+  if (indexedSeat?.ref.kind === 'role' && indexedSeat.ref.role === role) {
+    return nonEmptyTools(indexedSeat.tools);
+  }
+
+  const seat = stage.seats.find((s) => s.ref.kind === 'role' && s.ref.role === role);
+  return nonEmptyTools(seat?.tools);
+}
+
+function nonEmptyTools(tools: string[] | undefined): string[] | undefined {
+  return tools && tools.length > 0 ? tools : undefined;
 }
 
 function applyHandoffOverride(card: HandoffCard, stage: Stage | undefined): HandoffCard {

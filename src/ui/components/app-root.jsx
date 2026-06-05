@@ -1069,11 +1069,15 @@ function App() {
   const { status: authStatus } = useSession();
   const authed = authStatus === 'authenticated';
   const chatsQ = trpc.chats.list.useQuery(undefined, { enabled: authed });
+  const workbenchesQ = trpc.workbenches.list.useQuery(undefined, { enabled: authed });
   const trpcUtils = trpc.useUtils();
   const createChat = trpc.chats.create.useMutation({ onSuccess: () => trpcUtils.chats.list.invalidate() });
+  const createWorkbench = trpc.workbenches.create.useMutation({ onSuccess: () => trpcUtils.workbenches.list.invalidate() });
+  // P3.2: chats/artifacts are workbench-scoped now (spec 100); resolve the active workbench.
+  const activeWorkbenchId = (authed && workbenchesQ.data?.[0]?.id) || null;
   const tasks =
     authed && chatsQ.data
-      ? chatsQ.data.map((c) => ({ id: c.id, title: c.title, meta: c.workspacePath, status: 'idle' }))
+      ? chatsQ.data.map((c) => ({ id: c.id, title: c.title, meta: '', status: 'idle' }))
       : RT.TASKS;
   const [selectedChatId, setSelectedChatId] = useState(null);
   const activeChatId = selectedChatId ?? ((authed && chatsQ.data?.[0]?.id) || null);
@@ -1240,9 +1244,15 @@ function App() {
         activeTask={(['working', 'speaking', 'thinking'].includes(st.status[dmAgent])) ? (RT.PLAN.tasks.find((tk) => tk.owner === dmAgent) || {}).id : null}
         onClose={() => setDmAgent(null)} />}
       {modal === 'task' && <NewTaskModal workbench={RT.WORKBENCH} members={memberIds} agents={agents}
-        onClose={() => setModal(null)} onCreate={(goal) => {
-          if (authed) createChat.mutate({ title: goal.slice(0, 160), workspacePath: `workspaces/${Date.now()}` });
+        onClose={() => setModal(null)} onCreate={async (goal) => {
           setModal(null);
+          if (!authed) return;
+          let wbId = activeWorkbenchId;
+          if (!wbId) {
+            const wb = await createWorkbench.mutateAsync({ name: RT.WORKBENCH.name, workspacePath: `workspaces/${Date.now()}` });
+            wbId = wb?.id ?? null;
+          }
+          if (wbId) createChat.mutate({ title: goal.slice(0, 160), workbenchId: wbId });
         }} />}
       {modal === 'table' && <NewWorkbenchModal agents={agents} onClose={() => setModal(null)} onCreate={() => { setView('workflow'); setModal(null); }} />}
       {modal === 'agent' && <AddAgentModal onClose={() => setModal(null)} onAdd={({ role, name, color }) => {

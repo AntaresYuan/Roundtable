@@ -166,12 +166,36 @@ describe('createClaudeCodeAdapter', () => {
       '--input-format',
       'stream-json',
     ]);
-    expect(args.slice(args.indexOf('--cwd'), args.indexOf('--cwd') + 2)).toEqual([
-      '--cwd',
-      '/tmp/ws',
-    ]);
+    expect(args).not.toContain('--cwd');
     expect(spawned[0]?.cwd).toBe('/tmp/ws');
     await session.close();
+  });
+
+  it('fails when the CLI exits without stream events and stderr explains why', async () => {
+    const spawner = (): CliProcess => ({
+      pid: 12345,
+      async *lines() {},
+      async write() {},
+      signal() {},
+      async close() {},
+      stderrSnapshot() {
+        return "error: unknown option '--cwd'";
+      },
+    });
+    const adapter = createClaudeCodeAdapter({ spawner });
+    const session = await adapter.createSession({
+      cwd: '/tmp/x',
+      role: 'implementer',
+      agentMeta: { displayName: 'cc', color: '#000' },
+    });
+    const events = await collect<AgentEvent>(session.send({ text: 'go' }));
+    expect(events).toEqual([
+      {
+        type: 'error',
+        message: "error: unknown option '--cwd'",
+        recoverable: false,
+      },
+    ]);
   });
 
   it('captures child stderr into the debug snapshot', async () => {

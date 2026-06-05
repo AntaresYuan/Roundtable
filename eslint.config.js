@@ -9,6 +9,7 @@ export default tseslint.config(
       '.next/**',
       'next-env.d.ts',
       'coverage/**',
+      '.roundtable/**',
       'workspaces/**',
     ],
   },

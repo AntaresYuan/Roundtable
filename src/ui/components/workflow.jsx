@@ -121,7 +121,9 @@ function WorkflowView({ agents, onAddAgent, onOpenTemplates }) {
     try {
       const raw = localStorage.getItem('rt.userTemplates');
       if (raw) RT.userTemplates = JSON.parse(raw);
-    } catch { /* ignore */ }
+    } catch {
+      try { localStorage.removeItem('rt.userTemplates'); } catch { /* ignore */ }
+    }
   }, []);
   const saveTemplate = () => {
     const tpl = { id: 'tpl-' + Date.now(), name: RT.WORKBENCH.name + ' workflow', tag: 'Yours',

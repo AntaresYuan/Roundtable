@@ -1,7 +1,12 @@
 import { MockLanguageModelV3 } from 'ai/test';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { llmIntake as publicLlmIntake, llmPlanner as publicLlmPlanner } from '../../src/lib/llm.js';
-import { llmIntake, llmPlanner } from '../../src/orchestrator/llm/index.js';
+import {
+  llmIntake,
+  llmPlanner,
+  orchestratorModelConfig,
+  requireOrchestratorKey,
+} from '../../src/orchestrator/llm/index.js';
 import type { IntakeClassifier } from '../../src/orchestrator/nodes/intake.js';
 import { initialState } from '../../src/orchestrator/state.js';
 
@@ -14,6 +19,50 @@ function mockObjectModel(jsonObject: unknown) {
   })) as never;
   return new MockLanguageModelV3({ doGenerate });
 }
+
+function mockObjectFailureThenTextModel(jsonObject: unknown) {
+  let calls = 0;
+  const doGenerate = (async () => {
+    calls += 1;
+    if (calls === 1) {
+      throw new Error('response_format unsupported');
+    }
+    return {
+      finishReason: 'stop',
+      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+      content: [{ type: 'text', text: `\`\`\`json\n${JSON.stringify(jsonObject)}\n\`\`\`` }],
+      warnings: [],
+    };
+  }) as never;
+  return new MockLanguageModelV3({ doGenerate });
+}
+
+const ENV_KEYS = [
+  'ROUNDTABLE_LLM_PROVIDER',
+  'ANTHROPIC_API_KEY',
+  'ANTHROPIC_MODEL',
+  'DEEPSEEK_API_KEY',
+  'DEEPSEEK_BASE_URL',
+  'DEEPSEEK_MODEL',
+  'MINIMAX_API_KEY',
+  'MINIMAX_BASE_URL',
+  'MINIMAX_MODEL',
+  'OPENAI_API_KEY',
+  'OPENAI_BASE_URL',
+  'OPENAI_MODEL',
+] as const;
+const originalEnv = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
+
+afterEach(() => {
+  for (const key of ENV_KEYS) {
+    const value = originalEnv[key];
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+});
 
 describe('llmIntake', () => {
   it('exports the public LLM wrapper entry points', () => {
@@ -61,6 +110,29 @@ describe('llmIntake', () => {
     const result = await intake.classify('do the thing');
     expect(result.userVisibleSummary).toBe('fallback');
   });
+
+  it('parses JSON text when structured output is unavailable', async () => {
+    const intake = llmIntake({
+      model: mockObjectFailureThenTextModel({
+        intentType: 'debug',
+        clarity: 'clear',
+        ambiguityScore: 0.2,
+        complexity: 'multi_agent',
+        risk: 'medium',
+        suggestedRoles: ['fixer', 'reviewer'],
+        userVisibleSummary: 'Debug the workflow',
+      }),
+      fallback: {
+        async classify() {
+          throw new Error('heuristic fallback should not run');
+        },
+      },
+    });
+
+    const result = await intake.classify('debug the workflow');
+    expect(result.intentType).toBe('debug');
+    expect(result.suggestedRoles).toEqual(['fixer', 'reviewer']);
+  });
 });
 
 describe('llmPlanner', () => {
@@ -107,5 +179,134 @@ describe('llmPlanner', () => {
     const plan = await planner.buildPlan(state);
     expect(plan.tasks[0]?.deps).toEqual([]);
     expect(plan.tasks[1]?.deps).toEqual(['T1']);
+  });
+
+  it('parses JSON text plans when structured output is unavailable', async () => {
+    const planner = llmPlanner({
+      model: mockObjectFailureThenTextModel({
+        tasks: [
+          { title: 'Patch provider', assignee: '@implementer', deps: [], user_visible: true },
+          { title: 'Review provider', assignee: '@reviewer', deps: ['T1'], user_visible: true },
+        ],
+      }),
+      fallback: {
+        async buildPlan() {
+          throw new Error('role fallback should not run');
+        },
+      },
+    });
+
+    const state = initialState('c1', 'fix provider');
+    const plan = await planner.buildPlan(state);
+    expect(plan.tasks.map((task) => task.title)).toEqual([
+      'Patch provider',
+      'Review provider',
+    ]);
+    expect(plan.tasks[1]?.deps).toEqual(['T1']);
+  });
+
+  it('normalizes numeric JSON text deps from compatible providers', async () => {
+    const planner = llmPlanner({
+      model: mockObjectFailureThenTextModel({
+        tasks: [
+          { title: 'Build page', assignee: '@implementer', deps: [], user_visible: true },
+          { title: 'Review page', assignee: '@reviewer', deps: [1], user_visible: true },
+        ],
+      }),
+      fallback: {
+        async buildPlan() {
+          throw new Error('role fallback should not run');
+        },
+      },
+    });
+
+    const plan = await planner.buildPlan(initialState('c1', 'build page'));
+    expect(plan.tasks[1]?.deps).toEqual(['T1']);
+  });
+
+  it('normalizes numeric structured deps from compatible providers', async () => {
+    const planner = llmPlanner({
+      model: mockObjectModel({
+        tasks: [
+          { title: 'Build page', assignee: '@implementer', deps: [], user_visible: true },
+          { title: 'Review page', assignee: '@reviewer', deps: [1], user_visible: true },
+        ],
+      }),
+      fallback: {
+        async buildPlan() {
+          throw new Error('role fallback should not run');
+        },
+      },
+    });
+
+    const plan = await planner.buildPlan(initialState('c1', 'build page'));
+    expect(plan.tasks[1]?.deps).toEqual(['T1']);
+  });
+
+  it('normalizes zero-based numeric JSON text deps', async () => {
+    const planner = llmPlanner({
+      model: mockObjectFailureThenTextModel({
+        tasks: [
+          { title: 'Design page', assignee: '@planner', deps: [], user_visible: true },
+          { title: 'Build page', assignee: '@implementer', deps: [0], user_visible: true },
+        ],
+      }),
+      fallback: {
+        async buildPlan() {
+          throw new Error('role fallback should not run');
+        },
+      },
+    });
+
+    const plan = await planner.buildPlan(initialState('c1', 'build page'));
+    expect(plan.tasks[1]?.deps).toEqual(['T1']);
+  });
+});
+
+describe('orchestratorModelConfig', () => {
+  it('supports DeepSeek as a local live provider', () => {
+    process.env['ROUNDTABLE_LLM_PROVIDER'] = 'deepseek';
+    process.env['DEEPSEEK_MODEL'] = 'deepseek-v4-flash';
+    process.env['DEEPSEEK_BASE_URL'] = 'https://example.deepseek.test';
+    process.env['DEEPSEEK_API_KEY'] = 'test-key';
+
+    expect(orchestratorModelConfig()).toEqual({
+      provider: 'deepseek',
+      model: 'deepseek-v4-flash',
+      baseURL: 'https://example.deepseek.test',
+    });
+    expect(() => requireOrchestratorKey()).not.toThrow();
+  });
+
+  it('fails clearly when DeepSeek is selected without a key', () => {
+    process.env['ROUNDTABLE_LLM_PROVIDER'] = 'deepseek';
+    delete process.env['DEEPSEEK_API_KEY'];
+
+    expect(() => requireOrchestratorKey()).toThrow(
+      'DEEPSEEK_API_KEY is not set. Configure it before using DeepSeek-backed orchestrator nodes.',
+    );
+  });
+
+  it('supports OpenAI as a local live provider', () => {
+    process.env['ROUNDTABLE_LLM_PROVIDER'] = 'openai';
+    process.env['OPENAI_MODEL'] = 'gpt-4o-mini';
+    process.env['OPENAI_BASE_URL'] = 'https://example.test/v1';
+    process.env['OPENAI_API_KEY'] = 'test-key';
+
+    expect(orchestratorModelConfig()).toEqual({
+      provider: 'openai',
+      model: 'gpt-4o-mini',
+      baseURL: 'https://example.test/v1',
+    });
+    expect(() => requireOrchestratorKey()).not.toThrow();
+  });
+
+  it('fails clearly when OpenAI is selected without a key', () => {
+    process.env['ROUNDTABLE_LLM_PROVIDER'] = 'openai';
+    delete process.env['OPENAI_API_KEY'];
+
+    expect(() => requireOrchestratorKey()).toThrow(
+      'OPENAI_API_KEY is not set. Configure it before using OpenAI-backed orchestrator nodes.',
+    );
   });
 });

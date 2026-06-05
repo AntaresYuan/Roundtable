@@ -397,7 +397,7 @@ async function runTaskAttempt(input: {
     : undefined;
 
   try {
-    for await (const rawEvent of session.send({ text: card.taskBrief })) {
+    for await (const rawEvent of session.send({ text: buildAgentInputText(card) })) {
       const observedEvents = artifactWatcher
         ? await artifactWatcher.accept(rawEvent)
         : [rawEvent];
@@ -444,6 +444,28 @@ async function runTaskAttempt(input: {
     artifacts,
     cards,
   };
+}
+
+function buildAgentInputText(card: HandoffCard): string {
+  const lines: string[] = [card.taskBrief.trim()];
+
+  const userIntent = card.userIntent.trim();
+  if (userIntent && userIntent !== card.taskBrief.trim()) {
+    lines.push('', 'User intent:', userIntent);
+  }
+
+  if (card.relevantArtifacts.length > 0) {
+    lines.push(
+      '',
+      'Relevant artifacts:',
+      ...card.relevantArtifacts.map((artifact) =>
+        `- ${artifact.title} (${artifact.kind}, ${artifact.id})${artifact.uri ? ` ${artifact.uri}` : ''}`,
+      ),
+    );
+  }
+
+  lines.push('', `Full history ref: ${card.fullHistoryRef}`);
+  return lines.join('\n');
 }
 
 function findStageForTask(

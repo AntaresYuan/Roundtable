@@ -57,7 +57,9 @@ export default function DevPage() {
         {authed && chats.data && (
           <>
             <p>{chats.data.length} chat(s):</p>
-            <ul>{chats.data.map((c) => <li key={c.id}>{c.title} <code>{c.workbenchId}</code></li>)}</ul>
+            <ul>{chats.data.map((c: { id: string; title: string; workbenchId: string }) => (
+              <li key={c.id}>{c.title} <code>{c.workbenchId}</code></li>
+            ))}</ul>
             {workbenches.data?.[0] && (
               <p>default workbench: <code>{workbenches.data[0].workspacePath}</code></p>
             )}

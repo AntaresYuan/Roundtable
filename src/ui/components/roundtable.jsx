@@ -177,7 +177,128 @@ function ArchNode({ x, y, w, h, owner, title, sub, done, big }) {
     </div>
   );
 }
-function WhiteboardSurface({ tasks, agents, posted, w, h, big }) {
+function LiveRunBoard({ tasks, agents, w, h, big, run }) {
+  const rows = (tasks || []).slice(0, 5);
+  const ownerFor = (task) => {
+    if (task.owner && agents[task.owner]) return agents[task.owner];
+    const role = String(task.assignee || '').replace(/^@/, '');
+    return Object.values(agents).find((a) => a.role === role && !a.pm) || agents.orchestrator;
+  };
+  const approvalStatus = run?.approvalStatus || 'pending';
+  const approved = approvalStatus === 'approved';
+  const pending = run?.phase === 'planning';
+  const completed = run?.phase === 'completed' || run?.dispatchStatus === 'completed';
+  const statusColor = completed ? 'var(--ok)' : pending ? 'var(--run)' : approved ? 'var(--run)' : 'var(--warn)';
+  const statusText = pending
+    ? 'planning now'
+    : completed
+    ? `result ready · ${run?.artifactCount || 0} artifacts`
+    : approved
+    ? 'approved · dispatching agents'
+    : 'waiting for approval';
+  const stages = [
+    { id: 'request', label: 'Request', state: 'done' },
+    { id: 'plan', label: 'Plan', state: pending ? 'active' : 'done' },
+    { id: 'approval', label: 'Approval', state: approved ? 'done' : pending ? 'todo' : 'active' },
+    { id: 'dispatch', label: 'Dispatch', state: completed ? 'done' : approved ? 'active' : 'todo' },
+    { id: 'work', label: 'Result', state: completed ? 'done' : 'todo' },
+  ];
+  return (
+    <div style={{ position: 'absolute', top: 44, left: 20, width: w - 40, height: h - 62,
+      display: 'grid', gridTemplateRows: 'auto auto 1fr', gap: big ? 13 : 9 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+        <span style={{ width: 9, height: 9, borderRadius: '50%', background: statusColor,
+          animation: pending || !approved ? 'rt-pulse-ring 1.4s ease-out infinite' : 'none' }} />
+        <span style={{ fontSize: big ? 16 : 13.5, fontWeight: 800, color: 'var(--text)' }}>Run board</span>
+        <span className="mono" style={{ fontSize: big ? 11 : 9.5, color: statusColor, fontWeight: 700 }}>{statusText}</span>
+        <span style={{ flex: 1 }} />
+        <span className="mono" style={{ fontSize: big ? 10.5 : 9, color: 'var(--text-faint)' }}>{rows.length} queued tasks</span>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: big ? 8 : 5 }}>
+        {stages.map((stage) => {
+          const color = stage.state === 'done' ? 'var(--ok)' : stage.state === 'active' ? 'var(--run)' : stage.state === 'blocked' ? 'var(--warn)' : 'var(--text-faint)';
+          return (
+            <div key={stage.id} style={{ minWidth: 0, padding: big ? '8px 9px' : '6px 7px', borderRadius: 8,
+              background: alpha(color, stage.state === 'todo' ? 6 : 12), border: `1px solid ${alpha(color, 28)}` }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: color,
+                  animation: stage.state === 'active' ? 'rt-blink 1s ease-in-out infinite' : 'none' }} />
+                <span style={{ fontSize: big ? 11.5 : 9.5, fontWeight: 700, color, overflow: 'hidden',
+                  textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{stage.label}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1.05fr .95fr', gap: big ? 12 : 8, minHeight: 0 }}>
+        <div style={{ display: 'grid', gridTemplateRows: 'auto 1fr', gap: 7, minWidth: 0 }}>
+          <div style={{ padding: big ? '10px 12px' : '8px 10px', borderRadius: 9, background: 'var(--surface)',
+            border: '1px solid var(--border)' }}>
+            <div style={{ fontSize: big ? 12 : 10.5, color: 'var(--text-faint)', fontWeight: 700,
+              textTransform: 'uppercase', letterSpacing: '.08em' }}>What this board means</div>
+            <div style={{ marginTop: 4, fontSize: big ? 13.5 : 11.5, color: 'var(--text)', lineHeight: 1.35 }}>
+              {pending
+                ? 'PM is asking the model for a plan. No agent has started work yet.'
+                : completed
+                ? 'Agents finished the run. Open Files or Code/logs to inspect the website, code, and review output.'
+                : approved
+                ? 'You approved the plan. Agents are dispatching tasks and writing artifacts.'
+                : 'The plan is drafted and paused at the approval gate.'}
+            </div>
+          </div>
+          <div style={{ display: 'grid', gap: big ? 8 : 5, alignContent: 'start', minHeight: 0 }}>
+            {rows.length === 0 && (
+              <div style={{ padding: big ? '13px 12px' : '10px 9px', borderRadius: 8, border: '1px dashed var(--border-strong)',
+                background: 'var(--surface)', color: 'var(--text-faint)', fontSize: big ? 12.5 : 10.5 }}>
+                Waiting for the planner to return tasks.
+              </div>
+            )}
+            {rows.map((task) => {
+              const owner = ownerFor(task);
+              return (
+                <div key={task.id} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', gap: 7, alignItems: 'center',
+                  padding: big ? '8px 10px' : '6px 8px', borderRadius: 8, background: tint(owner.color, 7),
+                  border: `1px solid ${alpha(owner.color, 24)}` }}>
+                  <span className="mono" style={{ fontSize: big ? 10.5 : 9, color: owner.color, fontWeight: 800 }}>{task.id}</span>
+                  <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    fontSize: big ? 12.5 : 10.5, color: 'var(--text)', fontWeight: 650 }}>{task.title}</span>
+                  <span className="mono" style={{ fontSize: big ? 10 : 8.5, color: 'var(--text-faint)' }}>{owner.displayName}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gap: big ? 8 : 6, alignContent: 'start' }}>
+          {Object.values(agents).filter((agent) => !agent.pm).slice(0, 4).map((agent) => {
+            const count = rows.filter((task) => ownerFor(task).agentId === agent.agentId).length;
+            return (
+              <div key={agent.agentId} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', alignItems: 'center', gap: 7,
+                padding: big ? '8px 10px' : '6px 8px', borderRadius: 8, background: 'var(--surface)',
+                border: `1px solid ${alpha(agent.color, count ? 35 : 16)}` }}>
+                <span style={{ width: big ? 10 : 8, height: big ? 10 : 8, borderRadius: '50%',
+                  background: count ? agent.color : 'var(--text-faint)',
+                  animation: count && approved ? 'rt-blink 1.3s ease-in-out infinite' : 'none' }} />
+                <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  fontSize: big ? 12.5 : 10.5, fontWeight: 700, color: 'var(--text)' }}>{agent.displayName}</span>
+                <span className="mono" style={{ fontSize: big ? 10 : 8.5, color: count ? agent.color : 'var(--text-faint)' }}>
+                  {count ? (completed ? `${count} done` : `${count} queued`) : 'no task'}
+                </span>
+              </div>
+            );
+          })}
+          <div style={{ padding: big ? '9px 10px' : '7px 8px', borderRadius: 8, background: alpha('var(--warn)', 9),
+            border: `1px solid ${alpha('var(--warn)', 28)}`, color: 'var(--text-muted)', fontSize: big ? 11.5 : 9.5, lineHeight: 1.35 }}>
+            Code/logs are opened from the table button. This board is only the live run map.
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+function WhiteboardSurface({ tasks, agents, posted, w, h, big, live, run }) {
   const t = (id) => tasks.find((x) => x.id === id);
   const landingDone = t('T1') && t('T1').status === 'completed';
   const apiDone = t('T2') && t('T2').status === 'completed';
@@ -189,15 +310,25 @@ function WhiteboardSurface({ tasks, agents, posted, w, h, big }) {
   const api = { x: DW - nodeW - 2, y: 4, w: nodeW, h: nodeH };
   const db = { x: (DW - dbW) / 2, y: DH - nodeH - 4, w: dbW, h: nodeH };
   const cx = (b) => b.x + b.w / 2;
+  const labelStyle = {
+    fontSize: big ? 12 : 10,
+    fontFamily: 'var(--font-mono)',
+    paintOrder: 'stroke',
+    stroke: 'var(--surface)',
+    strokeWidth: 5,
+    strokeLinejoin: 'round',
+  };
   return (
     <>
-      <div style={{ position: 'absolute', top: 16, left: 22, right: 22, display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div style={{ position: 'absolute', top: 16, left: 22, right: 64, display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
         <Icon name="layers" size={big ? 16 : 14} style={{ color: 'var(--text-faint)' }} />
-        <span className="mono" style={{ fontSize: big ? 12 : 10.5, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--text-faint)' }}>Architecture</span>
-        <span style={{ fontSize: big ? 14 : 12, fontWeight: 600, color: 'var(--text-muted)' }}>· waitlist app</span>
+        <span className="mono" style={{ fontSize: big ? 12 : 10.5, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--text-faint)' }}>
+          {live ? 'Workflow board' : 'Architecture'}</span>
+        <span style={{ fontSize: big ? 14 : 12, fontWeight: 600, color: 'var(--text-muted)' }}>· {live ? 'current run' : 'waitlist app'}</span>
         <span style={{ flex: 1 }} />
-        {posted && <span className="mono" style={{ fontSize: big ? 11 : 9.5, color: 'var(--text-faint)' }}>data flow →</span>}
+        {posted && <span className="mono" style={{ fontSize: big ? 11 : 9.5, color: 'var(--text-faint)' }}>{live ? 'state map' : 'data flow →'}</span>}
       </div>
+      {posted && live ? <LiveRunBoard tasks={tasks} agents={agents} w={w} h={h} big={big} run={run} /> : (
       <div style={{ position: 'absolute', top: 46, left: 20, width: DW, height: DH }}>
         {!posted ? (
           <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center' }}>
@@ -214,10 +345,10 @@ function WhiteboardSurface({ tasks, agents, posted, w, h, big }) {
               {/* API → DB (insert) */}
               <line x1={cx(api)} y1={api.y + api.h} x2={cx(db) + 8} y2={db.y - 4}
                 stroke="var(--text-faint)" strokeWidth="1.8" markerEnd="url(#wbar)" opacity={apiDone ? '.7' : '.3'} />
-              <text x={(land.x + land.w + api.x) / 2} y={land.y + land.h / 2 - 8} textAnchor="middle"
-                fill="var(--text-faint)" style={{ fontSize: big ? 12 : 10, fontFamily: 'var(--font-mono)' }}>submit</text>
+              <text x={(land.x + land.w + api.x) / 2} y={land.y + land.h + 18} textAnchor="middle"
+                fill="var(--text-faint)" style={labelStyle}>submit</text>
               <text x={(cx(api) + cx(db)) / 2 + 14} y={(api.y + api.h + db.y) / 2} textAnchor="middle"
-                fill="var(--text-faint)" style={{ fontSize: big ? 12 : 10, fontFamily: 'var(--font-mono)' }}>insert</text>
+                fill="var(--text-faint)" style={labelStyle}>insert</text>
             </svg>
             <ArchNode {...land} owner={agents.atlas} title="Landing page" sub="page.tsx · email · size" done={landingDone} big={big} />
             <ArchNode {...api} owner={agents.beam} title="POST /api/waitlist" sub="route.ts · zod validate" done={apiDone} big={big} />
@@ -225,6 +356,7 @@ function WhiteboardSurface({ tasks, agents, posted, w, h, big }) {
           </>
         )}
       </div>
+      )}
     </>
   );
 }
@@ -267,12 +399,12 @@ function BoardFrame({ w, h, posted, tasks, agents, big, children }) {
     </>
   );
 }
-function Whiteboard({ tasks, agents, posted, onZoom, big }) {
+function Whiteboard({ tasks, agents, posted, onZoom, big, live, run }) {
   const b = L.WB;
   return (
     <div style={{ position: 'absolute', left: b.x - b.w / 2, top: b.y - b.h / 2, width: b.w, height: b.h, zIndex: 6 }}>
       <BoardFrame w={b.w} h={b.h}>
-        <WhiteboardSurface tasks={tasks} agents={agents} posted={posted} w={b.w - 22} h={b.h - 22} big={big} />
+        <WhiteboardSurface tasks={tasks} agents={agents} posted={posted} w={b.w - 22} h={b.h - 22} big={big} live={live} run={run} />
       </BoardFrame>
       <button onClick={onZoom} title="Open whiteboard" style={{ position: 'absolute', top: 18, right: 18, zIndex: 5,
         display: 'grid', placeItems: 'center', width: 28, height: 28, borderRadius: 7, cursor: 'pointer',
@@ -410,7 +542,7 @@ function SpeechCard({ agent, speech, aggregate, onAction, s, drop }) {
 }
 
 /* ---- Seat ---------------------------------------------------------------- */
-function Seat({ seat, agents, scene, dim, onAction, onSeatClick }) {
+function Seat({ seat, agents, scene, dim, onAction, onSeatClick, activity }) {
   const { x, y, s } = seatPos(seat.angle);
   const z = Math.round(200 + y);
   if (seat.empty) {
@@ -432,10 +564,11 @@ function Seat({ seat, agents, scene, dim, onAction, onSeatClick }) {
   const raisingHand = scene.decision && scene.decision.agentId === seat.agentId;
   const figSize = Math.round((seat.head ? 56 : 60) * s);
   const clickable = !isUser && onSeatClick;
+  const activityCount = activity?.count || 0;
 
   return (
     <div onClick={clickable ? () => onSeatClick(seat.agentId) : undefined}
-      title={clickable ? `Message ${agent.displayName} privately` : undefined}
+      title={clickable ? `Open ${agent.displayName} activity` : undefined}
       className={clickable ? 'rt-seat' : undefined}
       style={{ position: 'absolute', left: x, top: y, transform: `translate(-50%,-50%) translateY(${speaking ? -7 : 0}px)`,
       zIndex: showSpeech ? 400 : z, transition: 'transform .4s cubic-bezier(.2,.8,.3,1)', cursor: clickable ? 'pointer' : 'default',
@@ -456,6 +589,14 @@ function Seat({ seat, agents, scene, dim, onAction, onSeatClick }) {
             <span className="rt-seat-dm" style={{ position: 'absolute', left: -4, top: figSize * 0.05, width: 18 * s, height: 18 * s,
               borderRadius: '50%', display: 'none', placeItems: 'center', background: 'var(--accent)', color: '#fff',
               boxShadow: '0 0 0 2px var(--surface)', zIndex: 6 }}><Icon name="send" size={10 * s} /></span>
+          )}
+          {activityCount > 0 && (
+            <span style={{ position: 'absolute', right: -9, top: -8, minWidth: 21 * s, height: 21 * s,
+              padding: `0 ${5 * s}px`, borderRadius: 999, display: 'grid', placeItems: 'center',
+              background: agent.color, color: '#fff', fontSize: 11 * s, fontWeight: 800,
+              boxShadow: '0 0 0 2px var(--surface)', zIndex: 9 }}>
+              {activityCount}
+            </span>
           )}
           {!isUser && (
             <div style={{ position: 'absolute', right: -3, top: figSize * 0.05, width: 17 * s, height: 17 * s,
@@ -495,15 +636,15 @@ function DocTray({ placed, agents, onOpen }) {
             <div key={i} className="rt-place" style={{ position: 'absolute', left: off * 8, top: off * 6, zIndex: i,
               width: 60, height: 48, borderRadius: 8, background: 'var(--surface)', border: '1px solid var(--border)',
               borderLeft: `3px solid ${c}`, boxShadow: '0 8px 16px -9px rgba(0,0,0,.55)', display: 'grid', placeItems: 'center' }}>
-              <Icon name={it.neutral ? 'clip' : 'code'} size={18} style={{ color: c }} />
+              <Icon name={it.neutral ? 'code' : 'code'} size={18} style={{ color: c }} />
             </div>
           );
         })}
       </div>
       <div style={{ textAlign: 'left' }}>
-        <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text)' }}>Files on the table</div>
+        <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text)' }}>Code & logs</div>
         <div style={{ fontSize: 14, color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 4 }}>
-          {items.length} docs · open <Icon name="chevron" size={14} />
+          {items.length} records · open <Icon name="chevron" size={14} />
         </div>
       </div>
     </button>
@@ -534,19 +675,20 @@ function Door({ active, onClick }) {
 }
 
 /* ---- Scene root ---------------------------------------------------------- */
-function RoundtableScene({ agents, scene, memberIds, onOpenArtifact, onAction, onOpenBreakouts, onSeatClick, onOpenFiles, onZoomWhiteboard, wide }) {
+function RoundtableScene({ agents, scene, memberIds, onOpenArtifact, onAction, onOpenBreakouts, onSeatClick, onOpenFiles, onOpenCodeLogs, onZoomWhiteboard, wide, activityByAgent }) {
   L = wide ? LAYOUTS.wide : LAYOUTS.stacked;     // set active layout for this render
   const seats = buildSeats(memberIds);
   const speaker = scene.speech ? scene.speech.agentId : null;
   return (
     <RoomStage w={L.W} h={L.H}>
-      <Whiteboard tasks={scene.tasks} agents={agents} posted={scene.planPosted} onZoom={onZoomWhiteboard} big={wide} />
+      <Whiteboard tasks={scene.tasks} agents={agents} posted={scene.planPosted} onZoom={onZoomWhiteboard} big={wide} live={scene.live} run={scene.run} />
       <Door active={scene.breakout ? 1 : 0} onClick={onOpenBreakouts} />
       <TableBody />
       <Beams scene={scene} agents={agents} seats={seats} />
-      <DocTray placed={scene.placed} agents={agents} onOpen={onOpenFiles} />
+      <DocTray placed={scene.placed} agents={agents} onOpen={onOpenCodeLogs || onOpenFiles} />
       {seats.map((seat) => (
         <Seat key={seat.key} seat={seat} agents={agents} scene={scene} onAction={onAction} onSeatClick={onSeatClick}
+          activity={seat.agentId ? activityByAgent?.[seat.agentId] : null}
           dim={!!speaker && speaker !== seat.agentId && !seat.user && !seat.head} />
       ))}
     </RoomStage>

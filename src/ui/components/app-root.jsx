@@ -311,6 +311,225 @@ function UserMsg({ text }) {
   );
 }
 
+function LocalLiveThread({ turns, agents, onApproveTurn }) {
+  if (!turns || turns.length === 0) {
+    return (
+      <div style={{ minHeight: 220, display: 'grid', placeItems: 'center', textAlign: 'center', color: 'var(--text-faint)' }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 5 }}>No live turn yet</div>
+          <div style={{ fontSize: 12.5, lineHeight: 1.5 }}>Send a message below to run the real PM model from local env.</div>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div style={{ flex: 1, overflowY: 'auto', padding: '16px 22px' }}>
+      <div style={{ maxWidth: 720, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {turns.map((turn, index) => (
+          <LocalLiveTurn
+            key={turn.id}
+            turn={turn}
+            agents={agents}
+            onApproveTurn={onApproveTurn}
+            showPreview={index === 0}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function LocalLiveTurn({ turn, agents, onApproveTurn, showPreview }) {
+  const completed = turn.result?.dispatchStatus === 'completed';
+  const failed = turn.result?.dispatchStatus === 'failed';
+  const artifacts = turn.result?.artifacts || [];
+  const previewArtifact = artifacts.find((artifact) => artifact.kind === 'preview');
+  return (
+    <>
+      <UserMsg text={turn.message} />
+      <div className="rt-rise" style={{ display: 'flex', gap: 11, alignItems: 'flex-start' }}>
+        <Avatar agent={agents.orchestrator} size={28} ring={false} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+            <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--pm)' }}>PM</span>
+            <span className="mono" style={{ fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--text-faint)' }}>local orchestrator</span>
+            {turn.result && (
+              <span className="mono" style={{ marginLeft: 'auto', fontSize: 10.5, color: 'var(--text-faint)' }}>
+                {turn.result.provider} / {turn.result.model}
+              </span>
+            )}
+          </div>
+          {turn.status === 'pending' && (
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: 'var(--text-muted)', fontSize: 13.5 }}>
+              <Spinner size={13} color="var(--text-muted)" /> calling the real model...
+            </div>
+          )}
+          {turn.status === 'error' && (
+            <div style={{ padding: '10px 12px', borderRadius: 'var(--r-sm)', background: alpha('var(--bad)', 12),
+              color: 'var(--bad)', fontSize: 13, borderLeft: '2px solid var(--bad)' }}>
+              {turn.error}
+            </div>
+          )}
+          {turn.result && (
+            <div style={{ color: 'var(--text-muted)', fontSize: 13.5, lineHeight: 1.55 }}>
+              <div style={{ marginBottom: 12 }}>{turn.result.pmMessage}</div>
+              <LocalPlanCard
+                plan={turn.result.plan}
+                intake={turn.result.intake}
+                agents={agents}
+                approvalStatus={turn.result.approvalStatus || (turn.result.needsApproval ? 'pending' : 'approved')}
+                approving={turn.approving}
+                approvalError={turn.approvalError}
+                onApprove={() => onApproveTurn && onApproveTurn(turn.id)}
+              />
+              {(completed || failed || artifacts.length > 0) && (
+                <LocalResultCard
+                  artifacts={artifacts}
+                  dispatchStatus={turn.result.dispatchStatus}
+                  dispatchAdapter={turn.result.dispatchAdapter}
+                  dispatchStage={turn.result.dispatchStage}
+                  workspacePath={turn.result.dispatchWorkspacePath || turn.result.workspacePath}
+                  previewArtifact={showPreview ? previewArtifact : null}
+                  agents={agents}
+                />
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function LocalResultCard({ artifacts, dispatchStatus, dispatchAdapter, dispatchStage, workspacePath, previewArtifact, agents }) {
+  const completed = dispatchStatus === 'completed';
+  const codeCount = artifacts.filter((artifact) => artifact.kind === 'code').length;
+  const reviewCount = artifacts.filter((artifact) => artifact.ownerAgentId === 'reviewer').length;
+  const statusColor = completed ? 'var(--ok)' : dispatchStatus === 'failed' ? 'var(--bad)' : 'var(--run)';
+  return (
+    <div style={{ marginTop: 12, border: '1px solid var(--border)', borderRadius: 'var(--r-card)',
+      background: 'var(--surface)', boxShadow: 'var(--shadow-card)', overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px',
+        borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
+        <Icon name={completed ? 'check' : 'code'} size={15} style={{ color: statusColor }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 750, fontSize: 14, color: 'var(--text)' }}>
+            {completed ? 'Result ready' : 'Result in progress'}
+          </div>
+          <div className="mono" style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 2 }}>
+            {artifacts.length} artifacts · {codeCount} code · {reviewCount} review · adapter={dispatchAdapter || 'local-dispatch'} · next={dispatchStage || 'done'}
+          </div>
+        </div>
+        <span style={{ fontSize: 11.5, color: statusColor, padding: '3px 8px', borderRadius: 999,
+          background: alpha(statusColor, 14), fontWeight: 750 }}>
+          {dispatchStatus || 'not_started'}
+        </span>
+      </div>
+      {previewArtifact && (
+        <div style={{ background: 'var(--surface-3)', padding: 12 }}>
+          <div style={{ borderRadius: 'var(--r-sm)', overflow: 'hidden', border: '1px solid var(--border)',
+            background: '#fff', boxShadow: 'var(--shadow-card)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 10px',
+              background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
+              {['#e5687a', '#e6a23c', '#4cc38a'].map((color) => (
+                <span key={color} style={{ width: 9, height: 9, borderRadius: '50%', background: color, opacity: .8 }} />
+              ))}
+              <span className="mono" style={{ fontSize: 11, color: 'var(--text-faint)', marginLeft: 6 }}>
+                {previewArtifact.title}
+              </span>
+            </div>
+            <iframe title={previewArtifact.title} srcDoc={previewArtifact.preview} sandbox="allow-scripts allow-forms allow-modals"
+              style={{ width: '100%', height: 360, border: 'none', display: 'block', background: '#fff' }} />
+          </div>
+        </div>
+      )}
+      <div style={{ padding: '11px 14px', display: 'grid', gap: 8 }}>
+        {artifacts.slice(0, 8).map((artifact) => {
+          const owner = agentForArtifact(artifact, agents);
+          return (
+            <div key={`${artifact.id}-${artifact.version}`} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto',
+              gap: 9, alignItems: 'center', padding: '8px 10px', borderRadius: 'var(--r-sm)',
+              background: tint(owner.color, 7), border: `1px solid ${alpha(owner.color, 22)}` }}>
+              <Icon name={artifact.kind === 'preview' ? 'eye' : artifact.kind === 'markdown' ? 'clip' : 'code'} size={14}
+                style={{ color: owner.color }} />
+              <span className="mono" style={{ fontSize: 12, color: 'var(--text)', overflow: 'hidden',
+                textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{artifact.title}</span>
+              <span style={{ fontSize: 11, color: owner.color, fontWeight: 700 }}>@{owner.role || artifact.ownerAgentId}</span>
+            </div>
+          );
+        })}
+        {workspacePath && (
+          <div className="mono" style={{ fontSize: 10.5, color: 'var(--text-faint)', overflow: 'hidden',
+            textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>workspace: {workspacePath}</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function LocalPlanCard({ plan, intake, agents, approvalStatus, approving, approvalError, onApprove }) {
+  const ownerFor = (assignee) => {
+    const role = assignee.replace(/^@/, '');
+    return Object.values(agents).find((a) => a.role === role && !a.pm) || agents.orchestrator;
+  };
+  const approved = approvalStatus === 'approved';
+  return (
+    <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--r-card)', background: 'var(--surface)',
+      boxShadow: 'var(--shadow-card)', overflow: 'hidden' }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '12px 14px', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
+        <Icon name="layers" size={15} style={{ color: 'var(--accent)' }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 700, fontSize: 14 }}>Plan drafted</div>
+          <div className="mono" style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 2 }}>
+            intent={intake.intentType} · risk={intake.risk} · clarity={intake.clarity}
+          </div>
+        </div>
+        <span style={{ fontSize: 11.5, color: approved ? 'var(--ok)' : 'var(--warn)', padding: '3px 8px', borderRadius: 999,
+          background: alpha(approved ? 'var(--ok)' : 'var(--warn)', 14), fontWeight: 700 }}>
+          {approved ? 'approved' : 'awaiting approval'}
+        </span>
+        {!approved && (
+          <button onClick={onApprove} disabled={approving} title="Approve this plan and let the run continue"
+            style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+              padding: '7px 11px', borderRadius: 'var(--r-sm)', border: 'none',
+              cursor: approving ? 'default' : 'pointer', background: approving ? 'var(--surface-3)' : 'var(--accent)',
+              color: approving ? 'var(--text-faint)' : '#fff', font: 'inherit', fontSize: 12.5,
+              fontWeight: 700, minHeight: 30, flexShrink: 0 }}>
+            {approving ? <Spinner size={13} color="var(--text-faint)" /> : <Icon name="check" size={13} />}
+            Approve
+          </button>
+        )}
+      </div>
+      {approvalError && (
+        <div style={{ padding: '8px 14px', background: alpha('var(--bad)', 10), color: 'var(--bad)', fontSize: 12.5,
+          borderBottom: '1px solid var(--border)' }}>
+          {approvalError}
+        </div>
+      )}
+      <div style={{ padding: '10px 14px 13px' }}>
+        {plan.tasks.map((task) => {
+          const owner = ownerFor(task.assignee);
+          return (
+            <div key={task.id} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '9px 0',
+              borderBottom: task.id === plan.tasks[plan.tasks.length - 1].id ? 'none' : '1px solid var(--border)' }}>
+              <Avatar agent={owner} size={24} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <span className="mono" style={{ fontSize: 11, color: 'var(--text-faint)' }}>{task.id}</span>
+                  <span style={{ fontSize: 13.5, color: 'var(--text)', fontWeight: 600 }}>{task.title}</span>
+                </div>
+                <div className="mono" style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 3 }}>
+                  {task.assignee}{task.parallel ? ' · parallel' : ''}{task.deps.length ? ` · waits on ${task.deps.join(', ')}` : ''}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /* ---- transport ------------------------------------------------------------ */
 function Transport({ scene }) {
   const pct = Math.min(100, (scene.clock / RT.SCENE_DURATION) * 100);
@@ -548,7 +767,7 @@ function TranscriptSheet({ scene, agents, onOpenArtifact }) {
 }
 
 /* ---- Now-dock (roundtable view) ------------------------------------------ */
-function Dock({ st, agents, scene, onAction, onOpenChat, onOpenWorkflow }) {
+function Dock({ st, agents, scene, onAction, onOpenChat, onOpenWorkflow, onSend, liveStatus }) {
   let dotColor = 'var(--text-faint)', body;
   if (st.decision) {
     const ag = agents[st.decision.agentId];
@@ -606,9 +825,9 @@ function Dock({ st, agents, scene, onAction, onOpenChat, onOpenWorkflow }) {
   } else {
     body = (
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 1, fontSize: 13.5 }}>
-        <span>{!st.started ? 'Ready to begin' : 'The table is quiet'}</span>
+        <span>{liveStatus === 'pending' ? 'Planning with the real model' : !st.started ? 'Ready to begin' : 'The table is quiet'}</span>
         {!st.started && (
-          <span style={{ fontSize: 12.5, color: 'var(--text-faint)' }}>press play to convene</span>
+          <span style={{ fontSize: 12.5, color: 'var(--text-faint)' }}>create a task or message the table</span>
         )}
       </div>
     );
@@ -624,7 +843,7 @@ function Dock({ st, agents, scene, onAction, onOpenChat, onOpenWorkflow }) {
           boxShadow: st.speech ? `0 0 0 4px ${alpha(dotColor, 22)}` : 'none' }} />
         {body}
       </div>
-      <Composer agents={agents} onSend={() => scene.replay()} />
+      <Composer agents={agents} onSend={onSend || (() => scene.replay())} />
     </div>
   );
 }
@@ -694,15 +913,19 @@ function FileRow({ art, agents, onOpen, activeChatId }) {
     </button>
   );
 }
-function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifact, onAction, onClose, live, liveArtifacts, liveMessages, liveHandoffs, activeChatId, memory }) {
+function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifact, onAction, onClose, live, liveArtifacts, liveMessages, liveHandoffs, activeChatId, memory, localTurns, localStatus, onApproveLocalTurn }) {
   const placed = sceneAt(clock).placed;
+  const hasLocalTurns = !live && localTurns && localTurns.length > 0;
+  const localArtifacts = hasLocalTurns ? liveArtifactsFromTurns(localTurns, agents, localStatus) : [];
   // P3.2: in live mode show the real chat's artifacts (empty until the orchestrator runs) —
   // never fall back to scripted fixtures, which would contradict the live center stage.
-  const created = live
+  const created = hasLocalTurns
+    ? localArtifacts
+    : live
     ? (liveArtifacts ?? []).map((a) => ({ ...a, version: a.currentVersion, source: a.source ?? 'generated' }))
     : placed.map((p) => p.art);
   // The fixture "brief" is demo-only — in live mode there are no user-provided artifacts yet.
-  const provided = live ? [] : [RT.ARTIFACTS.brief];
+  const provided = live || hasLocalTurns ? [] : [RT.ARTIFACTS.brief];
   const notes = meetingNotes(clock);
   const tabBtn = (id, label) => (
     <button onClick={() => setTab(id)} style={{ flex: 1, padding: '10px 0', border: 'none', cursor: 'pointer', font: 'inherit',
@@ -724,7 +947,9 @@ function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifa
 
       {tab === 'chat' ? (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg)' }}>
-          {live
+          {hasLocalTurns
+            ? <LocalLiveThread turns={localTurns} agents={agents} onApproveTurn={onApproveLocalTurn} />
+            : live
             ? <LiveThread messages={liveMessages ?? []} handoffs={liveHandoffs} agents={agents} />
             : <Thread agents={agents} scene={scene} onOpenArtifact={onOpenArtifact} onAction={onAction} narrow />}
         </div>
@@ -739,7 +964,7 @@ function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifa
           )}
           <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase',
             color: 'var(--text-faint)', margin: provided.length > 0 ? '16px 0 9px' : '0 0 9px' }}>
-            {live ? 'Project artifacts' : 'Created in this run'} · {created.length}
+            {hasLocalTurns ? 'Local model outputs' : live ? 'Project artifacts' : 'Created in this run'} · {created.length}
           </div>
           {created.length === 0
             ? <div style={{ fontSize: 12.5, color: 'var(--text-faint)', fontStyle: 'italic', padding: '4px 2px' }}>Nothing yet — artifacts land here as the team works.</div>
@@ -749,7 +974,7 @@ function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifa
         <MemoryPanel memory={memory} />
       ) : tab === 'deps' ? (
         <div style={{ flex: 1, overflowY: 'auto', padding: '14px 14px 24px' }}>
-          {live ? (
+          {live || hasLocalTurns ? (
             <div style={{ fontSize: 12.5, color: 'var(--text-faint)', fontStyle: 'italic', padding: '4px 2px' }}>
               The dependency graph isn&rsquo;t wired to live data yet — it&rsquo;ll map artifacts as the team links them.</div>
           ) : (
@@ -764,7 +989,7 @@ function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifa
             />
           )}
         </div>
-      ) : live ? (
+      ) : live || hasLocalTurns ? (
         <LiveNotes agents={agents} artifacts={created} handoffs={liveHandoffs} />
       ) : (
         <NotesContent clock={clock} agents={agents} notes={notes} />
@@ -826,6 +1051,188 @@ function LiveNotes({ agents, artifacts, handoffs }) {
       )}
     </div>
   );
+}
+
+function turnToTask(turn) {
+  const title = turn.message.length > 40 ? turn.message.slice(0, 40) + '...' : turn.message;
+  if (turn.status === 'error') {
+    return { id: turn.id, title, meta: turn.error || 'failed', status: 'queued' };
+  }
+  const count = turn.result?.plan?.tasks?.length || turn.plan?.tasks?.length || 0;
+  const approvalStatus = turn.result?.approvalStatus || turn.approvalStatus;
+  const dispatchStatus = turn.result?.dispatchStatus || turn.dispatchStatus;
+  const artifactCount = turn.result?.artifacts?.length || turn.artifacts?.length || 0;
+  const approvalMeta = approvalStatus === 'approved' ? 'approved' : 'awaiting approval';
+  return {
+    id: turn.id,
+    title,
+    meta: dispatchStatus === 'completed'
+      ? `${artifactCount} artifacts · result ready`
+      : count
+      ? `${count} planned · ${approvalMeta}`
+      : 'planned',
+    status: approvalStatus === 'approved' ? 'done' : turn.status === 'pending' ? 'live' : 'queued',
+  };
+}
+
+function storedTurnToLiveTurn(turn) {
+  return {
+    id: turn.id,
+    message: turn.message,
+    status: turn.status,
+    createdAt: turn.createdAt,
+    ...(turn.status === 'done'
+      ? {
+          result: {
+            ok: true,
+            id: turn.id,
+            provider: turn.provider,
+            model: turn.model,
+            pmMessage: turn.pmMessage,
+            needsApproval: turn.needsApproval,
+            approvalStatus: turn.approvalStatus,
+            approvedAt: turn.approvedAt,
+            dispatchStatus: turn.dispatchStatus,
+            dispatchAdapter: turn.dispatchAdapter,
+            dispatchedAt: turn.dispatchedAt,
+            dispatchStage: turn.dispatchStage,
+            dispatchError: turn.dispatchError,
+            dispatchWorkspacePath: turn.dispatchWorkspacePath,
+            dispatch: turn.dispatch,
+            artifacts: turn.artifacts,
+            intake: turn.intake,
+            plan: turn.plan,
+          },
+        }
+      : { error: turn.error || 'orchestrator_turn_failed' }),
+  };
+}
+
+function latestLiveTurn(liveTurns) {
+  const turns = (liveTurns || []).filter((turn) => turn.result || turn.status === 'pending' || turn.status === 'error');
+  if (turns.length === 0) return null;
+  const timeOf = (turn) => {
+    const fromCreatedAt = turn.createdAt ? Date.parse(turn.createdAt) : NaN;
+    if (!Number.isNaN(fromCreatedAt)) return fromCreatedAt;
+    const fromId = /^live-(\d+)$/.exec(turn.id);
+    return fromId ? Number(fromId[1]) : 0;
+  };
+  return [...turns].sort((a, b) => timeOf(b) - timeOf(a))[0];
+}
+
+function preferredAgentAdapterRequest() {
+  if (typeof window === 'undefined') return {};
+  const value = window.localStorage.getItem('roundtableAgentAdapter');
+  return value ? { agentAdapter: value } : {};
+}
+
+function livePlanArtifact(liveTurns, liveStatus) {
+  return {
+    id: 'live-code-log',
+    kind: 'code',
+    title: 'roundtable-live-run.json',
+    ownerAgentId: 'orchestrator',
+    version: 1,
+    source: 'generated',
+    createdAt: new Date().toISOString(),
+    code: JSON.stringify({
+      server: {
+        status: 'running',
+        url: 'http://localhost:3000',
+        currentUiStatus: liveStatus,
+      },
+      turns: (liveTurns || []).map((turn) => ({
+        id: turn.id,
+        createdAt: turn.createdAt,
+        status: turn.status,
+        approvalStatus: turn.result?.approvalStatus,
+        dispatchStatus: turn.result?.dispatchStatus,
+        dispatchAdapter: turn.result?.dispatchAdapter,
+        artifactCount: turn.result?.artifacts?.length || 0,
+        workspacePath: turn.result?.dispatchWorkspacePath,
+        taskCount: turn.result?.plan?.tasks?.length || 0,
+        message: turn.message,
+        error: turn.error,
+        plan: turn.result?.plan,
+      })),
+    }, null, 2),
+  };
+}
+
+function agentForArtifact(artifact, agents) {
+  if (agents[artifact.ownerAgentId]) return agents[artifact.ownerAgentId];
+  const role = artifact.ownerAgentId;
+  return Object.values(agents).find((agent) => agent.role === role && !agent.pm) || agents.orchestrator;
+}
+
+function normalizeLiveArtifacts(artifacts, agents) {
+  return (artifacts || []).map((artifact) => {
+    const owner = agentForArtifact(artifact, agents);
+    return {
+      ...artifact,
+      ownerAgentId: owner.agentId,
+      source: 'generated',
+      code: artifact.kind === 'code' ? artifact.preview : undefined,
+      preview: artifact.preview || '',
+    };
+  });
+}
+
+function liveArtifactsFromTurns(liveTurns, agents, liveStatus) {
+  const turns = liveTurns || [];
+  return [
+    ...(turns.length > 0 ? [livePlanArtifact(turns, liveStatus)] : []),
+    ...turns.flatMap((turn) => normalizeLiveArtifacts(turn.result?.artifacts || [], agents)),
+  ];
+}
+
+function buildLocalScene(baseScene, liveTurns, agents) {
+  const latest = latestLiveTurn(liveTurns);
+  if (!latest) return baseScene;
+  const status = { ...baseScene.status };
+  Object.keys(status).forEach((id) => { status[id] = 'idle'; });
+  const result = latest.result;
+  const approved = result?.approvalStatus === 'approved';
+  const completed = result?.dispatchStatus === 'completed';
+  status.orchestrator = latest.status === 'pending' ? 'working' : result ? 'done' : 'idle';
+
+  const roleCursor = {};
+  const ownerFor = (assignee) => {
+    const role = String(assignee || '').replace(/^@/, '');
+    const candidates = Object.values(agents).filter((agent) => agent.role === role && !agent.pm);
+    if (candidates.length === 0) return agents.orchestrator;
+    const index = roleCursor[role] || 0;
+    roleCursor[role] = index + 1;
+    return candidates[index % candidates.length];
+  };
+  const liveTasks = result?.plan?.tasks?.map((task) => {
+    const owner = ownerFor(task.assignee);
+    status[owner.agentId] = completed || approved ? 'done' : 'idle';
+    return { ...task, owner: owner.agentId, status: completed ? 'completed' : approved ? 'running' : 'pending' };
+  }) || [];
+
+  return {
+    ...baseScene,
+    live: true,
+    started: true,
+    planPosted: true,
+    run: {
+      phase: latest.status === 'pending' ? 'planning' : completed ? 'completed' : approved ? 'approved' : 'approval',
+      message: latest.message,
+      error: latest.error,
+      provider: result?.provider,
+      model: result?.model,
+      dispatchStatus: result?.dispatchStatus,
+      artifactCount: result?.artifacts?.length || 0,
+      workspacePath: result?.dispatchWorkspacePath,
+    },
+    status,
+    tasks: liveTasks,
+    placed: result?.plan ? liveArtifactsFromTurns([latest], agents, 'idle').map((art) => ({
+      art,
+      ownerAgentId: art.ownerAgentId,
+    })) : [],
+  };
 }
 
 /* ---- structured meeting notes (decisions / deliverables / review / next) - */
@@ -1101,6 +1508,8 @@ function App() {
   const [inspectorW, setInspectorW] = useState(392);
   const [zoomWB, setZoomWB] = useState(false);
   const [memberIds, setMemberIds] = useState(RT.WORKBENCH.members);
+  const [localTurns, setLocalTurns] = useState([]);
+  const [localStatus, setLocalStatus] = useState('idle');
   // P3.2: live chats when signed in; fall back to fixtures for the logged-out demo.
   const { status: authStatus } = useSession();
   const authed = authStatus === 'authenticated';
@@ -1141,12 +1550,15 @@ function App() {
     authed && activeWorkbenchId
       ? liveWorkbenches.find((w) => w.id === activeWorkbenchId) ?? null
       : null;
+  const localTasks = localTurns.map(turnToTask);
   const tasks =
     authed && chatsQ.data
       ? chatsQ.data
           .filter((c) => !activeWorkbenchId || c.workbenchId === activeWorkbenchId)
           .map((c) => ({ id: c.id, title: c.title, meta: activeWorkbench?.name || 'workbench', status: 'idle', workbenchId: c.workbenchId }))
-      : RT.TASKS;
+      : localTasks.length > 0
+        ? localTasks
+        : RT.TASKS;
   const profileQ = trpc.userProfile.get.useQuery(undefined, { enabled: authed });
   const pinsQ = trpc.workbenchPinned.list.useQuery(
     { workbenchId: activeWorkbenchId ?? '' },
@@ -1177,7 +1589,12 @@ function App() {
   const scene = useScene(t.autoplay, t.speed);
   const compact = useMediaQuery('(max-width: 760px)');
   const [decided, setDecided] = useState(false);
-  const st = useMemo(() => { const s = sceneAt(scene.clock); if (decided) s.decision = null; return s; }, [scene.clock, decided]);
+  const localLive = !authed && localTurns.length > 0;
+  const st = useMemo(() => {
+    const s = sceneAt(localLive ? 0 : scene.clock);
+    if (decided) s.decision = null;
+    return localLive ? buildLocalScene(s, localTurns, agents) : s;
+  }, [scene.clock, decided, localLive, localTurns, agents]);
   useEffect(() => { if (scene.clock < 200) setDecided(false); }, [scene.clock]);
   useEffect(() => {
     if (!compact) return;
@@ -1205,6 +1622,25 @@ function App() {
     r.dataset.density = t.density;
   }, [t.aesthetic, t.theme, t.density]);
 
+  useEffect(() => {
+    if (authStatus === 'loading' || authed) return;
+    let cancelled = false;
+    const loadHistory = async () => {
+      try {
+        const res = await fetch('/api/orchestrator/history', { cache: 'no-store' });
+        const data = await res.json();
+        if (cancelled || !res.ok || !data.ok) return;
+        setLocalTurns((data.turns || []).map(storedTurnToLiveTurn));
+      } catch {
+        // Local history is a dev convenience; a fresh turn should still work.
+      }
+    };
+    loadHistory();
+    return () => {
+      cancelled = true;
+    };
+  }, [authStatus, authed]);
+
   const onAction = (id) => {
     if (id === 'preview') setDrawerArt(RT.ARTIFACTS.preview);
     if (id === 'fix') setDrawerArt(RT.ARTIFACTS.diff);
@@ -1230,6 +1666,99 @@ function App() {
     });
     setSelectedWorkbenchId(created.id);
     return created;
+  };
+  const sendLocalTurn = async (message, turnId) => {
+    const id = turnId || 'live-' + Date.now();
+    const createdAt = new Date().toISOString();
+    setInspectorTab('chat');
+    setNotesOpen(true);
+    setLocalStatus('pending');
+    setLocalTurns((turns) => [{ id, message, createdAt, status: 'pending' }, ...turns]);
+    try {
+      const res = await fetch('/api/orchestrator/turn', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, turnId: id }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || 'orchestrator_turn_failed');
+      }
+      setLocalTurns((turns) => turns.map((turn) => (
+        turn.id === id ? { ...turn, status: 'done', result: data } : turn
+      )));
+      setLocalStatus('idle');
+    } catch (error) {
+      const errorText = error instanceof Error ? error.message : 'orchestrator_turn_failed';
+      setLocalTurns((turns) => turns.map((turn) => (
+        turn.id === id ? { ...turn, status: 'error', error: errorText } : turn
+      )));
+      setLocalStatus('error');
+    }
+  };
+  const approveLocalTurn = async (turnId) => {
+    setLocalTurns((turns) => turns.map((turn) => (
+      turn.id === turnId ? { ...turn, approving: true, approvalError: null } : turn
+    )));
+    try {
+      const res = await fetch('/api/orchestrator/approval', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          turnId,
+          decision: 'approve',
+          autoDispatch: true,
+          ...preferredAgentAdapterRequest(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || 'approval_failed');
+      }
+      setLocalTurns((turns) => turns.map((turn) => (
+        turn.id === turnId
+          ? {
+              ...turn,
+              approving: false,
+              approvalError: null,
+              result: {
+                ...turn.result,
+                needsApproval: data.needsApproval,
+                approvalStatus: data.approvalStatus,
+                approvedAt: data.approvedAt,
+                dispatchStatus: data.dispatchStatus,
+                dispatchAdapter: data.dispatchAdapter,
+                dispatchedAt: data.dispatchedAt,
+                dispatchStage: data.dispatchStage,
+                dispatchError: data.dispatchError,
+                dispatchWorkspacePath: data.workspacePath,
+                dispatch: data.records,
+                artifacts: data.artifacts,
+              },
+            }
+          : turn
+      )));
+    } catch (error) {
+      const errorText = error instanceof Error ? error.message : 'approval_failed';
+      setLocalTurns((turns) => turns.map((turn) => (
+        turn.id === turnId ? { ...turn, approving: false, approvalError: errorText } : turn
+      )));
+    }
+  };
+  const createLocalTask = (goal) => {
+    setModal(null);
+    setView('roundtable');
+    setInspectorTab('chat');
+    setNotesOpen(true);
+    sendLocalTurn(goal);
+  };
+  const sendComposerMessage = async (message) => {
+    if (authed) {
+      const workbench = await ensureWorkbench();
+      createChat.mutate({ title: message.slice(0, 160), workbenchId: workbench.id });
+      return;
+    }
+    sendLocalTurn(message);
   };
   const memory = {
     live: authed,
@@ -1257,7 +1786,7 @@ function App() {
       <TopBar t={t} setTweak={setTweak} view={view} setView={setView} />
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         {railOpen && !compact && <ConversationRail workbench={railWorkbench} workbenches={railWorkbenches}
-          tasks={tasks} agents={agents} activeId={activeChatId} onPick={pickChat}
+          tasks={tasks} agents={agents} activeId={authed ? activeChatId : tasks[0]?.id} onPick={authed ? pickChat : undefined}
           memberIds={memberIds} onRemoveMember={(id) => setMemberIds((m) => m.filter((x) => x !== id))}
           onAddMember={() => setModal('agent')} onNewTask={() => setModal('task')} onNewWorkbench={() => setModal('table')}
           onPickWorkbench={pickWorkbench} onCollapse={() => setRailOpen(false)} />}
@@ -1266,7 +1795,7 @@ function App() {
             onClick={() => setRailOpen(false)}>
             <div onClick={(e) => e.stopPropagation()} style={{ width: 'min(320px, 86vw)', height: '100%' }}>
               <ConversationRail workbench={railWorkbench} workbenches={railWorkbenches}
-                tasks={tasks} agents={agents} activeId={activeChatId} onPick={pickChat}
+                tasks={tasks} agents={agents} activeId={authed ? activeChatId : tasks[0]?.id} onPick={authed ? pickChat : undefined}
                 memberIds={memberIds} onRemoveMember={(id) => setMemberIds((m) => m.filter((x) => x !== id))}
                 onAddMember={() => setModal('agent')} onNewTask={() => setModal('task')} onNewWorkbench={() => setModal('table')}
                 onPickWorkbench={pickWorkbench} onCollapse={() => setRailOpen(false)} />
@@ -1291,14 +1820,14 @@ function App() {
                       onAction={onAction} onOpenBreakouts={() => setHubOpen(true)} onSeatClick={(id) => setDmAgent(id)}
                       onOpenFiles={() => { setInspectorTab('files'); setNotesOpen(true); }}
                       onZoomWhiteboard={() => setZoomWB(true)} wide={!railOpen && !notesOpen} memberIds={memberIds} />
-                    {authed && activeChatId && (
+                    {((authed && activeChatId) || localLive) && (
                       <div style={{ position: 'absolute', top: 14, left: '50%', transform: 'translateX(-50%)', zIndex: 40,
                         display: 'inline-flex', alignItems: 'center', gap: 7, padding: '5px 13px', borderRadius: 'var(--r-chip)',
                         border: '1px solid var(--border)', background: 'color-mix(in oklab, var(--surface) 90%, transparent)',
                         backdropFilter: 'blur(6px)', boxShadow: 'var(--shadow-card)', maxWidth: '60%' }}>
                         <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--run)', flexShrink: 0 }} />
                         <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {tasks.find((tk) => tk.id === activeChatId)?.title ?? 'Untitled task'}</span>
+                          {localLive ? tasks[0]?.title : tasks.find((tk) => tk.id === activeChatId)?.title ?? 'Untitled task'}</span>
                       </div>
                     )}
                     {!notesOpen && (
@@ -1309,7 +1838,7 @@ function App() {
                         <Icon name="layers" size={14} /> Panel
                       </button>
                     )}
-                    {!st.started && !activeChatId && (
+                    {!st.started && !activeChatId && !localLive && (
                       <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', zIndex: 45, pointerEvents: 'none' }}>
                         <div className="rt-rise" style={{ pointerEvents: 'auto', width: 'min(420px, 84%)', textAlign: 'center',
                           background: 'color-mix(in oklab, var(--surface) 92%, transparent)', backdropFilter: 'blur(6px)',
@@ -1340,11 +1869,12 @@ function App() {
                 {notesOpen && <InspectorPanel tab={inspectorTab} setTab={setInspectorTab} clock={scene.clock} width={compact ? 'min(100vw, 420px)' : inspectorW}
                   agents={agents} scene={scene} live={authed && !!activeChatId} liveArtifacts={liveArtifacts} liveMessages={liveMessages}
                   liveHandoffs={liveHandoffs} activeChatId={activeChatId} memory={memory}
+                  localTurns={localTurns} localStatus={localStatus} onApproveLocalTurn={approveLocalTurn}
                   onOpenArtifact={setDrawerArt} onAction={onAction} onClose={() => setNotesOpen(false)} />}
               </div>
               <Dock st={st} agents={agents} scene={scene} onAction={onAction}
                 onOpenChat={() => { setInspectorTab('chat'); setNotesOpen(true); }}
-                onOpenWorkflow={() => setView('workflow')} />
+                onOpenWorkflow={() => setView('workflow')} onSend={sendComposerMessage} liveStatus={localStatus} />
             </>
           )}
           {view === 'workflow' && <WorkflowView agents={agents} onAddAgent={() => setModal('agent')} onOpenTemplates={() => setModal('table')} />}
@@ -1366,6 +1896,8 @@ function App() {
           if (authed) {
             const workbench = await ensureWorkbench();
             createChat.mutate({ title: goal.slice(0, 160), workbenchId: workbench.id });
+          } else {
+            createLocalTask(goal);
           }
           setModal(null);
         }} />}

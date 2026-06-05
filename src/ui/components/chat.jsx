@@ -277,6 +277,11 @@ function LogoMark({ size = 26 }) {
 
 function ConversationRail({ workbench, workbenches, tasks, agents, activeId, onPick, memberIds, onRemoveMember, onAddMember, onNewTask, onNewWorkbench, onPickWorkbench, onCollapse }) {
   const dot = { live: 'var(--run)', done: 'var(--ok)', queued: 'var(--warn)', idle: 'var(--text-faint)' };
+  const taskMeta = (meta) => {
+    if (!meta) return '';
+    if (String(meta).trim().startsWith('[') || String(meta).length > 96) return 'Needs attention · details in chat';
+    return meta;
+  };
   const [wbMenu, setWbMenu] = useState(false);
   const members = (memberIds || workbench?.members || []).map((id) => agents[id]).filter(Boolean);
   return (
@@ -363,10 +368,15 @@ function ConversationRail({ workbench, workbenches, tasks, agents, activeId, onP
               background: active ? 'var(--surface-3)' : 'transparent', color: 'var(--text)' }}
               onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = 'var(--surface-2)'; }}
               onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = 'transparent'; }}>
-              <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, fontWeight: 500,
-                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.title}</span>
-              {c.status === 'live' && <span style={{ width: 6, height: 6, borderRadius: '50%',
-                background: dot[c.status], flexShrink: 0 }} />}
+              <span style={{ width: 7, height: 7, borderRadius: '50%', marginTop: 6, flexShrink: 0,
+                background: dot[c.status] || 'var(--text-faint)',
+                boxShadow: c.status === 'live' ? `0 0 0 3px ${alpha('var(--run)', 22)}` : 'none' }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: active ? 600 : 500, overflow: 'hidden',
+                  textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.title}</div>
+                <div title={c.meta} style={{ fontSize: 11.5, color: 'var(--text-faint)', overflow: 'hidden',
+                  textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{taskMeta(c.meta)}</div>
+              </div>
             </button>
           );
         })}

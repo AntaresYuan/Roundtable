@@ -5,7 +5,7 @@ const nextConfig = {
   // not by default — teach it to, so route handlers can import `@/server/*`.
   webpack: (config) => {
     config.resolve.extensionAlias = {
-      '.js': ['.ts', '.tsx', '.js'],
+      '.js': ['.ts', '.tsx', '.js', '.jsx'],
       '.mjs': ['.mts', '.mjs'],
     };
     return config;

@@ -214,6 +214,32 @@ describe('runDispatch', () => {
     expect(result.pendingRecovery?.debugDetails).toContain('no adapter bound');
   });
 
+  it('sends the handoff brief with user intent and history refs to adapter sessions', async () => {
+    const sentInputs: string[] = [];
+    const registry = new AdapterRegistry();
+    registry.register(
+      createMockAdapter({
+        scriptedEvents: [{ type: 'done', finishReason: 'stop' }],
+        onSend(input) {
+          sentInputs.push(input.text);
+        },
+      }),
+    );
+    registry.bindRole('implementer', 'mock');
+
+    await runDispatch(withPlan('@implementer'), {
+      registry,
+      workspaces: workspaceResolver(rootDir),
+      handoffLog: inMemoryHandoffLog(),
+    });
+
+    expect(sentInputs).toHaveLength(1);
+    expect(sentInputs[0]).toContain('Do the work');
+    expect(sentInputs[0]).toContain('User intent:');
+    expect(sentInputs[0]).toContain('build a page');
+    expect(sentInputs[0]).toContain('Full history ref:');
+  });
+
   it('builds a concise recovery card and hides raw details behind debugDetails', async () => {
     const registry = new AdapterRegistry();
     registry.register(

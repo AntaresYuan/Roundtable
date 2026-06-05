@@ -17,10 +17,10 @@ export interface AuthSession extends Session {
 }
 
 // NOTE (auth — server lane, @Peitong): email magic-link needs a NextAuth adapter
-// (+ accounts/sessions/verification_tokens tables), not configured yet → it throws
-// EMAIL_REQUIRES_ADAPTER_ERROR. Until then, local dev uses an email-only Credentials
-// shortcut (upserts a real users row so the session id is a uuid that satisfies
-// owner-scoped uuid FKs). Prod keeps EmailProvider. See docs/phase3-integration.md.
+// (+ accounts/sessions/verification_tokens tables), not configured yet. Until
+// then, local dev uses an email-only Credentials shortcut (upserts a real users
+// row so the session id is a uuid that satisfies owner-scoped uuid FKs). Email
+// provider stays opt-in to avoid EMAIL_REQUIRES_ADAPTER_ERROR on session checks.
 const devLogin = CredentialsProvider({
   id: 'dev',
   name: 'Dev login (email only)',
@@ -42,14 +42,15 @@ const devLogin = CredentialsProvider({
 });
 
 export const authOptions: NextAuthOptions = {
-  providers:
-    process.env.NODE_ENV === 'production'
-      ? [
-          EmailProvider({
-            server: process.env.AUTH_EMAIL_SERVER ?? 'smtp://localhost:1025',
-            from: process.env.AUTH_EMAIL_FROM ?? 'Roundtable <noreply@roundtable.local>',
-          }),
-        ]
+  providers: process.env.AUTH_ENABLE_EMAIL_PROVIDER === 'true'
+    ? [
+        EmailProvider({
+          server: process.env.AUTH_EMAIL_SERVER ?? 'smtp://localhost:1025',
+          from: process.env.AUTH_EMAIL_FROM ?? 'Roundtable <noreply@roundtable.local>',
+        }),
+      ]
+    : process.env.NODE_ENV === 'production'
+      ? []
       : [devLogin],
   session: {
     strategy: 'jwt',

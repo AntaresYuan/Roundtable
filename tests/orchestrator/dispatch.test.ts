@@ -15,6 +15,7 @@ import type {
   PlanTask,
   SessionOpts,
 } from '../../src/contracts/index.js';
+import { AUTONOMY_POLICY_PRESETS } from '../../src/contracts/index.js';
 import type { Db } from '../../src/db/index.js';
 import {
   artifacts,
@@ -123,7 +124,115 @@ describe('runDispatch', () => {
       type: 'error',
       recoverable: false,
     });
+    expect(result.stage).toBe('recovery');
+    expect(result.pendingRecovery).toMatchObject({
+      taskId: 'T1',
+      taskTitle: 'Do the work',
+      agentId: 'reviewer',
+      actions: ['retry', 'reassign', 'edit_handoff', 'stop'],
+    });
+    expect(result.pendingRecovery?.debugDetails).toContain('no adapter bound');
+  });
+
+  it('builds a concise recovery card and hides raw details behind debugDetails', async () => {
+    const registry = new AdapterRegistry();
+    registry.register(
+      createMockAdapter({
+        scriptedEvents: [
+          {
+            type: 'error',
+            message: 'TypeError: boom\n    at internal/file.ts:10:1',
+            recoverable: false,
+          },
+        ],
+      }),
+    );
+    registry.bindRole('implementer', 'mock');
+
+    const result = await runDispatch(withPlan('@implementer'), {
+      registry,
+      workspaces: workspaceResolver(rootDir),
+      handoffLog: inMemoryHandoffLog(),
+    });
+
+    expect(result.stage).toBe('recovery');
+    expect(result.failureRecoveryCards).toHaveLength(1);
+    expect(result.failureRecoveryCards[0]).toMatchObject({
+      taskId: 'T1',
+      taskTitle: 'Do the work',
+      agentId: 'implementer',
+      summary: 'TypeError: boom',
+      debugDetails: 'TypeError: boom\n    at internal/file.ts:10:1',
+      attemptsUsed: 1,
+      retryBudget: 0,
+    });
+  });
+
+  it('auto-retries recoverable failures within the autonomy retry budget', async () => {
+    const registry = new AdapterRegistry();
+    registry.register(
+      createAttemptScriptAdapter([
+        [{ type: 'error', message: 'temporary network failure', recoverable: true }],
+        [{ type: 'done', finishReason: 'stop' }],
+      ]),
+    );
+    registry.bindRole('implementer', 'attempt-script');
+
+    const result = await runDispatch(
+      {
+        ...withPlan('@implementer'),
+        autonomyPolicy: AUTONOMY_POLICY_PRESETS.auto_fix_safe,
+      },
+      {
+        registry,
+        workspaces: workspaceResolver(rootDir),
+        handoffLog: inMemoryHandoffLog(),
+      },
+    );
+
+    expect(result.dispatch[0]?.status).toBe('completed');
     expect(result.stage).toBe('aggregate');
+    expect(result.failureRecoveryCards).toEqual([]);
+    expect(result.autonomyDecisions).toHaveLength(1);
+    expect(result.autonomyDecisions[0]).toMatchObject({
+      action: 'retry_agent',
+      decision: 'auto_approved',
+      risk: 'low',
+    });
+  });
+
+  it('pauses for user recovery when retry budget is exhausted', async () => {
+    const registry = new AdapterRegistry();
+    registry.register(
+      createAttemptScriptAdapter([
+        [{ type: 'error', message: 'rate limit', recoverable: true }],
+      ]),
+    );
+    registry.bindRole('implementer', 'attempt-script');
+
+    const result = await runDispatch(
+      {
+        ...withPlan('@implementer'),
+        autonomyPolicy: AUTONOMY_POLICY_PRESETS.ask_every_time,
+      },
+      {
+        registry,
+        workspaces: workspaceResolver(rootDir),
+        handoffLog: inMemoryHandoffLog(),
+      },
+    );
+
+    expect(result.stage).toBe('recovery');
+    expect(result.pendingRecovery).toMatchObject({
+      taskId: 'T1',
+      summary: 'rate limit',
+      attemptsUsed: 1,
+      retryBudget: 0,
+      autonomyDecision: {
+        action: 'retry_agent',
+        decision: 'requires_user',
+      },
+    });
   });
 
   it('dispatches independent tasks concurrently and waits before dependent tasks', async () => {
@@ -729,6 +838,37 @@ function createTimedAdapter(config: {
             { type: 'done' as const, finishReason: 'stop' },
           ];
           yield* events;
+        },
+        async interrupt() {},
+        async close() {},
+      };
+    },
+  };
+}
+
+function createAttemptScriptAdapter(attempts: AgentEvent[][]): AgentAdapter {
+  let index = 0;
+  return {
+    id: 'attempt-script',
+    displayName: 'Attempt Script Agent',
+    avatar: 'A',
+    capabilities: {
+      streaming: true,
+      toolUse: false,
+      fileEdits: false,
+      persistentSessions: false,
+      mcp: false,
+      multimodal: false,
+    },
+    async createSession(opts) {
+      const attemptIndex = index;
+      index += 1;
+      return {
+        id: `attempt-script-${attemptIndex}`,
+        adapterId: 'attempt-script',
+        cwd: opts.cwd,
+        async *send() {
+          yield* (attempts[attemptIndex] ?? attempts[attempts.length - 1] ?? []);
         },
         async interrupt() {},
         async close() {},

@@ -3,6 +3,8 @@ import type {
   AgentRoleId,
   Artifact,
   ArtifactId,
+  AutonomyDecision,
+  FailureRecoveryCard,
   HandoffCard,
   PlanTask,
   Stage,
@@ -18,7 +20,7 @@ import {
   type DependencyStore,
 } from '../dependency-store.js';
 import { ArtifactWatcher, type ArtifactWatcherContext } from '../artifact-watcher.js';
-import { evaluateAutonomyAction, riskForGate } from '../autonomy.js';
+import { evaluateAutonomyAction, evaluateRetry, riskForGate } from '../autonomy.js';
 import {
   buildHandoffSystemPrompt,
   generateHandoffCard,
@@ -64,6 +66,16 @@ interface TaskRunResult {
   record: DispatchRecord;
   artifacts: Artifact[];
   cards: HandoffCard[];
+  autonomyDecisions: AutonomyDecision[];
+  recoveryCard?: FailureRecoveryCard;
+}
+
+interface AttemptResult {
+  sessionId: string;
+  status: DispatchRecord['status'];
+  events: AgentEvent[];
+  artifacts: Artifact[];
+  cards: HandoffCard[];
 }
 
 export async function runDispatch(
@@ -81,6 +93,8 @@ export async function runDispatch(
   const cards: HandoffCard[] = [];
   const records: DispatchRecord[] = [];
   const artifacts: Artifact[] = [];
+  const autonomyDecisions: AutonomyDecision[] = [];
+  const recoveryCards: FailureRecoveryCard[] = [];
   const persistedArtifacts = deps.artifactDb
     ? await loadWorkbenchArtifactsForChat(deps.artifactDb, state.chatId)
     : [];
@@ -112,13 +126,21 @@ export async function runDispatch(
       for (const task of state.plan.tasks.filter((t) => remaining.has(t.id))) {
         const unmet = task.deps.filter((dep) => !completedTaskIds.has(dep));
         const failed = unmet.filter((dep) => failedTaskIds.has(dep));
+        const message =
+          failed.length > 0
+            ? `dependency failed: ${failed.join(', ')}`
+            : `unmet dependencies: ${unmet.join(', ') || 'none'}`;
         records.push(
-          failedRecord(
-            task.id,
-            failed.length > 0
-              ? `dependency failed: ${failed.join(', ')}`
-              : `unmet dependencies: ${unmet.join(', ') || 'none'}`,
-          ),
+          failedRecord(task.id, message),
+        );
+        recoveryCards.push(
+          buildFailureRecoveryCard({
+            task,
+            agentId: task.assignee.replace(/^@/, ''),
+            events: [{ type: 'error', message, recoverable: false }],
+            attemptsUsed: 1,
+            policyRetryBudget: state.autonomyPolicy.retryBudget,
+          }),
         );
         remaining.delete(task.id);
         failedTaskIds.add(task.id);
@@ -132,6 +154,15 @@ export async function runDispatch(
       const result = await prepareDispatchTask(task, state, contextState, cards, deps);
       if ('record' in result) {
         records.push(result.record);
+        recoveryCards.push(
+          buildFailureRecoveryCard({
+            task,
+            agentId: task.assignee.replace(/^@/, ''),
+            events: result.record.events,
+            attemptsUsed: 1,
+            policyRetryBudget: state.autonomyPolicy.retryBudget,
+          }),
+        );
         failedTaskIds.add(task.id);
         continue;
       }
@@ -147,6 +178,8 @@ export async function runDispatch(
       records.push(result.record);
       artifacts.push(...result.artifacts);
       cards.push(...result.cards);
+      autonomyDecisions.push(...result.autonomyDecisions);
+      if (result.recoveryCard) recoveryCards.push(result.recoveryCard);
       if (result.record.status === 'completed') {
         completedTaskIds.add(result.record.taskId);
       } else {
@@ -159,12 +192,21 @@ export async function runDispatch(
     r.events.some((e) => e.type === 'file_change'),
   );
 
-  const gateEvaluation = nextPendingGate(state, records);
+  const gateEvaluation = nextPendingGate(
+    {
+      ...state,
+      autonomyDecisions: [...state.autonomyDecisions, ...autonomyDecisions],
+    },
+    records,
+  );
   const nextStage = gateEvaluation.pendingGate
     ? 'gate'
-    : anyCodeWriting
+    : recoveryCards.length > 0
+      ? 'recovery'
+      : anyCodeWriting
       ? 'review'
       : 'aggregate';
+  const pendingRecovery = recoveryCards.at(-1) ?? state.pendingRecovery;
 
   return {
     ...state,
@@ -174,6 +216,8 @@ export async function runDispatch(
     gateDecisions: gateEvaluation.gateDecisions,
     autonomyDecisions: gateEvaluation.autonomyDecisions,
     ...(gateEvaluation.pendingGate ? { pendingGate: gateEvaluation.pendingGate } : {}),
+    failureRecoveryCards: [...state.failureRecoveryCards, ...recoveryCards],
+    ...(pendingRecovery ? { pendingRecovery } : {}),
     stage: nextStage,
   };
 }
@@ -222,88 +266,179 @@ async function runPreparedTask(
   deps: DispatchDeps,
 ): Promise<TaskRunResult> {
   const { task, role, card } = prepared;
-  const artifacts: Artifact[] = [];
-  const cards: HandoffCard[] = [];
   const cwd = await deps.workspaces.resolve(state.chatId);
   const startedAt = new Date();
+  const attempts: AttemptResult[] = [];
+  const autonomyDecisions: AutonomyDecision[] = [];
 
   try {
     await ensureWorkspace(cwd);
 
     const adapter = deps.registry.resolve(role);
-    const session = await adapter.createSession({
-      cwd,
+    let latest = await runTaskAttempt({
+      adapter,
       role,
-      agentMeta: { displayName: adapter.displayName, color: '#888' },
-      systemPrompt: buildHandoffSystemPrompt(card),
+      card,
+      cwd,
+      state,
+      deps,
     });
+    attempts.push(latest);
 
-    const events: AgentEvent[] = [];
-    let status: DispatchRecord['status'] = 'completed';
-    const artifactWatcher = deps.artifactDb && deps.dependencyGraph
-      ? new ArtifactWatcher({
-          db: deps.artifactDb,
-          chatId: state.chatId,
-          ownerAgentId: role,
-          dependencyGraph: deps.dependencyGraph,
-          ...(deps.dependencyStore ? { dependencyStore: deps.dependencyStore } : {}),
-        })
-      : undefined;
+    while (latest.status === 'failed') {
+      const failedEvent = lastErrorEvent(latest.events);
+      const retryDecision = evaluateRetry({
+        policy: state.autonomyPolicy,
+        usedRetries: attempts.length - 1,
+        risk: failedEvent?.recoverable ? 'low' : 'medium',
+        reason: `Task ${task.id} failed for @${role}.`,
+      });
+      autonomyDecisions.push(retryDecision);
+      if (retryDecision.decision !== 'auto_approved') break;
 
-    try {
-      for await (const rawEvent of session.send({ text: card.taskBrief })) {
-        const observedEvents = artifactWatcher
-          ? await artifactWatcher.accept(rawEvent)
-          : [rawEvent];
-        for (const event of observedEvents) {
-          events.push(event);
-          if (event.type === 'artifact') {
-            artifacts.push(event.artifact);
-          }
-          if (!artifactWatcher) {
-            const dependencyEvents = await handleDependencyEvent(event, {
-              chatId: state.chatId,
-              handoffLog: deps.handoffLog,
-              ...(deps.dependencyGraph ? { graph: deps.dependencyGraph } : {}),
-              ...(deps.dependencyStore ? { store: deps.dependencyStore } : {}),
-            });
-            events.push(...dependencyEvents.events);
-            cards.push(...dependencyEvents.cards);
-          }
-          if (event.type === 'error' && !event.recoverable) {
-            status = 'failed';
-            break;
-          }
-        }
-        if (status === 'failed') break;
-      }
-    } finally {
-      await session.close();
+      latest = await runTaskAttempt({
+        adapter,
+        role,
+        card,
+        cwd,
+        state,
+        deps,
+      });
+      attempts.push(latest);
     }
 
+    const events = attempts.flatMap((attempt) => attempt.events);
+    const artifacts = attempts.flatMap((attempt) => attempt.artifacts);
+    const cards = attempts.flatMap((attempt) => attempt.cards);
+    const recoveryCard =
+      latest.status === 'failed'
+        ? buildFailureRecoveryCard({
+            task,
+            agentId: role,
+            events,
+            attemptsUsed: attempts.length,
+            policyRetryBudget: state.autonomyPolicy.retryBudget,
+            ...(autonomyDecisions.length > 0
+              ? { autonomyDecision: autonomyDecisions[autonomyDecisions.length - 1] }
+              : {}),
+          })
+        : undefined;
     return {
       record: {
         taskId: task.id,
         handoffCardId: card.id,
-        sessionId: session.id,
-        status,
+        sessionId: attempts.map((attempt) => attempt.sessionId).join(','),
+        status: latest.status,
         events,
         startedAt,
         finishedAt: new Date(),
       },
       artifacts,
       cards,
+      autonomyDecisions,
+      ...(recoveryCard ? { recoveryCard } : {}),
     };
   } catch (error) {
+    const message = errorMessage(error);
+    const recoveryCard = buildFailureRecoveryCard({
+      task,
+      agentId: role,
+      events: [{ type: 'error', message, recoverable: false }],
+      attemptsUsed: attempts.length || 1,
+      policyRetryBudget: state.autonomyPolicy.retryBudget,
+    });
     return {
-      record: failedRecord(task.id, errorMessage(error), {
+      record: failedRecord(task.id, message, {
         handoffCardId: card.id,
         startedAt,
       }),
-      artifacts,
-      cards,
+      artifacts: attempts.flatMap((attempt) => attempt.artifacts),
+      cards: attempts.flatMap((attempt) => attempt.cards),
+      autonomyDecisions,
+      recoveryCard,
     };
   }
+}
+
+async function runTaskAttempt(input: {
+  adapter: ReturnType<AdapterRegistry['resolve']>;
+  role: AgentRoleId;
+  card: HandoffCard;
+  cwd: string;
+  state: OrchestratorState;
+  deps: DispatchDeps;
+}): Promise<AttemptResult> {
+  const { adapter, role, card, cwd, state, deps } = input;
+  const session = await adapter.createSession({
+    cwd,
+    role,
+    agentMeta: { displayName: adapter.displayName, color: '#888' },
+    systemPrompt: buildHandoffSystemPrompt(card),
+  });
+  const events: AgentEvent[] = [];
+  const artifacts: Artifact[] = [];
+  const cards: HandoffCard[] = [];
+  let status: DispatchRecord['status'] = 'completed';
+  let sawRecoverableError = false;
+  let sawDone = false;
+  const artifactWatcher = deps.artifactDb && deps.dependencyGraph
+    ? new ArtifactWatcher({
+        db: deps.artifactDb,
+        chatId: state.chatId,
+        ownerAgentId: role,
+        dependencyGraph: deps.dependencyGraph,
+        ...(deps.dependencyStore ? { dependencyStore: deps.dependencyStore } : {}),
+      })
+    : undefined;
+
+  try {
+    for await (const rawEvent of session.send({ text: card.taskBrief })) {
+      const observedEvents = artifactWatcher
+        ? await artifactWatcher.accept(rawEvent)
+        : [rawEvent];
+      for (const event of observedEvents) {
+        events.push(event);
+        if (event.type === 'artifact') {
+          artifacts.push(event.artifact);
+        }
+        if (!artifactWatcher) {
+          const dependencyEvents = await handleDependencyEvent(event, {
+            chatId: state.chatId,
+            handoffLog: deps.handoffLog,
+            ...(deps.dependencyGraph ? { graph: deps.dependencyGraph } : {}),
+            ...(deps.dependencyStore ? { store: deps.dependencyStore } : {}),
+          });
+          events.push(...dependencyEvents.events);
+          cards.push(...dependencyEvents.cards);
+        }
+        if (event.type === 'error') {
+          if (event.recoverable) {
+            sawRecoverableError = true;
+          } else {
+            status = 'failed';
+            break;
+          }
+        }
+        if (event.type === 'done') {
+          sawDone = true;
+        }
+      }
+      if (status === 'failed') break;
+    }
+  } finally {
+    await session.close();
+  }
+  if (status === 'completed' && sawRecoverableError && !sawDone) {
+    status = 'failed';
+  }
+
+  return {
+    sessionId: session.id,
+    status,
+    events,
+    artifacts,
+    cards,
+  };
 }
 
 function findStageForTask(
@@ -472,4 +607,43 @@ function failedRecord(
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'dispatch failed';
+}
+
+function buildFailureRecoveryCard(input: {
+  task: PlanTask;
+  agentId: string;
+  events: AgentEvent[];
+  attemptsUsed: number;
+  policyRetryBudget: number;
+  autonomyDecision?: AutonomyDecision;
+}): FailureRecoveryCard {
+  const lastError = lastErrorEvent(input.events);
+  const message = lastError?.message ?? 'Agent run failed.';
+  return {
+    id: `failure:${input.task.id}`,
+    taskId: input.task.id,
+    taskTitle: input.task.title,
+    agentId: input.agentId,
+    summary: summarizeFailure(message),
+    debugDetails: message,
+    attemptsUsed: input.attemptsUsed,
+    retryBudget: input.policyRetryBudget,
+    actions: ['retry', 'reassign', 'edit_handoff', 'stop'],
+    ...(input.autonomyDecision ? { autonomyDecision: input.autonomyDecision } : {}),
+    createdAt: new Date(),
+  };
+}
+
+function lastErrorEvent(events: AgentEvent[]): Extract<AgentEvent, { type: 'error' }> | undefined {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i];
+    if (event?.type === 'error') return event;
+  }
+  return undefined;
+}
+
+function summarizeFailure(message: string): string {
+  const firstLine = message.split('\n').find((line) => line.trim().length > 0);
+  const cleaned = firstLine?.replace(/\s+at\s+.+$/, '').trim() || 'Agent run failed.';
+  return cleaned.length > 180 ? `${cleaned.slice(0, 177)}...` : cleaned;
 }

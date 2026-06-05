@@ -4,6 +4,7 @@ import type {
   AutonomyDecision,
   AutonomyPolicy,
   Gate,
+  FailureRecoveryCard,
   HandoffCard,
   IntakeResult,
   Plan,
@@ -21,6 +22,7 @@ export type StageId =
   | 'monitor'
   | 'review'
   | 'gate'
+  | 'recovery'
   | 'aggregate'
   | 'done';
 
@@ -83,6 +85,8 @@ export interface OrchestratorState {
   autonomyPolicy: AutonomyPolicy;
   autonomyDecisions: AutonomyDecision[];
   pendingGate: PendingGate | undefined;
+  pendingRecovery: FailureRecoveryCard | undefined;
+  failureRecoveryCards: FailureRecoveryCard[];
   gateDecisions: Record<string, GateDecision>;
   aggregate?: AggregateSummary;
   errors: { stage: StageId; message: string }[];
@@ -108,6 +112,8 @@ export function initialState(
     autonomyPolicy,
     autonomyDecisions: [],
     pendingGate: undefined,
+    pendingRecovery: undefined,
+    failureRecoveryCards: [],
     gateDecisions: {},
     errors: [],
   };

@@ -331,6 +331,14 @@ resolution logs approver + decision (the flight recorder). Automatic autonomy de
 are also copied into `WorkflowRun.autonomyDecisions` so the UI can show what the PM did
 without exposing raw logs.
 
+**Failure recovery:** failed agent sessions produce a `FailureRecoveryCard` instead of
+leaking raw logs into the transcript. The card names the task and agent, shows a concise
+summary, keeps raw details behind `debugDetails`, and offers four user actions: retry,
+reassign, edit handoff, or stop. Recoverable failures may auto-retry when the run's
+`AutonomyPolicy` allows `retry_agent` and retry budget remains; each attempt is recorded
+in `autonomyDecisions`. When retry is not allowed or the budget is exhausted, dispatch
+sets `pendingRecovery` and the graph pauses on a `failure_recovery` interrupt for the UI.
+
 ## 8. How it raises output quality
 
 "Raise vibecode quality" = structural discipline one-shot generators skip, **on by default

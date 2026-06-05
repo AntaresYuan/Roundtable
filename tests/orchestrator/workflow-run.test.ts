@@ -299,6 +299,47 @@ describe('runOrchestrator + workflow-driven gated review', () => {
       decision: 'requires_user',
     });
   });
+
+  it('projects pending failure recovery cards into WorkflowRun', async () => {
+    const registry = new AdapterRegistry();
+    registry.register(
+      createMockAdapter({
+        scriptedEvents: [
+          { type: 'error', message: 'temporary tool outage', recoverable: true },
+        ],
+      }),
+    );
+    registry.bindRole('implementer', 'mock');
+
+    const halted = await runOrchestrator(
+      {
+        chatId: 'chat-recovery',
+        userMessage: 'build a waitlist landing page',
+        threadId: 'thread-recovery',
+        workflow: {
+          ...gatedWorkflow(),
+          stages: [gatedWorkflow().stages[0]!],
+        },
+      },
+      {
+        registry,
+        workspaces: workspaceResolver(workDir),
+        checkpointer: new MemorySaver(),
+      },
+    );
+
+    expect(halted.stage).toBe('recovery');
+
+    const run = workflowRunFromState(halted);
+    expect(run?.activeStageId).toBe('build');
+    expect(run?.stageStates['build']?.status).toBe('blocked');
+    expect(run?.pendingRecovery).toMatchObject({
+      taskId: 'build__0',
+      agentId: 'implementer',
+      summary: 'temporary tool outage',
+    });
+    expect(run?.failureRecoveryCards).toHaveLength(1);
+  });
 });
 
 describe('handoffOverride merge', () => {

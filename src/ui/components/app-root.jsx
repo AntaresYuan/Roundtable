@@ -1073,14 +1073,20 @@ function App() {
   const trpcUtils = trpc.useUtils();
   const createChat = trpc.chats.create.useMutation({ onSuccess: () => trpcUtils.chats.list.invalidate() });
   const createWorkbench = trpc.workbenches.create.useMutation({ onSuccess: () => trpcUtils.workbenches.list.invalidate() });
-  // P3.2: chats/artifacts are workbench-scoped now (spec 100); resolve the active workbench.
-  const activeWorkbenchId = (authed && workbenchesQ.data?.[0]?.id) || null;
+  // P3.2: chats/artifacts are workbench-scoped now (spec 100). Wire the rail to real workbenches.
+  const [selectedWorkbenchId, setSelectedWorkbenchId] = useState(null);
+  const liveWorkbenches = authed && workbenchesQ.data
+    ? workbenchesQ.data.map((w) => ({ id: w.id, name: w.name, members: RT.WORKBENCH.members }))
+    : RT.WORKBENCHES;
+  const activeWorkbenchId = selectedWorkbenchId ?? ((authed && workbenchesQ.data?.[0]?.id) || null);
+  const activeWorkbench = (authed && liveWorkbenches.find((w) => w.id === activeWorkbenchId)) || RT.WORKBENCH;
   const tasks =
     authed && chatsQ.data
-      ? chatsQ.data.map((c) => ({ id: c.id, title: c.title, meta: '', status: 'idle' }))
+      ? chatsQ.data.filter((c) => c.workbenchId === activeWorkbenchId).map((c) => ({ id: c.id, title: c.title, meta: '', status: 'idle' }))
       : RT.TASKS;
   const [selectedChatId, setSelectedChatId] = useState(null);
-  const activeChatId = selectedChatId ?? ((authed && chatsQ.data?.[0]?.id) || null);
+  const activeChatId = selectedChatId ?? ((authed && tasks[0]?.id) || null);
+  const pickWorkbench = (id) => { setSelectedWorkbenchId(id); setSelectedChatId(null); };
   const artifactsQ = trpc.artifacts.listByChat.useQuery(
     { chatId: activeChatId ?? '' },
     { enabled: authed && !!activeChatId },
@@ -1140,20 +1146,20 @@ function App() {
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <TopBar t={t} setTweak={setTweak} view={view} setView={setView} />
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        {railOpen && !compact && <ConversationRail workbench={RT.WORKBENCH} workbenches={RT.WORKBENCHES}
+        {railOpen && !compact && <ConversationRail workbench={activeWorkbench} workbenches={liveWorkbenches}
           tasks={tasks} agents={agents} activeId={activeChatId} onPick={setSelectedChatId}
           memberIds={memberIds} onRemoveMember={(id) => setMemberIds((m) => m.filter((x) => x !== id))}
           onAddMember={() => setModal('agent')} onNewTask={() => setModal('task')} onNewWorkbench={() => setModal('table')}
-          onPickWorkbench={() => {}} onCollapse={() => setRailOpen(false)} />}
+          onPickWorkbench={pickWorkbench} onCollapse={() => setRailOpen(false)} />}
         {railOpen && compact && (
           <div style={{ position: 'fixed', inset: 0, zIndex: 110, background: alpha('#000', 30), display: 'flex' }}
             onClick={() => setRailOpen(false)}>
             <div onClick={(e) => e.stopPropagation()} style={{ width: 'min(320px, 86vw)', height: '100%' }}>
-              <ConversationRail workbench={RT.WORKBENCH} workbenches={RT.WORKBENCHES}
+              <ConversationRail workbench={activeWorkbench} workbenches={liveWorkbenches}
                 tasks={tasks} agents={agents} activeId={activeChatId} onPick={setSelectedChatId}
                 memberIds={memberIds} onRemoveMember={(id) => setMemberIds((m) => m.filter((x) => x !== id))}
                 onAddMember={() => setModal('agent')} onNewTask={() => setModal('task')} onNewWorkbench={() => setModal('table')}
-                onPickWorkbench={() => {}} onCollapse={() => setRailOpen(false)} />
+                onPickWorkbench={pickWorkbench} onCollapse={() => setRailOpen(false)} />
             </div>
           </div>
         )}
@@ -1243,7 +1249,7 @@ function App() {
       {dmAgent && <DMRoom agent={agents[dmAgent]}
         activeTask={(['working', 'speaking', 'thinking'].includes(st.status[dmAgent])) ? (RT.PLAN.tasks.find((tk) => tk.owner === dmAgent) || {}).id : null}
         onClose={() => setDmAgent(null)} />}
-      {modal === 'task' && <NewTaskModal workbench={RT.WORKBENCH} members={memberIds} agents={agents}
+      {modal === 'task' && <NewTaskModal workbench={activeWorkbench} members={memberIds} agents={agents}
         onClose={() => setModal(null)} onCreate={async (goal) => {
           setModal(null);
           if (!authed) return;
@@ -1254,7 +1260,12 @@ function App() {
           }
           if (wbId) createChat.mutate({ title: goal.slice(0, 160), workbenchId: wbId });
         }} />}
-      {modal === 'table' && <NewWorkbenchModal agents={agents} onClose={() => setModal(null)} onCreate={() => { setView('workflow'); setModal(null); }} />}
+      {modal === 'table' && <NewWorkbenchModal agents={agents} onClose={() => setModal(null)} onCreate={async ({ name }) => {
+        setModal(null);
+        if (!authed) { setView('workflow'); return; }
+        const wb = await createWorkbench.mutateAsync({ name: name || 'New workbench', workspacePath: `workspaces/${Date.now()}` });
+        if (wb?.id) { setSelectedWorkbenchId(wb.id); setSelectedChatId(null); }
+      }} />}
       {modal === 'agent' && <AddAgentModal onClose={() => setModal(null)} onAdd={({ role, name, color }) => {
         const id = 'a-' + Date.now();
         RT.AGENTS[id] = { agentId: id, role, displayName: name, color };

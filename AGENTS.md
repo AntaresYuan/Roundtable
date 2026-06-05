@@ -55,6 +55,7 @@ pnpm typecheck # tsc --noEmit
 - Specs are numbered `NNN-topic.md`; **never renumber** — append-only.
 - Schema changes go through Drizzle migrations; never edit a generated migration.
 - LLM calls go through `defaultOrchestratorModel()` (`src/orchestrator/llm/provider.ts`); never import a provider SDK (`@ai-sdk/anthropic` etc.) in feature code. Provider is centralized — 火山引擎/Volcano Engine (ADR-004).
+- Agent avatars render via the `Avatar` / roundtable `Figure` component (DiceBear "Notionists", seeded by agent id); never render a letter/emoji/sphere avatar inline. UI palette + atoms follow ADR-010.
 
 ## Key decisions log
 

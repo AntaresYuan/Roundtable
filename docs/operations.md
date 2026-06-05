@@ -47,6 +47,8 @@ corepack pnpm db:seed            # insert minimal demo rows
 | `pnpm sandbox:reap` | one-shot e2b sandbox idle-reaper sweep |
 | `pnpm checkpoints:cleanup` | GC LangGraph checkpoints older than `CHECKPOINT_TTL_DAYS` |
 
+> **Avatars load at runtime from DiceBear** (`api.dicebear.com/9.x/notionists/…`) — an external service, no env var. Self-host the SVGs before production (offline / latency / availability). See ADR-010.
+
 ### Resetting the local stack
 
 ```bash

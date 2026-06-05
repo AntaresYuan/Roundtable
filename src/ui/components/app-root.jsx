@@ -7,7 +7,7 @@
 import React from 'react';
 import { RT } from '../lib/rt';
 import { Avatar, RoleTag, Icon, Spinner, Chip, tint, alpha } from './primitives';
-import { ArtifactRenderer, CodeBlock, VChip, TodoListCard, HandoffCard, BreakoutChip, iconBtn } from './cards';
+import { ArtifactRenderer, CodeBlock, VChip, TodoListCard, HandoffCard, BreakoutChip, iconBtn, normalizeArtifactForDisplay } from './cards';
 import { MessageGroup, Composer, ConversationRail, LogoMark } from './chat';
 import { RoundtableScene, WhiteboardZoom, sceneAt, meetingNotes } from './roundtable';
 import { WorkflowView, WorkflowStrip } from './workflow';
@@ -85,7 +85,9 @@ function useScene(autoplay, speed) {
 /* ---- Drawer --------------------------------------------------------------- */
 function Drawer({ art, agents, onClose }) {
   if (!art) return null;
-  const owner = agents[art.ownerAgentId];
+  const displayArt = normalizeArtifactForDisplay(art);
+  const owner = ownerForDrawer(displayArt, agents);
+  const isPreview = displayArt.kind === 'preview';
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 100,
       background: alpha('#000', 32), backdropFilter: 'blur(2px)', display: 'flex', justifyContent: 'flex-end' }}>
@@ -96,29 +98,45 @@ function Drawer({ art, agents, onClose }) {
           borderBottom: '1px solid var(--border)' }}>
           <Avatar agent={owner} size={28} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div className="mono" style={{ fontSize: 13.5, fontWeight: 600 }}>{art.title}</div>
+            <div className="mono" style={{ fontSize: 13.5, fontWeight: 600 }}>{displayArt.title}</div>
             <div style={{ marginTop: 2 }}><RoleTag agent={owner} showName /></div>
           </div>
-          <VChip v={art.version} />
+          <VChip v={displayArt.version} />
           <button onClick={onClose} style={iconBtn}><Icon name="x" size={16} /></button>
         </div>
         <div style={{ flex: 1, overflow: 'auto', padding: 18, background: 'var(--surface-2)' }}>
-          {art.kind === 'preview'
+          {isPreview
             ? <div style={{ borderRadius: 'var(--r-card)', overflow: 'hidden', border: '1px solid var(--border)',
                 boxShadow: 'var(--shadow-card)' }}>
-                <iframe title="preview" srcDoc={art.preview} sandbox="allow-scripts"
+                <iframe title="preview" srcDoc={displayArt.preview} sandbox="allow-scripts"
                   style={{ width: '100%', height: 560, border: 'none', display: 'block', background: '#fff' }} />
               </div>
-            : art.kind === 'diff'
+            : displayArt.kind === 'diff'
             ? <div style={{ borderRadius: 'var(--r-card)', overflow: 'hidden', border: '1px solid var(--border)' }}>
-                <ArtifactRenderer art={art} agents={agents} /></div>
+                <ArtifactRenderer art={displayArt} agents={agents} /></div>
             : <div style={{ borderRadius: 'var(--r-card)', overflow: 'hidden', border: '1px solid var(--border)',
                 background: 'var(--surface)' }}>
-                <CodeBlock code={art.code || art.preview} /></div>}
+                <CodeBlock code={displayArt.code || displayArt.preview || displayArt.uri || ''} /></div>}
         </div>
       </div>
     </div>
   );
+}
+
+function ownerForDrawer(art, agents) {
+  const ownerId = art.ownerAgentId;
+  const direct = ownerId ? agents?.[ownerId] : null;
+  if (direct) return direct;
+  const byRole = ownerId
+    ? Object.values(agents || {}).find((agent) => agent.role === ownerId)
+    : null;
+  if (byRole) return byRole;
+  return {
+    agentId: ownerId || 'agent',
+    role: ownerId || 'agent',
+    displayName: ownerId ? `@${ownerId}` : 'Agent',
+    color: 'var(--text-muted)',
+  };
 }
 
 /* ---- Aggregate quick actions --------------------------------------------- */

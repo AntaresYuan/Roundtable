@@ -14,6 +14,7 @@ import type {
   ArtifactId,
   PlanTask,
   SessionOpts,
+  Workflow,
 } from '../../src/contracts/index.js';
 import { AUTONOMY_POLICY_PRESETS } from '../../src/contracts/index.js';
 import type { Db } from '../../src/db/index.js';
@@ -107,6 +108,85 @@ describe('runDispatch', () => {
     } finally {
       await client.close();
     }
+  });
+
+  it('fails the task when the workbench workspace path escapes the configured root', { timeout: 10_000 }, async () => {
+    const client = new PGlite();
+    const db = drizzle(client, { schema });
+    const userId = '69000000-0000-4000-8000-000000000001';
+    const workbenchId = '69000000-0000-4000-8000-000000000002';
+    const chatId = '69000000-0000-4000-8000-000000000003';
+    const registry = new AdapterRegistry();
+    registry.register(createMockAdapter());
+    registry.bindRole('implementer', 'mock');
+
+    try {
+      await migrate(db, { migrationsFolder: 'drizzle' });
+      await db.insert(users).values({
+        id: userId,
+        email: 'dispatch-workspace-escape@roundtable.local',
+      });
+      await db.insert(workbenches).values({
+        id: workbenchId,
+        ownerUserId: userId,
+        name: 'Escaping workspace',
+        workspacePath: '../outside-workspace',
+      });
+      await db.insert(chats).values({
+        id: chatId,
+        ownerUserId: userId,
+        workbenchId,
+        title: 'Escaping workspace dispatch',
+      });
+
+      const result = await runDispatch(withPlan('@implementer', chatId), {
+        registry,
+        workspaces: workbenchWorkspaceResolver(db as unknown as Db, rootDir),
+        handoffLog: inMemoryHandoffLog(),
+      });
+
+      expect(result.dispatch[0]).toMatchObject({
+        status: 'failed',
+        events: [
+          {
+            type: 'error',
+            recoverable: false,
+          },
+        ],
+      });
+      expect(result.dispatch[0]?.events[0]).toMatchObject({
+        message: expect.stringContaining('workspace path escapes root'),
+      });
+      expect(result.stage).toBe('recovery');
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('passes workflow seat tools into adapter session allowedTools', async () => {
+    const captured: SessionOpts[] = [];
+    const registry = new AdapterRegistry();
+    registry.register(createCapturingAdapter(captured));
+    registry.bindRole('implementer', 'capture');
+
+    const state = {
+      ...withPlanTasks([
+        {
+          ...task('build__0', '@implementer'),
+          workflowStageId: 'build',
+        },
+      ]),
+      workflow: workflowWithTools(['Read', 'Edit', 'Bash(pnpm test)']),
+    };
+
+    const result = await runDispatch(state, {
+      registry,
+      workspaces: workspaceResolver(rootDir),
+      handoffLog: inMemoryHandoffLog(),
+    });
+
+    expect(result.dispatch[0]?.status).toBe('completed');
+    expect(captured[0]?.allowedTools).toEqual(['Read', 'Edit', 'Bash(pnpm test)']);
   });
 
   it('records an unavailable adapter as a failed task instead of throwing', async () => {
@@ -804,6 +884,63 @@ function task(id: string, assignee: string, deps: string[] = []): PlanTask {
     deps,
     user_visible: true,
     status: 'pending',
+  };
+}
+
+function workflowWithTools(tools: string[]): Workflow {
+  return {
+    id: 'wf-tools',
+    name: 'Workflow with tools',
+    desc: 'Dispatches an implementer with allowed tools',
+    origin: { kind: 'builtin' },
+    planning: { cut: 'by_role', clarifyThreshold: 0.6, maxClarifyQuestions: 3 },
+    stages: [
+      {
+        id: 'build',
+        name: 'Build',
+        icon: 'wrench',
+        desc: 'implement the feature',
+        kind: 'work',
+        seats: [
+          {
+            ref: { kind: 'role', role: 'implementer' },
+            tools,
+          },
+        ],
+        gate: { kind: 'none' },
+      },
+    ],
+    version: 1,
+    updatedAt: '2026-06-05T00:00:00Z',
+  };
+}
+
+function createCapturingAdapter(captured: SessionOpts[]): AgentAdapter {
+  return {
+    id: 'capture',
+    displayName: 'Capture Agent',
+    avatar: 'C',
+    capabilities: {
+      streaming: true,
+      toolUse: true,
+      fileEdits: true,
+      persistentSessions: false,
+      mcp: false,
+      multimodal: false,
+    },
+    async createSession(opts) {
+      captured.push(opts);
+      return {
+        id: `capture-${captured.length}`,
+        adapterId: 'capture',
+        cwd: opts.cwd,
+        async *send() {
+          yield { type: 'done' as const, finishReason: 'stop' };
+        },
+        async interrupt() {},
+        async close() {},
+      };
+    },
   };
 }
 

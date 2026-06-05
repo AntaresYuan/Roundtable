@@ -1,5 +1,5 @@
 import { mkdir } from 'node:fs/promises';
-import { isAbsolute, join, resolve } from 'node:path';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { eq } from 'drizzle-orm';
 import type { Db } from '../db/index.js';
 import { chats, workbenches } from '../db/schema.js';
@@ -10,7 +10,7 @@ export function workspaceResolver(rootDir: string): WorkspaceResolver {
   return {
     resolve(chatId: string): string {
       const safe = chatId.replace(/[^A-Za-z0-9_-]/g, '_');
-      return join(root, safe);
+      return resolveWorkspacePath(root, safe);
     },
   };
 }
@@ -42,5 +42,19 @@ export async function ensureWorkspace(path: string): Promise<void> {
 }
 
 function resolveWorkspacePath(root: string, workspacePath: string): string {
-  return isAbsolute(workspacePath) ? workspacePath : resolve(root, workspacePath);
+  const resolved = isAbsolute(workspacePath)
+    ? resolve(workspacePath)
+    : resolve(root, workspacePath);
+  assertWorkspaceInsideRoot(root, resolved);
+  return resolved;
+}
+
+export function assertWorkspaceInsideRoot(rootDir: string, workspacePath: string): void {
+  const root = resolve(rootDir);
+  const workspace = resolve(workspacePath);
+  const rel = relative(root, workspace);
+  if (rel === '' || (!rel.startsWith(`..${sep}`) && rel !== '..' && !isAbsolute(rel))) {
+    return;
+  }
+  throw new Error(`workspace path escapes root: ${workspace}`);
 }

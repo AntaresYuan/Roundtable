@@ -86,7 +86,7 @@ function SeatChips({ seats, agents, editable, onRemove, onAdd }) {
               overflow: 'hidden', padding: 4 }}>
               <div style={menuLabel}>Add someone</div>
               {members.map((a) => (
-                <button key={a.id} onClick={() => { onAdd({ ref: { kind: 'role', role: a.role, agentId: a.id } }); setMenu(false); }} style={menuRow}>
+                <button key={a.agentId} onClick={() => { onAdd({ ref: { kind: 'role', role: a.role, agentId: a.agentId } }); setMenu(false); }} style={menuRow}>
                   <Avatar agent={a} size={18} ring={false} /><span>{a.displayName}</span>
                   <span className="mono" style={{ marginLeft: 'auto', fontSize: 10.5, color: 'var(--text-faint)' }}>@{a.role}</span>
                 </button>
@@ -263,12 +263,25 @@ function WorkflowView({ agents, onOpenTemplates }) {
   const [wfId, setWfId] = useStateW(RT.WORKBENCH.workflowId);
   const [picker, setPicker] = useStateW(false);
   const base = allWf().find((w) => w.id === wfId) || RT.BUILTIN_WORKFLOWS[0];
+  const [wfName, setWfName] = useStateW(base.name);
   const [stages, setStages] = useStateW(() => clone(base.stages));
   const [drawer, setDrawer] = useStateW(null);
   const [saved, setSaved] = useStateW(false);
+  const persist = () => { try { localStorage.setItem('rt.workflows', JSON.stringify(RT.workflows)); } catch { /* ignore */ } };
   const switchWorkflow = (id) => {
     const w = allWf().find((x) => x.id === id) || base;
-    setWfId(id); RT.WORKBENCH.workflowId = id; setStages(clone(w.stages)); setDrawer(null); setPicker(false);
+    setWfId(id); RT.WORKBENCH.workflowId = id; setWfName(w.name); setStages(clone(w.stages)); setDrawer(null); setPicker(false);
+  };
+  const newWorkflow = () => {
+    const id = 'wf-user-' + Date.now();
+    const wf = { id, name: 'Untitled workflow', tag: 'Yours', builtin: false, origin: { kind: 'new' },
+      planning: { cut: 'by_role', clarifyThreshold: 0.6, maxClarifyQuestions: 3 }, version: 1, updatedAt: new Date().toISOString(),
+      stages: [
+        { id: 'intake', name: 'Intake', icon: 'clip', kind: 'intake', desc: 'Capture the goal in plain language.', seats: [{ ref: { kind: 'user' } }], fixed: true, gate: { kind: 'none' } },
+        { id: 's-build-' + Date.now(), name: 'Build', icon: 'code', kind: 'work', desc: 'Describe what happens here.', seats: [], gate: { kind: 'none' } },
+        { id: 's-ship-' + Date.now(), name: 'Ship', icon: 'rocket', kind: 'ship', desc: 'Deploy to production.', seats: [], gate: { kind: 'user_approval' } },
+      ] };
+    RT.workflows = [...(RT.workflows || []), wf]; persist(); switchWorkflow(id);
   };
   useEffectW(() => {
     try { const raw = localStorage.getItem('rt.workflows'); if (raw) RT.workflows = JSON.parse(raw); } catch { /* ignore */ }
@@ -288,12 +301,13 @@ function WorkflowView({ agents, onOpenTemplates }) {
   });
 
   const saveWorkflow = () => {
-    const id = 'wf-user-' + Date.now();
-    const wf = { ...clone(base), id, name: RT.WORKBENCH.name + ' workflow', tag: 'Yours', builtin: false,
-      origin: { kind: 'fork', from: base.id }, version: (base.version || 1) + 1, updatedAt: new Date().toISOString(), stages: clone(stages) };
+    const isUser = !base.builtin;
+    const id = isUser ? base.id : 'wf-user-' + Date.now();
+    const wf = { ...clone(base), id, name: wfName.trim() || 'Untitled workflow', tag: 'Yours', builtin: false,
+      origin: isUser ? base.origin : { kind: 'fork', from: base.id }, version: (base.version || 1) + 1,
+      updatedAt: new Date().toISOString(), stages: clone(stages) };
     RT.workflows = [...(RT.workflows || []).filter((w) => w.id !== id), wf];
-    RT.WORKBENCH.workflowId = id;
-    try { localStorage.setItem('rt.workflows', JSON.stringify(RT.workflows)); } catch { /* ignore */ }
+    RT.WORKBENCH.workflowId = id; setWfId(id); persist();
     setSaved(true); setTimeout(() => setSaved(false), 2600);
   };
 
@@ -318,15 +332,16 @@ function WorkflowView({ agents, onOpenTemplates }) {
         <div style={{ position: 'relative', margin: '14px 0 22px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 12px 9px 14px',
             borderRadius: 'var(--r-card)', background: 'var(--surface-2)', border: '1px solid var(--border)', flexWrap: 'wrap' }}>
-            <button onClick={() => setPicker((o) => !o)} title="Switch active workflow" style={{ display: 'inline-flex', alignItems: 'center', gap: 8,
-              border: 'none', background: 'transparent', font: 'inherit', cursor: 'pointer', color: 'var(--text)' }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--accent)' }} />
-              <span style={{ fontSize: 13.5, fontWeight: 600 }}>{base.name}</span>
-              {base.tag && <span style={{ fontSize: 10.5, color: 'var(--accent)', background: tint('var(--accent)', 12), padding: '1px 7px', borderRadius: 4 }}>{base.tag}</span>}
-              <Icon name="chevdown" size={13} style={{ color: 'var(--text-faint)' }} />
-            </button>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--accent)', flexShrink: 0 }} />
+            <input value={wfName} onChange={(e) => setWfName(e.target.value)} title="Rename this workflow" spellCheck={false}
+              onFocus={(e) => (e.currentTarget.style.borderColor = 'var(--border)')} onBlur={(e) => (e.currentTarget.style.borderColor = 'transparent')}
+              style={{ font: 'inherit', fontSize: 13.5, fontWeight: 600, color: 'var(--text)', background: 'transparent', border: '1px solid transparent',
+                borderRadius: 6, outline: 'none', padding: '2px 6px', margin: '-2px 0', minWidth: 90, maxWidth: 260 }} />
+            {base.tag && <span style={{ fontSize: 10.5, color: 'var(--accent)', background: tint('var(--accent)', 12), padding: '1px 7px', borderRadius: 4 }}>{base.tag}</span>}
+            <button onClick={() => setPicker((o) => !o)} title="Switch workflow" style={{ ...ghostBtn, padding: '5px 10px', gap: 5 }}>
+              <Icon name="chevdown" size={12} /> Switch</button>
             <span style={{ width: 1, height: 16, background: 'var(--border)' }} />
-            <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>Switch your active workflow, or save the current as your own.</span>
+            <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>Switch your active workflow, rename it, or save it as your own.</span>
             <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--run)' }} /> running now at the table</span>
           </div>
@@ -337,6 +352,8 @@ function WorkflowView({ agents, onOpenTemplates }) {
               {RT.BUILTIN_WORKFLOWS.map((w) => <WfRow key={w.id} w={w} active={w.id === wfId} onPick={() => switchWorkflow(w.id)} />)}
               {(RT.workflows || []).length > 0 && <div style={menuLabel}>Your workflows</div>}
               {(RT.workflows || []).map((w) => <WfRow key={w.id} w={w} active={w.id === wfId} onPick={() => switchWorkflow(w.id)} />)}
+              <button onClick={newWorkflow} style={{ ...menuRow, borderTop: '1px solid var(--border)', marginTop: 2, color: 'var(--accent)', fontWeight: 500 }}>
+                <Icon name="plus" size={14} /> New workflow</button>
             </div>
           )}
         </div>

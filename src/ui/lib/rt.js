@@ -261,9 +261,9 @@ export async function POST(req: Request) {
     origin: { kind: 'builtin' }, builtin: true, planning: basePlanning, version: 1, updatedAt: '2026-06-01T00:00:00Z',
     stages: [
       { id: 'intake', name: 'Intake', icon: 'clip', kind: 'intake', desc: 'Capture the question.', seats: [userSeat], fixed: true, gate: { kind: 'none' } },
-      { id: 'gather', name: 'Gather', icon: 'search', kind: 'work', desc: 'Collect sources.', seats: [seat('architect')], gate: { kind: 'none' } },
-      { id: 'synthesize', name: 'Synthesize', icon: 'layers', kind: 'plan', desc: 'Synthesize findings.', seats: [seat('planner')], gate: { kind: 'none' } },
-      { id: 'review', name: 'Review', icon: 'eye', kind: 'review', desc: 'Check the brief.', seats: [seat('reviewer')], gate: { kind: 'user_approval' } },
+      { id: 'gather', name: 'Gather', icon: 'search', kind: 'work', desc: 'Collect sources.', seats: [seat('architect', 'nova')], gate: { kind: 'none' } },
+      { id: 'synthesize', name: 'Synthesize', icon: 'layers', kind: 'plan', desc: 'Synthesize findings.', seats: [seat('planner', 'orchestrator')], gate: { kind: 'none' } },
+      { id: 'review', name: 'Review', icon: 'eye', kind: 'review', desc: 'Check the brief.', seats: [seat('reviewer', 'vera')], gate: { kind: 'user_approval' } },
     ],
   };
   const GROWTH_WORKFLOW = {
@@ -271,8 +271,8 @@ export async function POST(req: Request) {
     origin: { kind: 'builtin' }, builtin: true, planning: basePlanning, version: 1, updatedAt: '2026-06-01T00:00:00Z',
     stages: [
       { id: 'intake', name: 'Intake', icon: 'clip', kind: 'intake', desc: 'Capture the goal.', seats: [userSeat], fixed: true, gate: { kind: 'none' } },
-      { id: 'build', name: 'Build', icon: 'code', kind: 'work', desc: 'Build the page.', seats: [seat('implementer')], gate: { kind: 'none' } },
-      { id: 'qa', name: 'QA', icon: 'eye', kind: 'review', desc: 'Check it converts.', seats: [seat('reviewer')], gate: { kind: 'reviewer_signoff', reviewer: seat('reviewer').ref, blockOn: 'open_comments' } },
+      { id: 'build', name: 'Build', icon: 'code', kind: 'work', desc: 'Build the page.', seats: [seat('implementer', 'atlas')], gate: { kind: 'none' } },
+      { id: 'qa', name: 'QA', icon: 'eye', kind: 'review', desc: 'Check it converts.', seats: [seat('reviewer', 'vera')], gate: { kind: 'reviewer_signoff', reviewer: seat('reviewer', 'vera').ref, blockOn: 'open_comments' } },
       { id: 'launch', name: 'Launch', icon: 'rocket', kind: 'ship', desc: 'Ship it.', seats: [], gate: { kind: 'user_approval' } },
     ],
   };

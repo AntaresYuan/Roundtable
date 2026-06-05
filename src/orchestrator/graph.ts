@@ -83,6 +83,12 @@ const StateAnnotation = Annotation.Root({
     lastWins<OrchestratorState['autonomyDecisions']>(),
   ),
   pendingGate: Annotation<PendingGate | undefined>(lastWins<PendingGate | undefined>()),
+  pendingRecovery: Annotation<OrchestratorState['pendingRecovery']>(
+    lastWins<OrchestratorState['pendingRecovery']>(),
+  ),
+  failureRecoveryCards: Annotation<OrchestratorState['failureRecoveryCards']>(
+    lastWins<OrchestratorState['failureRecoveryCards']>(),
+  ),
   gateDecisions: Annotation<Record<string, GateDecision>>(
     lastWins<Record<string, GateDecision>>(),
   ),
@@ -103,6 +109,7 @@ const N = {
   monitor: 'stage_monitor',
   review: 'stage_review',
   gate: 'stage_gate',
+  recovery: 'stage_recovery',
   aggregate: 'stage_aggregate',
 } as const;
 
@@ -162,6 +169,14 @@ export function buildOrchestratorGraph(deps: GraphDeps) {
     .addNode(N.monitor, async (s: GraphState) => ({ ...s, stage: 'review' as StageId }))
     .addNode(N.review, async (s: GraphState) => await runReview(adapt(s), reviewer))
     .addNode(N.gate, async (s: GraphState) => runGatePause(adapt(s)))
+    .addNode(N.recovery, async (s: GraphState) => {
+      if (!s.pendingRecovery) return { stage: 'aggregate' as StageId };
+      interrupt({
+        kind: 'failure_recovery',
+        card: s.pendingRecovery,
+      });
+      return {};
+    })
     .addNode(N.aggregate, async (s: GraphState) =>
       runAggregate(adapt(s), deps.skillProposer),
     )
@@ -173,6 +188,7 @@ export function buildOrchestratorGraph(deps: GraphDeps) {
       N.monitor,
       N.review,
       N.gate,
+      N.recovery,
       N.aggregate,
       END,
     ])
@@ -187,6 +203,7 @@ export function buildOrchestratorGraph(deps: GraphDeps) {
       N.monitor,
       N.review,
       N.gate,
+      N.recovery,
       N.aggregate,
       END,
     ])
@@ -194,12 +211,14 @@ export function buildOrchestratorGraph(deps: GraphDeps) {
       N.monitor,
       N.review,
       N.gate,
+      N.recovery,
       N.aggregate,
       END,
     ])
-    .addConditionalEdges(N.monitor, route, [N.review, N.gate, N.aggregate, END])
-    .addConditionalEdges(N.review, route, [N.gate, N.aggregate, END])
-    .addConditionalEdges(N.gate, route, [N.dispatch, N.review, N.aggregate, END])
+    .addConditionalEdges(N.monitor, route, [N.review, N.gate, N.recovery, N.aggregate, END])
+    .addConditionalEdges(N.review, route, [N.gate, N.recovery, N.aggregate, END])
+    .addConditionalEdges(N.gate, route, [N.dispatch, N.review, N.recovery, N.aggregate, END])
+    .addConditionalEdges(N.recovery, route, [N.aggregate, END])
     .addConditionalEdges(N.aggregate, route, [END]);
 
   return graph.compile({ checkpointer });
@@ -221,6 +240,8 @@ function route(s: GraphState): StageNode | typeof END {
       return N.review;
     case 'gate':
       return N.gate;
+    case 'recovery':
+      return N.recovery;
     case 'aggregate':
       return N.aggregate;
     case 'done':

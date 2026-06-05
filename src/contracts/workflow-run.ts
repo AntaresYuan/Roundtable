@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { AutonomyDecisionSchema, AutonomyPolicySchema } from './autonomy.js';
+import { FailureRecoveryCardSchema } from './recovery.js';
 import { GateSchema } from './workflow.js';
 
 /**
@@ -49,6 +50,8 @@ export const WorkflowRunSchema = z.object({
   stageStates: z.record(z.string(), StageRunStateSchema), // keyed by stageId
   activeStageId: z.string().optional(),
   pendingGate: z.object({ stageId: z.string(), gate: GateSchema }).optional(),
+  pendingRecovery: FailureRecoveryCardSchema.optional(),
+  failureRecoveryCards: z.array(FailureRecoveryCardSchema).default([]),
   depEdges: z.array(
     z.object({ from: z.string(), to: z.string(), stale: z.boolean() }),
   ), // emergent, agent-declared (spec 060)

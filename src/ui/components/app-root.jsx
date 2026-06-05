@@ -615,10 +615,13 @@ function Dock({ st, agents, scene, onAction, onOpenChat, onOpenWorkflow, onSend,
     <div style={{ borderTop: '1px solid var(--border)', background: 'var(--surface)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 22px 0' }}>
         <WorkflowStrip clock={scene.clock} onOpen={onOpenWorkflow} />
-        {rec && <button onClick={onOpenWorkflow} title={rec.reason} style={{ display: 'inline-flex', alignItems: 'center', gap: 6,
-          padding: '4px 11px', borderRadius: 999, border: `1px solid ${alpha('var(--accent)', 38)}`, background: alpha('var(--accent)', 10),
-          color: 'var(--accent)', font: 'inherit', fontSize: 11.5, fontWeight: 500, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-          <Icon name="sparkle" size={12} /> Try “{rec.name}”</button>}
+        {rec && <button onClick={onOpenWorkflow} title={rec.reason} style={{ display: 'inline-flex', alignItems: 'center', gap: 7,
+          minWidth: 0, maxWidth: 460, padding: '4px 12px 4px 10px', borderRadius: 999, border: `1px solid ${alpha('var(--accent)', 38)}`,
+          background: alpha('var(--accent)', 10), color: 'var(--accent)', font: 'inherit', fontSize: 11.5, cursor: 'pointer' }}>
+          <Icon name="sparkle" size={12} style={{ flexShrink: 0 }} />
+          <span style={{ fontWeight: 600, flexShrink: 0 }}>Try “{rec.name}”</span>
+          <span style={{ color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>— {rec.reason}</span>
+        </button>}
         <span style={{ flex: 1 }} />
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '9px 22px 4px' }}>

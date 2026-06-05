@@ -7,7 +7,7 @@
 import React from 'react';
 import { RT } from '../lib/rt';
 import { Icon, Spinner, Avatar, RoleTag, Md, useTypewriter, alpha } from './primitives';
-import { ArtifactRenderer, iconBtn } from './cards';
+import { ArtifactRenderer, artifactFromFileChangeEvent, iconBtn } from './cards';
 const { useState, useRef, useEffect } = React;
 
 /* ---- ThinkingBlock : collapsed shimmer, expandable ----------------------- */
@@ -76,7 +76,7 @@ function MessageGroup({ beat, agents, playing, onOpenArtifact, noticesByArtifact
   const thinkText = ev.filter(e => e.type === 'thinking_delta').map(e => e.delta).join(' ');
   const toolEv = ev.find(e => e.type === 'tool_use');
   const fullText = ev.filter(e => e.type === 'text_delta').map(e => e.delta).join('');
-  const artifactEvs = ev.filter(e => e.type === 'artifact');
+  const artifactEvs = ev.filter(e => e.type === 'artifact' || e.type === 'file_change');
   const doneEv = ev.find(e => e.type === 'done');
   const errEv = ev.find(e => e.type === 'error');
 
@@ -152,7 +152,7 @@ function MessageGroup({ beat, agents, playing, onOpenArtifact, noticesByArtifact
         )}
 
         {stage >= 3 && artifactEvs.map((e, i) => {
-          const art = RT.ARTIFACTS[e.artifactId];
+          const art = artifactFromEvent(e, beat, agents);
           const notice = art && noticesByArtifact ? noticesByArtifact.get(art.id) : null;
           const reviews = art && reviewsByArtifact ? reviewsByArtifact.get(art.id) : null;
           return art ? <div key={i} style={{ marginTop: i ? 12 : 0 }}>
@@ -174,6 +174,24 @@ function MessageGroup({ beat, agents, playing, onOpenArtifact, noticesByArtifact
       </div>
     </div>
   );
+}
+
+function artifactFromEvent(event, beat, agents) {
+  if (event.type === 'artifact') {
+    if (event.artifact) return event.artifact;
+    if (event.artifactId) return RT.ARTIFACTS[event.artifactId];
+    return null;
+  }
+  if (event.type === 'file_change') {
+    const agent = agents?.[beat.agentId];
+    return artifactFromFileChangeEvent(event, {
+      ownerAgentId: beat.agentId,
+      version: event.version || 1,
+      id: `diff:${beat.id}:${event.path}:${event.kind}`,
+      ...(agent?.role ? { role: agent.role } : {}),
+    });
+  }
+  return null;
 }
 
 /* ---- Composer with @mention ---------------------------------------------- */

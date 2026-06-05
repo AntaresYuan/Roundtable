@@ -51,6 +51,94 @@ function CodeBlock({ code, max }) {
   );
 }
 
+/* ---- AgentEvent artifact normalization ----------------------------------- */
+function ownerForArtifact(art, agents) {
+  const ownerId = art.ownerAgentId || art.agentId || art.createdByAgentId;
+  const direct = ownerId ? agents?.[ownerId] : null;
+  if (direct) return direct;
+  const byRole = ownerId
+    ? Object.values(agents || {}).find((agent) => agent.role === ownerId)
+    : null;
+  if (byRole) return byRole;
+  return {
+    agentId: ownerId || 'agent',
+    role: ownerId || 'agent',
+    displayName: ownerId ? `@${ownerId}` : 'Agent',
+    color: 'var(--text-muted)',
+  };
+}
+
+function normalizeArtifactForDisplay(raw, fallback = {}) {
+  if (!raw) return null;
+  const kind = normalizeArtifactKind(raw.kind);
+  const title = raw.title || raw.uri || raw.path || 'Untitled artifact';
+  const preview = raw.preview ?? raw.code ?? raw.content ?? '';
+  const ownerAgentId =
+    raw.ownerAgentId || fallback.ownerAgentId || raw.createdByAgentId || raw.agentId || 'agent';
+  return {
+    ...raw,
+    ...fallback,
+    id: raw.id || fallback.id || `${kind}:${title}`,
+    kind,
+    title,
+    ownerAgentId,
+    version: raw.version ?? raw.currentVersion ?? fallback.version ?? 1,
+    uri: raw.uri || raw.path || fallback.uri,
+    preview,
+    code: raw.code ?? preview,
+    diff: normalizeDiff(raw.diff, title, ownerAgentId),
+  };
+}
+
+function artifactFromFileChangeEvent(event, fallback = {}) {
+  const ownerAgentId = fallback.ownerAgentId || event.ownerAgentId || event.agentId || 'agent';
+  return normalizeArtifactForDisplay({
+    id: event.id || `diff:${event.path}:${event.kind}`,
+    kind: 'diff',
+    title: event.path,
+    ownerAgentId,
+    version: fallback.version || 1,
+    uri: event.path,
+    diff: parseUnifiedDiff(event.diff || '', ownerAgentId, event.path),
+    preview: event.diff || '',
+  });
+}
+
+function normalizeArtifactKind(kind) {
+  if (kind === 'web_app' || kind === 'html') return 'preview';
+  if (kind === 'code' || kind === 'markdown' || kind === 'spec') return 'file';
+  return kind || 'file';
+}
+
+function normalizeDiff(diff, title, ownerAgentId) {
+  if (!diff) return null;
+  if (typeof diff === 'object' && Array.isArray(diff.lines)) return diff;
+  return parseUnifiedDiff(String(diff), ownerAgentId, title);
+}
+
+function parseUnifiedDiff(diff, ownerAgentId, title) {
+  const lines = diff.split('\n');
+  const hunk = lines.find((line) => line.startsWith('@@')) || title || 'diff';
+  return {
+    file: title,
+    hunk,
+    lines: lines
+      .filter((line) => !line.startsWith('diff --git') && !line.startsWith('index '))
+      .map((line) => {
+        if (line.startsWith('+++') || line.startsWith('---')) {
+          return { t: 'ctx', text: line };
+        }
+        if (line.startsWith('+')) {
+          return { t: 'add', text: line.slice(1), author: ownerAgentId };
+        }
+        if (line.startsWith('-')) {
+          return { t: 'del', text: line.slice(1), author: ownerAgentId };
+        }
+        return { t: 'ctx', text: line.startsWith(' ') ? line.slice(1) : line };
+      }),
+  };
+}
+
 /* ---- OwnerCard chrome (artifacts) ---------------------------------------- */
 function OwnerCard({ owner, title, version, badge, children, onOpen, kindLabel, accentBar = true }) {
   return (
@@ -220,7 +308,8 @@ function ReviewCommentList({ comments, agents, onApplyFix }) {
 /* ---- File artifact -------------------------------------------------------- */
 function FileArtifact({ art, owner, agents, notice, onAskSync, reviewComments, onApplyFix, onOpen }) {
   const [open, setOpen] = useState(false);
-  const lineCount = art.preview.split('\n').length;
+  const preview = art.preview || art.code || '';
+  const lineCount = preview.split('\n').length;
   return (
     <OwnerCard
       owner={owner}
@@ -238,7 +327,7 @@ function FileArtifact({ art, owner, agents, notice, onAskSync, reviewComments, o
       {notice && <DepChangedBanner notice={notice} agents={agents} onAskSync={onAskSync} />}
       <div style={{ position: 'relative', background: 'var(--surface-2)' }}>
         <div style={{ maxHeight: open ? 'none' : 132, overflow: 'hidden' }}>
-          <CodeBlock code={art.preview} />
+          <CodeBlock code={preview} />
         </div>
         {!open && lineCount > 7 && (
           <div style={{ position: 'absolute', inset: 'auto 0 0 0', height: 56, pointerEvents: 'none',
@@ -266,7 +355,7 @@ const textBtn = {
 
 /* ---- Diff artifact (multi-author tinting) -------------------------------- */
 function DiffArtifact({ art, owner, agents, onOpen }) {
-  const d = art.diff;
+  const d = art.diff || normalizeDiff(art.preview || '', art.title, art.ownerAgentId);
   const authors = [...new Set(d.lines.filter(l => l.author).map(l => l.author))];
   return (
     <OwnerCard owner={owner} title={art.title} version={art.version} kindLabel="diff"
@@ -313,6 +402,7 @@ function DiffArtifact({ art, owner, agents, onOpen }) {
 /* ---- Preview artifact ----------------------------------------------------- */
 function PreviewArtifact({ art, owner, onOpen }) {
   const [mode, setMode] = useState('preview'); // preview | code
+  const preview = art.preview || art.code || '';
   return (
     <OwnerCard owner={owner} title={art.title} version={art.version} kindLabel="preview" onOpen={onOpen}>
       <div style={{ display: 'flex', gap: 4, padding: '8px 11px', borderBottom: '1px solid var(--border)',
@@ -332,13 +422,13 @@ function PreviewArtifact({ art, owner, onOpen }) {
                 <span key={c} style={{ width: 9, height: 9, borderRadius: '50%', background: c, opacity: .8 }} />)}
               <span className="mono" style={{ fontSize: 11, color: 'var(--text-faint)', marginLeft: 6 }}>localhost:3000</span>
             </div>
-            <iframe title={art.title} srcDoc={art.preview} sandbox="allow-scripts"
+            <iframe title={art.title} srcDoc={preview} sandbox="allow-scripts"
               style={{ width: '100%', height: 318, border: 'none', display: 'block', background: '#fff' }} />
           </div>
         </div>
       ) : (
         <div style={{ background: 'var(--surface-2)', maxHeight: 318, overflow: 'auto' }}>
-          <CodeBlock code={art.code || art.preview} />
+          <CodeBlock code={art.code || preview} />
         </div>
       )}
     </OwnerCard>
@@ -361,16 +451,17 @@ function Seg({ active, onClick, icon, children }) {
 
 /* ---- Artifact dispatcher -------------------------------------------------- */
 function ArtifactRenderer({ art, agents, notice, onAskSync, reviewComments, onApplyFix, onOpen }) {
-  const owner = agents[art.ownerAgentId];
-  if (!owner) return null;
-  const open = () => onOpen && onOpen(art);
-  switch (art.kind) {
-    case 'file':    return <FileArtifact art={art} owner={owner} agents={agents} notice={notice} onAskSync={onAskSync} reviewComments={reviewComments} onApplyFix={onApplyFix} onOpen={open} />;
-    case 'diff':    return <DiffArtifact art={art} owner={owner} agents={agents} onOpen={open} />;
-    case 'preview': return <PreviewArtifact art={art} owner={owner} onOpen={open} />;
+  const displayArt = normalizeArtifactForDisplay(art);
+  if (!displayArt) return null;
+  const owner = ownerForArtifact(displayArt, agents);
+  const open = () => onOpen && onOpen(displayArt);
+  switch (displayArt.kind) {
+    case 'file':    return <FileArtifact art={displayArt} owner={owner} agents={agents} notice={notice} onAskSync={onAskSync} reviewComments={reviewComments} onApplyFix={onApplyFix} onOpen={open} />;
+    case 'diff':    return <DiffArtifact art={displayArt} owner={owner} agents={agents} onOpen={open} />;
+    case 'preview': return <PreviewArtifact art={displayArt} owner={owner} onOpen={open} />;
     default:        return (
-      <OwnerCard owner={owner} title={art.title} version={art.version} kindLabel={art.kind} onOpen={open}>
-        <div style={{ padding: '13px 15px' }}><Md text={art.preview || ''} /></div>
+      <OwnerCard owner={owner} title={displayArt.title} version={displayArt.version} kindLabel={displayArt.kind} onOpen={open}>
+        <div style={{ padding: '13px 15px' }}><Md text={displayArt.preview || ''} /></div>
       </OwnerCard>
     );
   }
@@ -725,5 +816,5 @@ function BreakoutChip({ data, agents }) {
 
 export {
   TodoListCard, ArtifactRenderer, HandoffCard, BreakoutChip, OwnerCard, CodeBlock, VChip, iconBtn,
-  DepChangedBanner, ReviewCommentList,
+  DepChangedBanner, ReviewCommentList, normalizeArtifactForDisplay, artifactFromFileChangeEvent,
 };

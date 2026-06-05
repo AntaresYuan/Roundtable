@@ -399,14 +399,17 @@ function currentStageIndex(clock) {
   return 4;
 }
 function WorkflowStrip({ clock, onOpen }) {
-  const stages = activeWorkflow().stages;
+  const wf = activeWorkflow();
+  const stages = wf.stages;
   const cur = currentStageIndex(clock);
   return (
     <div className="rt-workflow-strip" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0, maxWidth: '100%',
       padding: '6px 8px 6px 12px', borderRadius: 999, overflow: 'hidden',
       background: 'color-mix(in oklab, var(--surface) 88%, transparent)', backdropFilter: 'blur(8px)',
       border: '1px solid var(--border)', boxShadow: 'var(--shadow-card)' }}>
-      <span className="mono" style={{ fontSize: 9.5, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--text-faint)', marginRight: 4 }}>Workflow</span>
+      <span className="mono" style={{ fontSize: 9, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--text-faint)', flexShrink: 0 }}>Workflow</span>
+      <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', flexShrink: 0, marginRight: 4,
+        maxWidth: 170, overflow: 'hidden', textOverflow: 'ellipsis' }} title={wf.name}>{wf.name}</span>
       {stages.map((s, i) => {
         const done = i < cur, active = i === cur;
         return (

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { AutonomyDecisionSchema, AutonomyPolicySchema } from './autonomy.js';
 import { GateSchema } from './workflow.js';
 
 /**
@@ -43,6 +44,8 @@ export type StageRunState = z.infer<typeof StageRunStateSchema>;
 export const WorkflowRunSchema = z.object({
   specId: z.string(),
   specVersion: z.number().int().nonnegative(),
+  autonomyPolicy: AutonomyPolicySchema,
+  autonomyDecisions: z.array(AutonomyDecisionSchema),
   stageStates: z.record(z.string(), StageRunStateSchema), // keyed by stageId
   activeStageId: z.string().optional(),
   pendingGate: z.object({ stageId: z.string(), gate: GateSchema }).optional(),

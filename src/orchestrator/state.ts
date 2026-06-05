@@ -1,6 +1,8 @@
 import type {
   AgentEvent,
   Artifact,
+  AutonomyDecision,
+  AutonomyPolicy,
   Gate,
   HandoffCard,
   IntakeResult,
@@ -9,6 +11,7 @@ import type {
   ReviewComment,
   Workflow,
 } from '../contracts/index.js';
+import { DEFAULT_AUTONOMY_POLICY as DEFAULT_POLICY } from '../contracts/index.js';
 
 export type StageId =
   | 'intake'
@@ -77,6 +80,8 @@ export interface OrchestratorState {
    * the user confirms via `userSkills.create` (ADR-007).
    */
   proposedSkills: ProposeSkillEvent[];
+  autonomyPolicy: AutonomyPolicy;
+  autonomyDecisions: AutonomyDecision[];
   pendingGate: PendingGate | undefined;
   gateDecisions: Record<string, GateDecision>;
   aggregate?: AggregateSummary;
@@ -87,6 +92,7 @@ export function initialState(
   chatId: string,
   userMessage: string,
   workflow?: Workflow,
+  autonomyPolicy: AutonomyPolicy = DEFAULT_POLICY,
 ): OrchestratorState {
   return {
     chatId,
@@ -99,6 +105,8 @@ export function initialState(
     reviewNotes: [],
     reviewComments: [],
     proposedSkills: [],
+    autonomyPolicy,
+    autonomyDecisions: [],
     pendingGate: undefined,
     gateDecisions: {},
     errors: [],

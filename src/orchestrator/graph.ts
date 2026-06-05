@@ -34,6 +34,7 @@ import {
   type StageId,
 } from './state.js';
 import type {
+  AutonomyPolicy,
   Artifact,
   HandoffCard,
   IntakeResult,
@@ -75,6 +76,12 @@ const StateAnnotation = Annotation.Root({
   reviewNotes: Annotation<string[]>(lastWins<string[]>()),
   reviewComments: Annotation<ReviewComment[]>(lastWins<ReviewComment[]>()),
   proposedSkills: Annotation<ProposeSkillEvent[]>(lastWins<ProposeSkillEvent[]>()),
+  autonomyPolicy: Annotation<OrchestratorState['autonomyPolicy']>(
+    lastWins<OrchestratorState['autonomyPolicy']>(),
+  ),
+  autonomyDecisions: Annotation<OrchestratorState['autonomyDecisions']>(
+    lastWins<OrchestratorState['autonomyDecisions']>(),
+  ),
   pendingGate: Annotation<PendingGate | undefined>(lastWins<PendingGate | undefined>()),
   gateDecisions: Annotation<Record<string, GateDecision>>(
     lastWins<Record<string, GateDecision>>(),
@@ -225,8 +232,9 @@ export function buildInitialInput(
   chatId: string,
   userMessage: string,
   workflow?: Workflow,
+  autonomyPolicy?: AutonomyPolicy,
 ): OrchestratorState {
-  return initialState(chatId, userMessage, workflow);
+  return initialState(chatId, userMessage, workflow, autonomyPolicy);
 }
 
 export { StateAnnotation };

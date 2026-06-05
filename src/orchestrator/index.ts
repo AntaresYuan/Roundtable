@@ -33,6 +33,11 @@ export type {
 export { heuristicIntake } from './nodes/intake.js';
 export { rolePlanner, workflowPlanner } from './nodes/plan.js';
 export { workflowRunFromState } from './workflow-run.js';
+export {
+  evaluateAutonomyAction,
+  evaluateRetry,
+  riskForGate,
+} from './autonomy.js';
 export { noopReviewer } from './nodes/review.js';
 export {
   MAX_SKILL_PROPOSALS_PER_RUN,

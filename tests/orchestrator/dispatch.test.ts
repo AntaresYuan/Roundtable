@@ -7,7 +7,14 @@ import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AdapterRegistry, createMockAdapter } from '../../src/adapters/index.js';
-import type { AgentEvent, Artifact, ArtifactId } from '../../src/contracts/index.js';
+import type {
+  AgentAdapter,
+  AgentEvent,
+  Artifact,
+  ArtifactId,
+  PlanTask,
+  SessionOpts,
+} from '../../src/contracts/index.js';
 import type { Db } from '../../src/db/index.js';
 import {
   artifacts,
@@ -117,6 +124,93 @@ describe('runDispatch', () => {
       recoverable: false,
     });
     expect(result.stage).toBe('aggregate');
+  });
+
+  it('dispatches independent tasks concurrently and waits before dependent tasks', async () => {
+    let active = 0;
+    let maxActive = 0;
+    const registry = new AdapterRegistry();
+    registry.register(
+      createTimedAdapter({
+        onStart: () => {
+          active += 1;
+          maxActive = Math.max(maxActive, active);
+        },
+        onFinish: () => {
+          active -= 1;
+        },
+      }),
+    );
+    registry.bindRole('implementer', 'timed');
+    registry.bindRole('reviewer', 'timed');
+
+    const result = await runDispatch(
+      withPlanTasks([
+        task('T1', '@implementer'),
+        task('T2', '@implementer'),
+        task('T3', '@reviewer', ['T1', 'T2']),
+      ]),
+      {
+        registry,
+        workspaces: workspaceResolver(rootDir),
+        handoffLog: inMemoryHandoffLog(),
+      },
+    );
+
+    expect(result.dispatch.map((r) => r.taskId)).toEqual(['T1', 'T2', 'T3']);
+    expect(result.dispatch.map((r) => r.status)).toEqual([
+      'completed',
+      'completed',
+      'completed',
+    ]);
+    expect(maxActive).toBe(2);
+    expect(result.dispatch[2]!.startedAt.getTime()).toBeGreaterThanOrEqual(
+      result.dispatch[0]!.finishedAt!.getTime(),
+    );
+    expect(result.dispatch[2]!.startedAt.getTime()).toBeGreaterThanOrEqual(
+      result.dispatch[1]!.finishedAt!.getTime(),
+    );
+  });
+
+  it('keeps successful sibling results when a parallel task fails', async () => {
+    const registry = new AdapterRegistry();
+    registry.register(
+      createTimedAdapter({
+        eventsByRole: {
+          implementer: [
+            { type: 'error', message: 'implementation failed', recoverable: false },
+          ],
+          reviewer: [{ type: 'done', finishReason: 'stop' }],
+        },
+      }),
+    );
+    registry.bindRole('implementer', 'timed');
+    registry.bindRole('reviewer', 'timed');
+    registry.bindRole('fixer', 'timed');
+
+    const result = await runDispatch(
+      withPlanTasks([
+        task('T1', '@implementer'),
+        task('T2', '@reviewer'),
+        task('T3', '@fixer', ['T1', 'T2']),
+      ]),
+      {
+        registry,
+        workspaces: workspaceResolver(rootDir),
+        handoffLog: inMemoryHandoffLog(),
+      },
+    );
+
+    expect(result.dispatch.map((r) => [r.taskId, r.status])).toEqual([
+      ['T1', 'failed'],
+      ['T2', 'completed'],
+      ['T3', 'failed'],
+    ]);
+    expect(result.dispatch[2]?.events[0]).toMatchObject({
+      type: 'error',
+      message: 'dependency failed: T1',
+      recoverable: false,
+    });
   });
 
   it('processes dependency declarations and emits sync handoff cards on upstream bumps', async () => {
@@ -569,24 +663,82 @@ describe('runDispatch', () => {
 });
 
 function withPlan(assignee: string, chatId = 'chat/1') {
+  return withPlanTasks([
+    {
+      id: 'T1',
+      title: 'Do the work',
+      assignee,
+      deps: [],
+      user_visible: true,
+      status: 'pending' as const,
+    },
+  ], chatId);
+}
+
+function withPlanTasks(tasks: PlanTask[], chatId = 'chat/1') {
   return {
     ...initialState(chatId, 'build a page'),
     stage: 'dispatch' as const,
     plan: {
       id: 'plan-1',
       createdAt: new Date(),
-      tasks: [
-        {
-          id: 'T1',
-          title: 'Do the work',
-          assignee,
-          deps: [],
-          user_visible: true,
-          status: 'pending' as const,
-        },
-      ],
+      tasks,
     },
   };
+}
+
+function task(id: string, assignee: string, deps: string[] = []): PlanTask {
+  return {
+    id,
+    title: `Do ${id}`,
+    assignee,
+    deps,
+    user_visible: true,
+    status: 'pending',
+  };
+}
+
+function createTimedAdapter(config: {
+  onStart?: () => void;
+  onFinish?: () => void;
+  eventsByRole?: Partial<Record<SessionOpts['role'], AgentEvent[]>>;
+  delayMs?: number;
+} = {}): AgentAdapter {
+  return {
+    id: 'timed',
+    displayName: 'Timed Agent',
+    avatar: 'T',
+    capabilities: {
+      streaming: true,
+      toolUse: false,
+      fileEdits: false,
+      persistentSessions: false,
+      mcp: false,
+      multimodal: false,
+    },
+    async createSession(opts) {
+      return {
+        id: `timed-${opts.role}-${Date.now()}-${Math.random()}`,
+        adapterId: 'timed',
+        cwd: opts.cwd,
+        async *send() {
+          config.onStart?.();
+          await sleep(config.delayMs ?? 20);
+          config.onFinish?.();
+          const events = config.eventsByRole?.[opts.role] ?? [
+            { type: 'done' as const, finishReason: 'stop' },
+          ];
+          yield* events;
+        },
+        async interrupt() {},
+        async close() {},
+      };
+    },
+  };
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function artifact(

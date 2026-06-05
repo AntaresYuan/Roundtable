@@ -13,6 +13,7 @@ import { RoundtableScene, WhiteboardZoom, sceneAt, meetingNotes } from './roundt
 import { WorkflowView, WorkflowStrip } from './workflow';
 import { Modal, NewTaskModal, NewWorkbenchModal, AddAgentModal, EditHandoffModal } from './modals';
 import { DependencyGraphSidebar } from './dep-graph';
+import { MemoryPanel } from './memory-panel';
 import { useSession } from 'next-auth/react';
 import { trpc } from '@/ui/lib/trpc';
 
@@ -612,13 +613,16 @@ function Dock({ st, agents, scene, onAction, onOpenChat, onOpenWorkflow }) {
 
 /* ---- Inspector : tabbed Files / Notes (right, collapsible) --------------- */
 // P3.2: live message thread for the selected chat (messages.list + handoffs count).
-function LiveThread({ messages, handoffs }) {
+function LiveThread({ messages, handoffs, agents }) {
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: '16px 22px' }}>
       <div style={{ maxWidth: 720, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
         {handoffs && handoffs.length > 0 && (
-          <div className="mono" style={{ fontSize: 11, color: 'var(--text-faint)' }}>
-            {handoffs.length} hand-off{handoffs.length > 1 ? 's' : ''} in this chat
+          <div style={{ display: 'grid', gap: 8 }}>
+            <div className="mono" style={{ fontSize: 11, color: 'var(--text-faint)' }}>
+              {handoffs.length} hand-off{handoffs.length > 1 ? 's' : ''} in this chat
+            </div>
+            {handoffs.map((h) => h.card && <HandoffCard key={h.id} ho={h.card} agents={agents} />)}
           </div>
         )}
         {messages.length === 0 && (
@@ -641,9 +645,15 @@ function LiveThread({ messages, handoffs }) {
     </div>
   );
 }
-function FileRow({ art, agents, onOpen }) {
+function FileRow({ art, agents, onOpen, activeChatId }) {
   const owner = agents[art.ownerAgentId];
   const icon = art.kind === 'preview' ? 'eye' : art.kind === 'diff' ? 'code' : art.kind === 'doc' ? 'clip' : 'code';
+  const fromSiblingChat = activeChatId && art.createdInChatId && art.createdInChatId !== activeChatId;
+  const scopeCopy = fromSiblingChat
+    ? `project artifact · from chat ${art.createdInChatId.slice(0, 8)}`
+    : art.workbenchId
+      ? 'project artifact'
+      : null;
   return (
     <button onClick={() => onOpen(art)} style={{ width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 10,
       padding: '10px 12px', borderRadius: 'var(--r-sm)', border: '1px solid var(--border)', background: 'var(--surface)',
@@ -658,7 +668,7 @@ function FileRow({ art, agents, onOpen }) {
         <div className="mono" style={{ fontSize: 12.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {art.title.split('/').pop()}</div>
         <div style={{ fontSize: 11, color: 'var(--text-faint)', display: 'flex', alignItems: 'center', gap: 6, marginTop: 1 }}>
-          {art.source === 'uploaded' ? 'you · uploaded' : owner ? owner.displayName + ' · ' + art.kind : art.kind}
+          {scopeCopy || (art.source === 'uploaded' ? 'you · uploaded' : owner ? owner.displayName + ' · ' + art.kind : art.kind)}
         </div>
       </div>
       <span className="mono tnum" style={{ fontSize: 10.5, fontWeight: 600, padding: '1px 6px', borderRadius: 5,
@@ -666,7 +676,7 @@ function FileRow({ art, agents, onOpen }) {
     </button>
   );
 }
-function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifact, onAction, onClose, live, liveArtifacts, liveMessages, liveHandoffs }) {
+function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifact, onAction, onClose, live, liveArtifacts, liveMessages, liveHandoffs, activeChatId, memory }) {
   const placed = sceneAt(clock).placed;
   // P3.2: in live mode show the real chat's artifacts (empty until the orchestrator runs) —
   // never fall back to scripted fixtures, which would contradict the live center stage.
@@ -687,6 +697,7 @@ function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifa
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 8px 0' }}>
         {tabBtn('chat', 'Chat')}
         {tabBtn('files', `Files · ${created.length + provided.length}`)}
+        {tabBtn('memory', 'Memory')}
         {tabBtn('deps', 'Deps')}
         {tabBtn('notes', 'Notes')}
         <button onClick={onClose} style={{ ...iconBtn, border: 'none', background: 'transparent' }}><Icon name="x" size={15} /></button>
@@ -696,7 +707,7 @@ function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifa
       {tab === 'chat' ? (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg)' }}>
           {live
-            ? <LiveThread messages={liveMessages ?? []} handoffs={liveHandoffs} />
+            ? <LiveThread messages={liveMessages ?? []} handoffs={liveHandoffs} agents={agents} />
             : <Thread agents={agents} scene={scene} onOpenArtifact={onOpenArtifact} onAction={onAction} narrow />}
         </div>
       ) : tab === 'files' ? (
@@ -705,15 +716,19 @@ function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifa
             <>
               <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase',
                 color: 'var(--text-faint)', margin: '0 0 9px' }}>Provided by you</div>
-              {provided.map((a) => <FileRow key={a.id} art={a} agents={agents} onOpen={onOpenArtifact} />)}
+              {provided.map((a) => <FileRow key={a.id} art={a} agents={agents} onOpen={onOpenArtifact} activeChatId={activeChatId} />)}
             </>
           )}
           <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase',
-            color: 'var(--text-faint)', margin: provided.length > 0 ? '16px 0 9px' : '0 0 9px' }}>Created in this run · {created.length}</div>
+            color: 'var(--text-faint)', margin: provided.length > 0 ? '16px 0 9px' : '0 0 9px' }}>
+            {live ? 'Project artifacts' : 'Created in this run'} · {created.length}
+          </div>
           {created.length === 0
             ? <div style={{ fontSize: 12.5, color: 'var(--text-faint)', fontStyle: 'italic', padding: '4px 2px' }}>Nothing yet — artifacts land here as the team works.</div>
-            : created.map((a) => <FileRow key={a.id} art={a} agents={agents} onOpen={onOpenArtifact} />)}
+            : created.map((a) => <FileRow key={a.id} art={a} agents={agents} onOpen={onOpenArtifact} activeChatId={activeChatId} />)}
         </div>
+      ) : tab === 'memory' ? (
+        <MemoryPanel memory={memory} />
       ) : tab === 'deps' ? (
         <div style={{ flex: 1, overflowY: 'auto', padding: '14px 14px 24px' }}>
           {live ? (
@@ -764,10 +779,13 @@ function LiveNotes({ agents, artifacts, handoffs }) {
         <div style={{ marginBottom: 18 }}>
           <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase',
             color: 'var(--text-faint)', marginBottom: 8 }}>Activity</div>
-          <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start' }}>
-            <Icon name="layers" size={13} style={{ color: 'var(--text-faint)', marginTop: 3, flexShrink: 0 }} />
-            <span style={{ fontSize: 12.5, color: 'var(--text)', lineHeight: 1.45 }}>
-              {hos.length} hand-off{hos.length > 1 ? 's' : ''} coordinated by the facilitator</span>
+          <div style={{ display: 'grid', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start' }}>
+              <Icon name="layers" size={13} style={{ color: 'var(--text-faint)', marginTop: 3, flexShrink: 0 }} />
+              <span style={{ fontSize: 12.5, color: 'var(--text)', lineHeight: 1.45 }}>
+                {hos.length} hand-off{hos.length > 1 ? 's' : ''} coordinated by the facilitator</span>
+            </div>
+            {hos.map((h) => h.card && <HandoffCard key={h.id} ho={h.card} agents={agents} />)}
           </div>
         </div>
       )}
@@ -1069,14 +1087,53 @@ function App() {
   const { status: authStatus } = useSession();
   const authed = authStatus === 'authenticated';
   const chatsQ = trpc.chats.list.useQuery(undefined, { enabled: authed });
+  const workbenchesQ = trpc.workbenches.list.useQuery(undefined, { enabled: authed });
+  const [selectedChatId, setSelectedChatId] = useState(null);
+  const [selectedWorkbenchId, setSelectedWorkbenchId] = useState(null);
   const trpcUtils = trpc.useUtils();
-  const createChat = trpc.chats.create.useMutation({ onSuccess: () => trpcUtils.chats.list.invalidate() });
+  const createWorkbench = trpc.workbenches.create.useMutation({
+    onSuccess: () => trpcUtils.workbenches.list.invalidate(),
+  });
+  const createChat = trpc.chats.create.useMutation({
+    onSuccess: (chat) => {
+      trpcUtils.chats.list.invalidate();
+      setSelectedChatId(chat.id);
+      setSelectedWorkbenchId(chat.workbenchId);
+    },
+  });
+  const updateProfile = trpc.userProfile.update.useMutation({
+    onSuccess: () => trpcUtils.userProfile.get.invalidate(),
+  });
+  const pinWorkbench = trpc.workbenchPinned.pin.useMutation({
+    onSuccess: () => trpcUtils.workbenchPinned.list.invalidate(),
+  });
+  const unpinWorkbench = trpc.workbenchPinned.unpin.useMutation({
+    onSuccess: () => trpcUtils.workbenchPinned.list.invalidate(),
+  });
+  const liveWorkbenches = workbenchesQ.data ?? [];
+  const activeChat =
+    authed && chatsQ.data && selectedChatId
+      ? chatsQ.data.find((c) => c.id === selectedChatId)
+      : null;
+  const firstWorkbenchId = liveWorkbenches[0]?.id ?? null;
+  const activeWorkbenchId = selectedWorkbenchId ?? activeChat?.workbenchId ?? firstWorkbenchId;
+  const activeChatId = selectedChatId
+    ?? ((authed && chatsQ.data?.find((c) => c.workbenchId === activeWorkbenchId)?.id) || null);
+  const activeWorkbench =
+    authed && activeWorkbenchId
+      ? liveWorkbenches.find((w) => w.id === activeWorkbenchId) ?? null
+      : null;
   const tasks =
     authed && chatsQ.data
-      ? chatsQ.data.map((c) => ({ id: c.id, title: c.title, meta: c.workspacePath, status: 'idle' }))
+      ? chatsQ.data
+          .filter((c) => !activeWorkbenchId || c.workbenchId === activeWorkbenchId)
+          .map((c) => ({ id: c.id, title: c.title, meta: activeWorkbench?.name || 'workbench', status: 'idle', workbenchId: c.workbenchId }))
       : RT.TASKS;
-  const [selectedChatId, setSelectedChatId] = useState(null);
-  const activeChatId = selectedChatId ?? ((authed && chatsQ.data?.[0]?.id) || null);
+  const profileQ = trpc.userProfile.get.useQuery(undefined, { enabled: authed });
+  const pinsQ = trpc.workbenchPinned.list.useQuery(
+    { workbenchId: activeWorkbenchId ?? '' },
+    { enabled: authed && !!activeWorkbenchId },
+  );
   const artifactsQ = trpc.artifacts.listByChat.useQuery(
     { chatId: activeChatId ?? '' },
     { enabled: authed && !!activeChatId },
@@ -1093,6 +1150,12 @@ function App() {
   const liveMessages = authed && messagesQ.data ? messagesQ.data : null;
   const liveHandoffs = authed && handoffsQ.data ? handoffsQ.data : null;
   const agents = useMemo(() => palettize(t.palette), [t.palette, memberIds]);
+  const railWorkbench = authed && activeWorkbench
+    ? { ...activeWorkbench, members: RT.WORKBENCH.members }
+    : RT.WORKBENCH;
+  const railWorkbenches = authed && liveWorkbenches.length > 0
+    ? liveWorkbenches.map((w) => ({ ...w, members: RT.WORKBENCH.members }))
+    : RT.WORKBENCHES;
   const scene = useScene(t.autoplay, t.speed);
   const compact = useMediaQuery('(max-width: 760px)');
   const [decided, setDecided] = useState(false);
@@ -1130,26 +1193,65 @@ function App() {
     if (id === 'deploy') setDrawerArt(RT.ARTIFACTS.preview);
     if (id.indexOf('decide:') === 0) setDecided(true);
   };
+  const pickChat = (id) => {
+    setSelectedChatId(id);
+    const chat = chatsQ.data?.find((c) => c.id === id);
+    if (chat) setSelectedWorkbenchId(chat.workbenchId);
+  };
+  const pickWorkbench = (id) => {
+    setSelectedWorkbenchId(id);
+    const firstChat = chatsQ.data?.find((c) => c.workbenchId === id);
+    setSelectedChatId(firstChat?.id ?? null);
+  };
+  const ensureWorkbench = async () => {
+    if (activeWorkbench?.id) return activeWorkbench;
+    const created = await createWorkbench.mutateAsync({
+      name: 'Product Squad',
+      workspacePath: `workspaces/${Date.now()}`,
+      description: 'Default workbench created from the Roundtable UI.',
+    });
+    setSelectedWorkbenchId(created.id);
+    return created;
+  };
+  const memory = {
+    live: authed,
+    workbench: activeWorkbench,
+    profile: profileQ.data,
+    pins: pinsQ.data ?? [],
+    profileSaving: updateProfile.isPending,
+    pinSaving: pinWorkbench.isPending || unpinWorkbench.isPending,
+    profileError: updateProfile.error?.message,
+    pinError: pinWorkbench.error?.message || unpinWorkbench.error?.message,
+    onSaveProfile: (patch) => updateProfile.mutate(patch),
+    onAddPin: (content) => {
+      if (!activeWorkbenchId) return;
+      pinWorkbench.mutate({ workbenchId: activeWorkbenchId, content });
+    },
+    onRemovePin: (id) => {
+      if (!activeWorkbenchId) return;
+      unpinWorkbench.mutate({ workbenchId: activeWorkbenchId, id });
+    },
+  };
   const breakoutData = RT.SCRIPT.find((b) => b.kind === 'breakout');
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <TopBar t={t} setTweak={setTweak} view={view} setView={setView} />
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        {railOpen && !compact && <ConversationRail workbench={RT.WORKBENCH} workbenches={RT.WORKBENCHES}
-          tasks={tasks} agents={agents} activeId={activeChatId} onPick={setSelectedChatId}
+        {railOpen && !compact && <ConversationRail workbench={railWorkbench} workbenches={railWorkbenches}
+          tasks={tasks} agents={agents} activeId={activeChatId} onPick={pickChat}
           memberIds={memberIds} onRemoveMember={(id) => setMemberIds((m) => m.filter((x) => x !== id))}
           onAddMember={() => setModal('agent')} onNewTask={() => setModal('task')} onNewWorkbench={() => setModal('table')}
-          onPickWorkbench={() => {}} onCollapse={() => setRailOpen(false)} />}
+          onPickWorkbench={pickWorkbench} onCollapse={() => setRailOpen(false)} />}
         {railOpen && compact && (
           <div style={{ position: 'fixed', inset: 0, zIndex: 110, background: alpha('#000', 30), display: 'flex' }}
             onClick={() => setRailOpen(false)}>
             <div onClick={(e) => e.stopPropagation()} style={{ width: 'min(320px, 86vw)', height: '100%' }}>
-              <ConversationRail workbench={RT.WORKBENCH} workbenches={RT.WORKBENCHES}
-                tasks={tasks} agents={agents} activeId={activeChatId} onPick={setSelectedChatId}
+              <ConversationRail workbench={railWorkbench} workbenches={railWorkbenches}
+                tasks={tasks} agents={agents} activeId={activeChatId} onPick={pickChat}
                 memberIds={memberIds} onRemoveMember={(id) => setMemberIds((m) => m.filter((x) => x !== id))}
                 onAddMember={() => setModal('agent')} onNewTask={() => setModal('task')} onNewWorkbench={() => setModal('table')}
-                onPickWorkbench={() => {}} onCollapse={() => setRailOpen(false)} />
+                onPickWorkbench={pickWorkbench} onCollapse={() => setRailOpen(false)} />
             </div>
           </div>
         )}
@@ -1218,7 +1320,9 @@ function App() {
                 </div>
                 {notesOpen && !compact && <ResizeHandle onResize={(dx) => setInspectorW((w) => Math.max(300, Math.min(640, w + dx)))} />}
                 {notesOpen && <InspectorPanel tab={inspectorTab} setTab={setInspectorTab} clock={scene.clock} width={compact ? 'min(100vw, 420px)' : inspectorW}
-                  agents={agents} scene={scene} live={authed && !!activeChatId} liveArtifacts={liveArtifacts} liveMessages={liveMessages} liveHandoffs={liveHandoffs} onOpenArtifact={setDrawerArt} onAction={onAction} onClose={() => setNotesOpen(false)} />}
+                  agents={agents} scene={scene} live={authed && !!activeChatId} liveArtifacts={liveArtifacts} liveMessages={liveMessages}
+                  liveHandoffs={liveHandoffs} activeChatId={activeChatId} memory={memory}
+                  onOpenArtifact={setDrawerArt} onAction={onAction} onClose={() => setNotesOpen(false)} />}
               </div>
               <Dock st={st} agents={agents} scene={scene} onAction={onAction}
                 onOpenChat={() => { setInspectorTab('chat'); setNotesOpen(true); }}
@@ -1239,12 +1343,30 @@ function App() {
       {dmAgent && <DMRoom agent={agents[dmAgent]}
         activeTask={(['working', 'speaking', 'thinking'].includes(st.status[dmAgent])) ? (RT.PLAN.tasks.find((tk) => tk.owner === dmAgent) || {}).id : null}
         onClose={() => setDmAgent(null)} />}
-      {modal === 'task' && <NewTaskModal workbench={RT.WORKBENCH} members={memberIds} agents={agents}
-        onClose={() => setModal(null)} onCreate={(goal) => {
-          if (authed) createChat.mutate({ title: goal.slice(0, 160), workspacePath: `workspaces/${Date.now()}` });
+      {modal === 'task' && <NewTaskModal workbench={railWorkbench} members={memberIds} agents={agents}
+        onClose={() => setModal(null)} onCreate={async (goal) => {
+          if (authed) {
+            const workbench = await ensureWorkbench();
+            createChat.mutate({ title: goal.slice(0, 160), workbenchId: workbench.id });
+          }
           setModal(null);
         }} />}
-      {modal === 'table' && <NewWorkbenchModal agents={agents} onClose={() => setModal(null)} onCreate={() => { setView('workflow'); setModal(null); }} />}
+      {modal === 'table' && <NewWorkbenchModal agents={agents} onClose={() => setModal(null)} onCreate={(input) => {
+        if (authed) {
+          createWorkbench.mutate({
+            name: input.name,
+            workspacePath: `workspaces/${Date.now()}`,
+            description: `Created from ${input.workflowId}.`,
+          }, {
+            onSuccess: (workbench) => {
+              setSelectedWorkbenchId(workbench.id);
+              setSelectedChatId(null);
+            },
+          });
+        }
+        setView('workflow');
+        setModal(null);
+      }} />}
       {modal === 'agent' && <AddAgentModal onClose={() => setModal(null)} onAdd={({ role, name, color }) => {
         const id = 'a-' + Date.now();
         RT.AGENTS[id] = { agentId: id, role, displayName: name, color };

@@ -462,6 +462,91 @@ const SCENARIO_LABEL = {
 function scenarioLabel(scenario) {
   return SCENARIO_LABEL[scenario] || SCENARIO_LABEL.dispatch;
 }
+const CONTEXT_SCOPE_LABEL = {
+  user: 'User memory',
+  workbench: 'Project memory',
+  chat: 'Chat context',
+  artifact: 'Artifacts',
+  review: 'Review notes',
+  handoff: 'Prior hand-offs',
+};
+function sourceStatus(source) {
+  if (!source.included) return { label: 'omitted', color: 'var(--text-faint)' };
+  if (source.compacted) return { label: 'compacted', color: 'var(--warn)' };
+  return { label: 'included', color: 'var(--run)' };
+}
+function ContextAudit({ audit }) {
+  if (!audit) return null;
+  const grouped = (audit.sources || []).reduce((acc, source) => {
+    const scope = source.scope || 'chat';
+    if (!acc[scope]) acc[scope] = [];
+    acc[scope].push(source);
+    return acc;
+  }, {});
+  const budget = audit.budget || {};
+  return (
+    <Field label="Context sources">
+      <div style={{ display: 'grid', gap: 9 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span className="mono tnum" style={{ fontSize: 11.5, color: 'var(--text-muted)',
+            padding: '3px 8px', borderRadius: 5, background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
+            {budget.usedChars ?? 0}/{budget.maxChars ?? 0} chars
+          </span>
+          {budget.compacted && (
+            <span style={{ fontSize: 11.5, color: 'var(--warn)', padding: '3px 8px',
+              borderRadius: 5, background: alpha('var(--warn)', 12), border: '1px solid ' + alpha('var(--warn)', 35) }}>
+              compacted to fit
+            </span>
+          )}
+        </div>
+        {Object.keys(grouped).length === 0 ? (
+          <div style={{ fontSize: 12.5, color: 'var(--text-faint)', fontStyle: 'italic' }}>
+            No context source audit recorded for this hand-off.
+          </div>
+        ) : Object.entries(grouped).map(([scope, sources]) => (
+          <div key={scope} style={{ border: '1px solid var(--border)', borderRadius: 'var(--r-sm)',
+            overflow: 'hidden', background: 'var(--surface-2)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '7px 10px', borderBottom: '1px solid var(--border)' }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)' }}>
+                {CONTEXT_SCOPE_LABEL[scope] || scope}
+              </span>
+              <span className="mono" style={{ fontSize: 10.5, color: 'var(--text-faint)' }}>
+                {sources.length} source{sources.length === 1 ? '' : 's'}
+              </span>
+            </div>
+            <div style={{ display: 'grid' }}>
+              {sources.map((source) => {
+                const status = sourceStatus(source);
+                return (
+                  <div key={`${source.scope}-${source.kind}-${source.id}`} style={{
+                    display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px',
+                    borderTop: '1px solid var(--border)',
+                  }}>
+                    <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: 'var(--text)',
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {source.label}
+                    </span>
+                    <span className="mono" style={{ fontSize: 10.5, color: 'var(--text-faint)' }}>
+                      {source.kind}
+                    </span>
+                    <span className="mono tnum" style={{ fontSize: 10.5, color: 'var(--text-faint)' }}>
+                      {source.chars} chars
+                    </span>
+                    <span style={{ fontSize: 10.5, fontWeight: 700, color: status.color,
+                      padding: '2px 6px', borderRadius: 4, background: alpha(status.color, 12) }}>
+                      {status.label}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </Field>
+  );
+}
 function HandoffCard({ ho, agents, onEdit }) {
   const [open, setOpen] = useState(false);
   const to = ho.to.replace('@', '');
@@ -539,6 +624,8 @@ function HandoffCard({ ho, agents, onEdit }) {
               ))}
             </div>
           </Field>
+
+          <ContextAudit audit={ho.contextAudit} />
 
           <div style={{ display: 'flex', gap: 8, paddingTop: 2 }}>
             <button

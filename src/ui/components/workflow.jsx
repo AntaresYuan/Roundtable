@@ -13,7 +13,6 @@ const ghostBtn = { display: 'inline-flex', alignItems: 'center', gap: 7, padding
   border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-muted)', font: 'inherit',
   fontSize: 12.5, fontWeight: 500, cursor: 'pointer' };
 
-const ROLE_OPTS = ['architect', 'planner', 'implementer', 'reviewer', 'fixer'];
 const ICON_OPTS = ['clip', 'layers', 'code', 'eye', 'rocket', 'search', 'edit', 'wrench', 'sparkle', 'door'];
 const GATES = [
   { kind: 'none', label: 'No gate', icon: 'dot', hint: 'Flows straight through.' },
@@ -70,8 +69,8 @@ function SeatChips({ seats, agents, editable, onRemove, onAdd }) {
         return (
           <span key={i} className="rt-member" style={{ ...seatChip(c), position: 'relative' }}>
             {a ? <Avatar agent={a} size={18} ring={false} /> : <span style={{ width: 8, height: 8, borderRadius: '50%', background: c }} />}
-            <span className="mono" style={{ fontSize: 11.5, fontWeight: 500, color: c }}>@{role}</span>
-            {a && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>· {a.displayName}</span>}
+            <span style={{ fontSize: 11.5, fontWeight: 500 }}>{a ? a.displayName : `@${role}`}</span>
+            {a && <span className="mono" style={{ fontSize: 10, color: 'var(--text-faint)' }}>@{role}</span>}
             {editable && onRemove && <button onClick={() => onRemove(i)} className="rt-member-x" style={removeX}><Icon name="x" size={9} /></button>}
           </span>
         );
@@ -85,14 +84,7 @@ function SeatChips({ seats, agents, editable, onRemove, onAdd }) {
             <div className="rt-zoom" style={{ position: 'absolute', top: '100%', left: 0, zIndex: 30, marginTop: 6, width: 220,
               background: 'var(--surface)', borderRadius: 'var(--r-card)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-pop)',
               overflow: 'hidden', padding: 4 }}>
-              <div style={menuLabel}>Add a role</div>
-              {ROLE_OPTS.map((r) => (
-                <button key={r} onClick={() => { onAdd({ ref: { kind: 'role', role: r } }); setMenu(false); }} style={menuRow}>
-                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: roleColor(r) }} />
-                  <span className="mono" style={{ color: roleColor(r), fontWeight: 500 }}>@{r}</span>
-                </button>
-              ))}
-              <div style={menuLabel}>Bind a member</div>
+              <div style={menuLabel}>Add someone</div>
               {members.map((a) => (
                 <button key={a.id} onClick={() => { onAdd({ ref: { kind: 'role', role: a.role, agentId: a.id } }); setMenu(false); }} style={menuRow}>
                   <Avatar agent={a} size={18} ring={false} /><span>{a.displayName}</span>
@@ -249,11 +241,35 @@ function AddStageButton({ onClick }) {
   );
 }
 
+function WfRow({ w, active, onPick }) {
+  return (
+    <button onClick={onPick} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '8px 9px', borderRadius: 'var(--r-sm)',
+      border: 'none', background: active ? 'var(--surface-2)' : 'transparent', color: 'var(--text)', font: 'inherit', cursor: 'pointer', textAlign: 'left' }}
+      onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = 'var(--surface-2)'; }}
+      onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = 'transparent'; }}>
+      <span style={{ display: 'grid', placeItems: 'center', width: 26, height: 26, borderRadius: 7, flexShrink: 0, background: tint('var(--accent)', 12), color: 'var(--accent)' }}>
+        <Icon name={(w.stages[1] || w.stages[0])?.icon || 'layers'} size={14} /></span>
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ display: 'block', fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{w.name}</span>
+        <span style={{ display: 'block', fontSize: 10.5, color: 'var(--text-faint)' }}>{w.stages.length} stages{w.tag ? ` · ${w.tag}` : ''}</span>
+      </span>
+      {active && <Icon name="check" size={14} style={{ color: 'var(--accent)', flexShrink: 0 }} />}
+    </button>
+  );
+}
+
 function WorkflowView({ agents, onOpenTemplates }) {
-  const base = activeWorkflow();
+  const allWf = () => RT.BUILTIN_WORKFLOWS.concat(RT.workflows || []);
+  const [wfId, setWfId] = useStateW(RT.WORKBENCH.workflowId);
+  const [picker, setPicker] = useStateW(false);
+  const base = allWf().find((w) => w.id === wfId) || RT.BUILTIN_WORKFLOWS[0];
   const [stages, setStages] = useStateW(() => clone(base.stages));
   const [drawer, setDrawer] = useStateW(null);
   const [saved, setSaved] = useStateW(false);
+  const switchWorkflow = (id) => {
+    const w = allWf().find((x) => x.id === id) || base;
+    setWfId(id); RT.WORKBENCH.workflowId = id; setStages(clone(w.stages)); setDrawer(null); setPicker(false);
+  };
   useEffectW(() => {
     try { const raw = localStorage.getItem('rt.workflows'); if (raw) RT.workflows = JSON.parse(raw); } catch { /* ignore */ }
   }, []);
@@ -299,14 +315,30 @@ function WorkflowView({ agents, onOpenTemplates }) {
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '14px 0 22px', padding: '11px 15px',
-          borderRadius: 'var(--r-card)', background: 'var(--surface-2)', border: '1px solid var(--border)', flexWrap: 'wrap' }}>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 12.5, fontWeight: 500 }}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--accent)' }} />Based on “{base.name}”</span>
-          <span style={{ width: 1, height: 16, background: 'var(--border)' }} />
-          <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>New here? This just works. Power user? Configure any stage below.</span>
-          <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--run)' }} /> running now at the table</span>
+        <div style={{ position: 'relative', margin: '14px 0 22px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 12px 9px 14px',
+            borderRadius: 'var(--r-card)', background: 'var(--surface-2)', border: '1px solid var(--border)', flexWrap: 'wrap' }}>
+            <button onClick={() => setPicker((o) => !o)} title="Switch active workflow" style={{ display: 'inline-flex', alignItems: 'center', gap: 8,
+              border: 'none', background: 'transparent', font: 'inherit', cursor: 'pointer', color: 'var(--text)' }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--accent)' }} />
+              <span style={{ fontSize: 13.5, fontWeight: 600 }}>{base.name}</span>
+              {base.tag && <span style={{ fontSize: 10.5, color: 'var(--accent)', background: tint('var(--accent)', 12), padding: '1px 7px', borderRadius: 4 }}>{base.tag}</span>}
+              <Icon name="chevdown" size={13} style={{ color: 'var(--text-faint)' }} />
+            </button>
+            <span style={{ width: 1, height: 16, background: 'var(--border)' }} />
+            <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>Switch your active workflow, or save the current as your own.</span>
+            <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--run)' }} /> running now at the table</span>
+          </div>
+          {picker && (
+            <div className="rt-zoom" style={{ position: 'absolute', top: '100%', left: 0, zIndex: 30, marginTop: 6, width: 340,
+              background: 'var(--surface)', borderRadius: 'var(--r-card)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-pop)', overflow: 'hidden', padding: 4 }}>
+              <div style={menuLabel}>Built-in</div>
+              {RT.BUILTIN_WORKFLOWS.map((w) => <WfRow key={w.id} w={w} active={w.id === wfId} onPick={() => switchWorkflow(w.id)} />)}
+              {(RT.workflows || []).length > 0 && <div style={menuLabel}>Your workflows</div>}
+              {(RT.workflows || []).map((w) => <WfRow key={w.id} w={w} active={w.id === wfId} onPick={() => switchWorkflow(w.id)} />)}
+            </div>
+          )}
         </div>
 
         <div style={{ display: 'flex', alignItems: 'stretch', gap: 0, overflowX: 'auto', paddingBottom: 18 }}>

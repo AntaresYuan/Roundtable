@@ -318,7 +318,7 @@ describe('runDispatch', () => {
     } finally {
       await client.close();
     }
-  }, 10_000);
+  });
 
   it('injects workbench and chat pins into generated HandoffCards', async () => {
     const client = new PGlite();

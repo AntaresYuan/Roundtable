@@ -546,7 +546,7 @@ function TranscriptSheet({ scene, agents, onOpenArtifact }) {
 }
 
 /* ---- Now-dock (roundtable view) ------------------------------------------ */
-function Dock({ st, agents, scene, onAction, onOpenChat, onOpenWorkflow, onSend, rec }) {
+function Dock({ st, agents, scene, onAction, onOpenChat, onOpenWorkflow, onSend, rec, onUseWorkflow, onDismissRec }) {
   let dotColor = 'var(--text-faint)', body;
   if (st.decision) {
     const ag = agents[st.decision.agentId];
@@ -615,15 +615,22 @@ function Dock({ st, agents, scene, onAction, onOpenChat, onOpenWorkflow, onSend,
     <div style={{ borderTop: '1px solid var(--border)', background: 'var(--surface)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 22px 0' }}>
         <WorkflowStrip clock={scene.clock} onOpen={onOpenWorkflow} />
-        {rec && <button onClick={onOpenWorkflow} title={rec.reason} style={{ display: 'inline-flex', alignItems: 'center', gap: 7,
-          minWidth: 0, maxWidth: 460, padding: '4px 12px 4px 10px', borderRadius: 999, border: `1px solid ${alpha('var(--accent)', 38)}`,
-          background: alpha('var(--accent)', 10), color: 'var(--accent)', font: 'inherit', fontSize: 11.5, cursor: 'pointer' }}>
-          <Icon name="sparkle" size={12} style={{ flexShrink: 0 }} />
-          <span style={{ fontWeight: 600, flexShrink: 0 }}>Try “{rec.name}”</span>
-          <span style={{ color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>— {rec.reason}</span>
-        </button>}
         <span style={{ flex: 1 }} />
       </div>
+      {rec && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '8px 22px 0', padding: '8px 12px',
+          borderRadius: 'var(--r-sm)', border: `1px solid ${alpha('var(--accent)', 30)}`, background: alpha('var(--accent)', 8) }}>
+          <Icon name="sparkle" size={15} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+          <div style={{ flex: 1, fontSize: 12.5, lineHeight: 1.45, minWidth: 0 }}>
+            <span>This task fits <b>“{rec.name}”</b> better</span>
+            <span style={{ color: 'var(--text-muted)' }}> — {rec.reason}</span>
+          </div>
+          <button onClick={() => onUseWorkflow && onUseWorkflow(rec.id)} style={{ flexShrink: 0, padding: '5px 12px', borderRadius: 'var(--r-sm)',
+            border: 'none', background: 'var(--accent)', color: '#fff', font: 'inherit', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>Use it</button>
+          <button onClick={() => onDismissRec && onDismissRec()} title="Dismiss" style={{ flexShrink: 0, display: 'grid', placeItems: 'center',
+            width: 24, height: 24, borderRadius: 'var(--r-sm)', border: 'none', background: 'transparent', color: 'var(--text-faint)', cursor: 'pointer' }}><Icon name="x" size={13} /></button>
+        </div>
+      )}
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '9px 22px 4px' }}>
         <span style={{ width: 8, height: 8, borderRadius: '50%', background: dotColor, flexShrink: 0,
           boxShadow: st.speech ? `0 0 0 4px ${alpha(dotColor, 22)}` : 'none' }} />
@@ -1144,6 +1151,10 @@ function App() {
     }
     return recommendWorkflow(activeTaskTitle, RT.BUILTIN_WORKFLOWS, cur);
   })();
+  const [recDismissed, setRecDismissed] = useState(null);
+  const [, setWfTick] = useState(0);
+  const useWorkflow = (id) => { RT.WORKBENCH.workflowId = id; setWfTick((n) => n + 1); setRecDismissed(null); };
+  const effectiveRec = workflowRec && recDismissed !== workflowRec.id ? workflowRec : null;
   const agents = useMemo(() => palettize(t.palette), [t.palette, memberIds]);
   const scene = useScene(t.autoplay, t.speed);
   const compact = useMediaQuery('(max-width: 760px)');
@@ -1282,7 +1293,8 @@ function App() {
                 {notesOpen && <InspectorPanel tab={inspectorTab} setTab={setInspectorTab} clock={scene.clock} width={compact ? 'min(100vw, 420px)' : inspectorW}
                   agents={agents} scene={scene} live={authed && !!activeChatId} liveArtifacts={liveArtifacts} liveMessages={liveMessages} liveHandoffs={liveHandoffs} onOpenArtifact={setDrawerArt} onAction={onAction} onClose={() => setNotesOpen(false)} />}
               </div>
-              <Dock st={st} agents={agents} scene={scene} onAction={onAction} onSend={sendMessage} rec={workflowRec}
+              <Dock st={st} agents={agents} scene={scene} onAction={onAction} onSend={sendMessage}
+                rec={effectiveRec} onUseWorkflow={useWorkflow} onDismissRec={() => setRecDismissed(workflowRec?.id)}
                 onOpenChat={() => { setInspectorTab('chat'); setNotesOpen(true); }}
                 onOpenWorkflow={() => setView('workflow')} />
             </>

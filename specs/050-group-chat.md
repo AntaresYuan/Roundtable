@@ -42,6 +42,10 @@ Define how messages route between user and multiple agents in a group, how artif
 
 ## (d) Chat surface composition
 
+This table applies the global visibility boundary from spec 000. Main chat should
+surface Plan, Progress, Artifact, Decision, and Result objects; terminal/runtime
+machinery stays collapsed or debug-only.
+
 | Element | Source | When it appears |
 |---|---|---|
 | User bubble | user message | Always. |

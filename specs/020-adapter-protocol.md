@@ -62,6 +62,7 @@ type AgentEvent =
   | { type: 'file_change'; path: string; kind: 'create' | 'edit' | 'delete'; diff: string }
   | { type: 'artifact'; artifact: Artifact }
   | { type: 'declare_dependency'; from: string; to: string; kind: DepKind }
+  | { type: 'propose_skill'; name: string; triggerHint: string; body: string; rationale?: string }
   | { type: 'done'; usage?: TokenUsage; finishReason?: string }
   | { type: 'error'; message: string; recoverable: boolean };
 ```
@@ -77,6 +78,7 @@ type AgentEvent =
 | `file_change` | Create/edit/delete in workspace. | Diff card and artifact extractor input. | Stored as patch metadata. |
 | `artifact` | Renderable product object. | Artifact card. | Stored as versioned artifact. |
 | `declare_dependency` | Agent declares an artifact relationship. | Feeds dependency graph reducer. | Stored in `artifact_deps`. |
+| `propose_skill` | PM proposes saving a reusable pattern as a user-scoped skill (spec 100 L5, #100/#119). | "Save as my skill" confirm chip in chat. | Not persisted until the user clicks save → `user_skills` row. |
 | `done` | Agent turn finished. | Marks TodoList item complete. | Stored on session run. |
 | `error` | Adapter or agent failure. | Marks task failed; Orchestrator decides retry/fallback. | Stored with recoverability flag. |
 

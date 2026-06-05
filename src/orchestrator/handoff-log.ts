@@ -14,6 +14,7 @@ export interface HandoffLogEntry {
   card_id: string;
   user_intent: string;
   summary: string;
+  context_audit?: HandoffCard['contextAudit'];
   ts: string;
 }
 
@@ -52,6 +53,7 @@ function toEntry(card: HandoffCard): HandoffLogEntry {
     card_id: card.id,
     user_intent: card.userIntent,
     summary: card.taskBrief,
+    ...(card.contextAudit ? { context_audit: card.contextAudit } : {}),
     ts: card.createdAt.toISOString(),
   };
 }

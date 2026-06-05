@@ -105,6 +105,90 @@ export const users = pgTable(
   }),
 );
 
+export const userProfiles = pgTable('user_profiles', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  defaultBrief: text('default_brief').notNull().default(''),
+  defaultSkills: text('default_skills')
+    .array()
+    .notNull()
+    .default(sql`ARRAY[]::text[]`),
+  notes: text('notes').notNull().default(''),
+  updatedAt: timestamp('updated_at', { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export const workbenches = pgTable(
+  'workbenches',
+  {
+    id: uuid('id').primaryKey(),
+    ownerUserId: uuid('owner_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    description: text('description'),
+    workspacePath: text('workspace_path').notNull(),
+    activeWorkflowId: uuid('active_workflow_id'),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    ownerIdx: index('workbenches_owner_user_id_idx').on(table.ownerUserId),
+    workspacePathIdx: uniqueIndex('workbenches_workspace_path_idx').on(
+      table.workspacePath,
+    ),
+    activeWorkflowIdx: index('workbenches_active_workflow_id_idx').on(
+      table.activeWorkflowId,
+    ),
+  }),
+);
+
+export const workflowOriginEnum = pgEnum('workflow_origin', [
+  'builtin',
+  'user',
+  'fork',
+]);
+
+export const workflows = pgTable(
+  'workflows',
+  {
+    id: uuid('id').primaryKey(),
+    /** Null for built-ins or for user-saved workflows not yet bound to a workbench. */
+    workbenchId: uuid('workbench_id').references(() => workbenches.id, {
+      onDelete: 'cascade',
+    }),
+    /** Null for built-ins; the owning user for user-saved/fork workflows. */
+    ownerUserId: uuid('owner_user_id').references(() => users.id, {
+      onDelete: 'cascade',
+    }),
+    name: text('name').notNull(),
+    description: text('description'),
+    /** Full WorkflowSchema-shaped JSON (specs/090). */
+    definition: jsonb('definition').$type<unknown>().notNull(),
+    origin: workflowOriginEnum('origin').notNull().default('user'),
+    fromWorkflowId: uuid('from_workflow_id'),
+    version: integer('version').notNull().default(1),
+    builtin: boolean('builtin').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    workbenchIdx: index('workflows_workbench_id_idx').on(table.workbenchId),
+    ownerIdx: index('workflows_owner_user_id_idx').on(table.ownerUserId),
+    builtinIdx: index('workflows_builtin_idx').on(table.builtin),
+  }),
+);
+
 export const chats = pgTable(
   'chats',
   {
@@ -112,8 +196,10 @@ export const chats = pgTable(
     ownerUserId: uuid('owner_user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
+    workbenchId: uuid('workbench_id')
+      .notNull()
+      .references(() => workbenches.id, { onDelete: 'cascade' }),
     title: text('title').notNull(),
-    workspacePath: text('workspace_path').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -123,9 +209,7 @@ export const chats = pgTable(
   },
   (table) => ({
     ownerIdx: index('chats_owner_user_id_idx').on(table.ownerUserId),
-    workspacePathIdx: uniqueIndex('chats_workspace_path_idx').on(
-      table.workspacePath,
-    ),
+    workbenchIdx: index('chats_workbench_id_idx').on(table.workbenchId),
   }),
 );
 
@@ -157,9 +241,12 @@ export const artifacts = pgTable(
   'artifacts',
   {
     id: uuid('id').primaryKey(),
-    chatId: uuid('chat_id')
+    workbenchId: uuid('workbench_id')
       .notNull()
-      .references(() => chats.id, { onDelete: 'cascade' }),
+      .references(() => workbenches.id, { onDelete: 'cascade' }),
+    createdInChatId: uuid('created_in_chat_id').references(() => chats.id, {
+      onDelete: 'set null',
+    }),
     kind: artifactKindEnum('kind').$type<ArtifactKind>().notNull(),
     title: text('title').notNull(),
     ownerAgentId: text('owner_agent_id').notNull(),
@@ -174,7 +261,10 @@ export const artifacts = pgTable(
       .defaultNow(),
   },
   (table) => ({
-    chatIdx: index('artifacts_chat_id_idx').on(table.chatId),
+    workbenchIdx: index('artifacts_workbench_id_idx').on(table.workbenchId),
+    createdInChatIdx: index('artifacts_created_in_chat_id_idx').on(
+      table.createdInChatId,
+    ),
     ownerIdx: index('artifacts_owner_agent_id_idx').on(table.ownerAgentId),
   }),
 );
@@ -330,6 +420,78 @@ export const pinnedMessages = pgTable(
     positionCap: check(
       'pinned_messages_position_cap',
       sql`${table.position} >= 0 and ${table.position} < 10`,
+    ),
+  }),
+);
+
+/**
+ * Workbench-level pinned constraints (spec 100 / #98). Project-wide rules
+ * that auto-inject into every HandoffCard in this workbench. Unlike chat-level
+ * pinned (which references a `messages` row), workbench pins carry free-form
+ * `content` because they outlive any single chat.
+ */
+export const workbenchPinnedMessages = pgTable(
+  'workbench_pinned_messages',
+  {
+    id: uuid('id').primaryKey(),
+    workbenchId: uuid('workbench_id')
+      .notNull()
+      .references(() => workbenches.id, { onDelete: 'cascade' }),
+    content: text('content').notNull(),
+    pinnedByUserId: uuid('pinned_by_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    position: integer('position').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    workbenchPositionIdx: uniqueIndex(
+      'workbench_pinned_messages_workbench_position_idx',
+    ).on(table.workbenchId, table.position),
+    workbenchIdx: index('workbench_pinned_messages_workbench_id_idx').on(
+      table.workbenchId,
+    ),
+    positionCap: check(
+      'workbench_pinned_messages_position_cap',
+      sql`${table.position} >= 0 and ${table.position} < 10`,
+    ),
+  }),
+);
+
+/**
+ * User-scoped skill library (spec 100 L5 / #100). PM proposes saving useful
+ * patterns from a chat as reusable skills; the user must explicitly save
+ * (ADR-007 propose/confirm; no auto-save, no opaque RAG — ADR-010). Matched
+ * into HandoffCards by keyword `trigger_hint` for v1.
+ */
+export const userSkills = pgTable(
+  'user_skills',
+  {
+    id: uuid('id').primaryKey(),
+    ownerUserId: uuid('owner_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    triggerHint: text('trigger_hint').notNull(),
+    body: text('body').notNull(),
+    /** Where the skill was first proposed/saved from (audit). Nullable: chat may be deleted. */
+    sourceChatId: uuid('source_chat_id').references(() => chats.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    ownerIdx: index('user_skills_owner_user_id_idx').on(table.ownerUserId),
+    ownerNameIdx: uniqueIndex('user_skills_owner_name_idx').on(
+      table.ownerUserId,
+      table.name,
     ),
   }),
 );

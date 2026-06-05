@@ -14,7 +14,7 @@ export type {
   StageId,
 } from './state.js';
 export { answerClarify } from './nodes/clarify.js';
-export { workspaceResolver, ensureWorkspace } from './workspace.js';
+export { workspaceResolver, workbenchWorkspaceResolver, ensureWorkspace } from './workspace.js';
 export { inMemoryHandoffLog, fileHandoffLog } from './handoff-log.js';
 export type { HandoffLog, HandoffLogEntry } from './handoff-log.js';
 export { ArtifactWatcher, watchArtifactEvents } from './artifact-watcher.js';
@@ -33,7 +33,17 @@ export type {
 export { heuristicIntake } from './nodes/intake.js';
 export { rolePlanner, workflowPlanner } from './nodes/plan.js';
 export { workflowRunFromState } from './workflow-run.js';
+export {
+  evaluateAutonomyAction,
+  evaluateRetry,
+  riskForGate,
+} from './autonomy.js';
 export { noopReviewer } from './nodes/review.js';
+export {
+  MAX_SKILL_PROPOSALS_PER_RUN,
+  noopSkillProposer,
+} from './nodes/skill-proposer.js';
+export type { SkillProposer } from './nodes/skill-proposer.js';
 export { fallbackClarify } from './nodes/clarify.js';
 export {
   defaultOrchestratorModel,

@@ -13,11 +13,25 @@ describe('HandoffCardSchema', () => {
       pinnedMessages: [],
       rolesInGroup: [],
       relevantArtifacts: [],
+      contextAudit: {
+        budget: { maxChars: 1000, usedChars: 42, compacted: false },
+        sources: [
+          {
+            scope: 'chat',
+            kind: 'user_intent',
+            id: 'abc',
+            label: 'current user request',
+            chars: 42,
+            included: true,
+          },
+        ],
+      },
       fullHistoryRef: 'chat:abc',
       createdAt: new Date().toISOString(),
       generatedBy: 'orchestrator',
     });
     expect(card.scenario).toBe('dispatch');
+    expect(card.contextAudit?.sources[0]?.scope).toBe('chat');
   });
 
   it('caps pinned messages at 10', () => {

@@ -15,7 +15,7 @@ const alpha = (color, pct) =>
 /* ---- Icon set (calm, 1.6px line) ----------------------------------------- */
 function Icon({ name, size = 16, style }) {
   const p = { width: size, height: size, viewBox: '0 0 24 24', fill: 'none',
-    stroke: 'currentColor', strokeWidth: 1.7, strokeLinecap: 'round',
+    stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round',
     strokeLinejoin: 'round', style, 'aria-hidden': true };
   switch (name) {
     case 'chevron':  return <svg {...p}><path d="M9 6l6 6-6 6"/></svg>;
@@ -49,21 +49,21 @@ function Icon({ name, size = 16, style }) {
 }
 
 /* ---- Avatar --------------------------------------------------------------- */
+// Agent figures are Notionists characters (DiceBear, CC0) seeded by agent id, so each
+// teammate is a consistent little person. The agent's color stays as the ring = identity.
 function Avatar({ agent, size = 28, ring = true, dim = false }) {
-  const isEmoji = agent.avatar && /\p{Extended_Pictographic}/u.test(agent.avatar);
-  const fs = Math.round(size * (isEmoji ? 0.56 : 0.44));
+  const seed = encodeURIComponent(agent.id || agent.displayName || 'rt');
+  const peep = `https://api.dicebear.com/9.x/notionists/svg?seed=${seed}&backgroundColor=transparent`;
+  const off = Math.round(size * 1.28);
   return (
     <div style={{
-      width: size, height: size, borderRadius: '50%', flexShrink: 0,
-      display: 'grid', placeItems: 'center',
-      fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: fs,
-      color: dim ? 'var(--text-muted)' : agent.color,
-      background: dim ? 'var(--surface-3)' : tint(agent.color, 16),
+      width: size, height: size, borderRadius: '50%', flexShrink: 0, overflow: 'hidden',
+      position: 'relative', background: dim ? 'var(--surface-3)' : 'var(--surface)',
       boxShadow: ring ? `0 0 0 1.5px ${dim ? 'var(--border-strong)' : alpha(agent.color, 55)} inset` : 'none',
-      letterSpacing: isEmoji ? 0 : '.02em',
+      filter: dim ? 'grayscale(.6) opacity(.7)' : 'none',
     }}>
-      {isEmoji ? <span style={{ filter: dim ? 'grayscale(.5)' : 'none' }}>{agent.avatar}</span>
-               : (agent.avatar || agent.displayName[0])}
+      <img src={peep} alt={agent.displayName || ''} width={off} height={off}
+        style={{ position: 'absolute', left: '-14%', top: '-9%', pointerEvents: 'none' }} />
     </div>
   );
 }
@@ -75,10 +75,9 @@ function RoleTag({ agent, showName = false, size = 'sm' }) {
   return (
     <span className="mono" style={{
       display: 'inline-flex', alignItems: 'center', gap: 5,
-      padding: pad, borderRadius: 'var(--r-chip)',
-      background: tint(agent.color, 14), color: agent.color,
-      fontSize: fz, fontWeight: 600, lineHeight: 1.3, whiteSpace: 'nowrap',
-      boxShadow: `0 0 0 1px ${alpha(agent.color, 30)} inset`,
+      padding: pad, borderRadius: 4,
+      background: tint(agent.color, 16), color: agent.color,
+      fontSize: fz, fontWeight: 500, lineHeight: 1.4, whiteSpace: 'nowrap',
     }}>
       <span style={{ width: 6, height: 6, borderRadius: '50%', background: agent.color }} />
       @{agent.role}{showName && <span style={{ opacity: .65, fontWeight: 500 }}>· {agent.displayName}</span>}

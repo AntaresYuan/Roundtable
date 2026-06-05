@@ -8,11 +8,13 @@ import {
   type BaseCheckpointSaver,
 } from '@langchain/langgraph';
 import type { AdapterRegistry } from '../adapters/index.js';
+import type { Db } from '../db/index.js';
 import { DependencyGraph } from './dependency-graph.js';
 import type { DependencyStore } from './dependency-store.js';
 import type { ArtifactWatcherContext } from './artifact-watcher.js';
 import { type HandoffLog, inMemoryHandoffLog } from './handoff-log.js';
 import { runAggregate } from './nodes/aggregate.js';
+import type { SkillProposer } from './nodes/skill-proposer.js';
 import { type ClarifyGenerator, fallbackClarify, runClarify } from './nodes/clarify.js';
 import { runDispatch, type WorkspaceResolver } from './nodes/dispatch.js';
 import type { HandoffGeneratorOptions } from './handoff.js';
@@ -28,9 +30,11 @@ import {
   type GateDecision,
   type OrchestratorState,
   type PendingGate,
+  type ProposeSkillEvent,
   type StageId,
 } from './state.js';
 import type {
+  AutonomyPolicy,
   Artifact,
   HandoffCard,
   IntakeResult,
@@ -46,12 +50,14 @@ export interface GraphDeps {
   clarify?: ClarifyGenerator;
   planner?: Planner;
   reviewer?: Reviewer;
+  skillProposer?: SkillProposer | undefined;
   handoffLog?: HandoffLog;
   handoff?: HandoffGeneratorOptions;
   checkpointer?: BaseCheckpointSaver;
   dependencyGraph?: DependencyGraph;
   dependencyStore?: DependencyStore;
   artifactDb?: ArtifactWatcherContext['db'];
+  pinnedDb?: Db;
 }
 
 const lastWins = <T>() => ({ reducer: (_prev: T, next: T) => next });
@@ -69,7 +75,20 @@ const StateAnnotation = Annotation.Root({
   artifacts: Annotation<Artifact[]>(lastWins<Artifact[]>()),
   reviewNotes: Annotation<string[]>(lastWins<string[]>()),
   reviewComments: Annotation<ReviewComment[]>(lastWins<ReviewComment[]>()),
+  proposedSkills: Annotation<ProposeSkillEvent[]>(lastWins<ProposeSkillEvent[]>()),
+  autonomyPolicy: Annotation<OrchestratorState['autonomyPolicy']>(
+    lastWins<OrchestratorState['autonomyPolicy']>(),
+  ),
+  autonomyDecisions: Annotation<OrchestratorState['autonomyDecisions']>(
+    lastWins<OrchestratorState['autonomyDecisions']>(),
+  ),
   pendingGate: Annotation<PendingGate | undefined>(lastWins<PendingGate | undefined>()),
+  pendingRecovery: Annotation<OrchestratorState['pendingRecovery']>(
+    lastWins<OrchestratorState['pendingRecovery']>(),
+  ),
+  failureRecoveryCards: Annotation<OrchestratorState['failureRecoveryCards']>(
+    lastWins<OrchestratorState['failureRecoveryCards']>(),
+  ),
   gateDecisions: Annotation<Record<string, GateDecision>>(
     lastWins<Record<string, GateDecision>>(),
   ),
@@ -90,6 +109,7 @@ const N = {
   monitor: 'stage_monitor',
   review: 'stage_review',
   gate: 'stage_gate',
+  recovery: 'stage_recovery',
   aggregate: 'stage_aggregate',
 } as const;
 
@@ -143,12 +163,23 @@ export function buildOrchestratorGraph(deps: GraphDeps) {
         dependencyGraph,
         ...(deps.dependencyStore ? { dependencyStore: deps.dependencyStore } : {}),
         ...(deps.artifactDb ? { artifactDb: deps.artifactDb } : {}),
+        ...(deps.pinnedDb ? { pinnedDb: deps.pinnedDb } : {}),
       }),
     )
     .addNode(N.monitor, async (s: GraphState) => ({ ...s, stage: 'review' as StageId }))
     .addNode(N.review, async (s: GraphState) => await runReview(adapt(s), reviewer))
     .addNode(N.gate, async (s: GraphState) => runGatePause(adapt(s)))
-    .addNode(N.aggregate, async (s: GraphState) => runAggregate(adapt(s)))
+    .addNode(N.recovery, async (s: GraphState) => {
+      if (!s.pendingRecovery) return { stage: 'aggregate' as StageId };
+      interrupt({
+        kind: 'failure_recovery',
+        card: s.pendingRecovery,
+      });
+      return {};
+    })
+    .addNode(N.aggregate, async (s: GraphState) =>
+      runAggregate(adapt(s), deps.skillProposer),
+    )
     .addEdge(START, N.intake)
     .addConditionalEdges(N.intake, route, [
       N.clarify,
@@ -157,6 +188,7 @@ export function buildOrchestratorGraph(deps: GraphDeps) {
       N.monitor,
       N.review,
       N.gate,
+      N.recovery,
       N.aggregate,
       END,
     ])
@@ -171,6 +203,7 @@ export function buildOrchestratorGraph(deps: GraphDeps) {
       N.monitor,
       N.review,
       N.gate,
+      N.recovery,
       N.aggregate,
       END,
     ])
@@ -178,12 +211,14 @@ export function buildOrchestratorGraph(deps: GraphDeps) {
       N.monitor,
       N.review,
       N.gate,
+      N.recovery,
       N.aggregate,
       END,
     ])
-    .addConditionalEdges(N.monitor, route, [N.review, N.gate, N.aggregate, END])
-    .addConditionalEdges(N.review, route, [N.gate, N.aggregate, END])
-    .addConditionalEdges(N.gate, route, [N.dispatch, N.review, N.aggregate, END])
+    .addConditionalEdges(N.monitor, route, [N.review, N.gate, N.recovery, N.aggregate, END])
+    .addConditionalEdges(N.review, route, [N.gate, N.recovery, N.aggregate, END])
+    .addConditionalEdges(N.gate, route, [N.dispatch, N.review, N.recovery, N.aggregate, END])
+    .addConditionalEdges(N.recovery, route, [N.aggregate, END])
     .addConditionalEdges(N.aggregate, route, [END]);
 
   return graph.compile({ checkpointer });
@@ -205,6 +240,8 @@ function route(s: GraphState): StageNode | typeof END {
       return N.review;
     case 'gate':
       return N.gate;
+    case 'recovery':
+      return N.recovery;
     case 'aggregate':
       return N.aggregate;
     case 'done':
@@ -216,8 +253,9 @@ export function buildInitialInput(
   chatId: string,
   userMessage: string,
   workflow?: Workflow,
+  autonomyPolicy?: AutonomyPolicy,
 ): OrchestratorState {
-  return initialState(chatId, userMessage, workflow);
+  return initialState(chatId, userMessage, workflow, autonomyPolicy);
 }
 
 export { StateAnnotation };

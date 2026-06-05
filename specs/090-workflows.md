@@ -313,8 +313,31 @@ the **cast, gates, and per-role instructions**, not author-time wiring.
   the *workflow*, not magic time thresholds, so it's the same code path the live tRPC/SSE
   stream will feed.
 
+**Autonomy policy:** each run carries an explicit `AutonomyPolicy` so "gate" does not
+always mean "ask the user every time." The three user-facing presets are:
+
+- `Ask every time` — no automatic approvals; every gate and retry asks the user.
+- `Auto-fix safe issues` — low-risk gates and one safe retry may proceed automatically.
+- `Run until blocked` — low/medium-risk safe actions may proceed; high-risk actions still
+  pause.
+
+The policy records retry budget, optional runtime/token budget, allowed auto-actions,
+blocked actions, and the maximum risk level eligible for auto-approval. High-risk actions
+always pause: production deploy, secrets/payment/auth changes, large deletion, permission
+escalation, inviting new agents, or expanding tool access.
+
 **Audit trail:** each compiled dispatch logs to `ai-logs/handoffs.jsonl`; each gate
-resolution logs approver + decision (the flight recorder).
+resolution logs approver + decision (the flight recorder). Automatic autonomy decisions
+are also copied into `WorkflowRun.autonomyDecisions` so the UI can show what the PM did
+without exposing raw logs.
+
+**Failure recovery:** failed agent sessions produce a `FailureRecoveryCard` instead of
+leaking raw logs into the transcript. The card names the task and agent, shows a concise
+summary, keeps raw details behind `debugDetails`, and offers four user actions: retry,
+reassign, edit handoff, or stop. Recoverable failures may auto-retry when the run's
+`AutonomyPolicy` allows `retry_agent` and retry budget remains; each attempt is recorded
+in `autonomyDecisions`. When retry is not allowed or the budget is exhausted, dispatch
+sets `pendingRecovery` and the graph pauses on a `failure_recovery` interrupt for the UI.
 
 ## 8. How it raises output quality
 

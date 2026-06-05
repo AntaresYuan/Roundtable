@@ -24,8 +24,8 @@ function highlightLine(line, key) {
     if (m[1]) c = 'var(--text-faint)';
     else if (m[2]) c = '#4cc38a';
     else if (m[3]) c = '#8b7cf6';
-    else if (m[4]) c = '#5eb0ef';
-    else if (m[5]) c = '#e6a23c';
+    else if (m[4]) c = 'var(--run)';
+    else if (m[5]) c = 'var(--warn)';
     out.push(<span key={k++} style={{ color: c }}>{m[0]}</span>);
     last = m.index + m[0].length;
   }
@@ -49,6 +49,94 @@ function CodeBlock({ code, max }) {
       ))}
     </pre>
   );
+}
+
+/* ---- AgentEvent artifact normalization ----------------------------------- */
+function ownerForArtifact(art, agents) {
+  const ownerId = art.ownerAgentId || art.agentId || art.createdByAgentId;
+  const direct = ownerId ? agents?.[ownerId] : null;
+  if (direct) return direct;
+  const byRole = ownerId
+    ? Object.values(agents || {}).find((agent) => agent.role === ownerId)
+    : null;
+  if (byRole) return byRole;
+  return {
+    agentId: ownerId || 'agent',
+    role: ownerId || 'agent',
+    displayName: ownerId ? `@${ownerId}` : 'Agent',
+    color: 'var(--text-muted)',
+  };
+}
+
+function normalizeArtifactForDisplay(raw, fallback = {}) {
+  if (!raw) return null;
+  const kind = normalizeArtifactKind(raw.kind);
+  const title = raw.title || raw.uri || raw.path || 'Untitled artifact';
+  const preview = raw.preview ?? raw.code ?? raw.content ?? '';
+  const ownerAgentId =
+    raw.ownerAgentId || fallback.ownerAgentId || raw.createdByAgentId || raw.agentId || 'agent';
+  return {
+    ...raw,
+    ...fallback,
+    id: raw.id || fallback.id || `${kind}:${title}`,
+    kind,
+    title,
+    ownerAgentId,
+    version: raw.version ?? raw.currentVersion ?? fallback.version ?? 1,
+    uri: raw.uri || raw.path || fallback.uri,
+    preview,
+    code: raw.code ?? preview,
+    diff: normalizeDiff(raw.diff, title, ownerAgentId),
+  };
+}
+
+function artifactFromFileChangeEvent(event, fallback = {}) {
+  const ownerAgentId = fallback.ownerAgentId || event.ownerAgentId || event.agentId || 'agent';
+  return normalizeArtifactForDisplay({
+    id: event.id || `diff:${event.path}:${event.kind}`,
+    kind: 'diff',
+    title: event.path,
+    ownerAgentId,
+    version: fallback.version || 1,
+    uri: event.path,
+    diff: parseUnifiedDiff(event.diff || '', ownerAgentId, event.path),
+    preview: event.diff || '',
+  });
+}
+
+function normalizeArtifactKind(kind) {
+  if (kind === 'web_app' || kind === 'html') return 'preview';
+  if (kind === 'code' || kind === 'markdown' || kind === 'spec') return 'file';
+  return kind || 'file';
+}
+
+function normalizeDiff(diff, title, ownerAgentId) {
+  if (!diff) return null;
+  if (typeof diff === 'object' && Array.isArray(diff.lines)) return diff;
+  return parseUnifiedDiff(String(diff), ownerAgentId, title);
+}
+
+function parseUnifiedDiff(diff, ownerAgentId, title) {
+  const lines = diff.split('\n');
+  const hunk = lines.find((line) => line.startsWith('@@')) || title || 'diff';
+  return {
+    file: title,
+    hunk,
+    lines: lines
+      .filter((line) => !line.startsWith('diff --git') && !line.startsWith('index '))
+      .map((line) => {
+        if (line.startsWith('+++') || line.startsWith('---')) {
+          return { t: 'ctx', text: line };
+        }
+        if (line.startsWith('+')) {
+          return { t: 'add', text: line.slice(1), author: ownerAgentId };
+        }
+        if (line.startsWith('-')) {
+          return { t: 'del', text: line.slice(1), author: ownerAgentId };
+        }
+        return { t: 'ctx', text: line.startsWith(' ') ? line.slice(1) : line };
+      }),
+  };
 }
 
 /* ---- OwnerCard chrome (artifacts) ---------------------------------------- */
@@ -110,12 +198,12 @@ function DepChangedBanner({ notice, agents, onAskSync }) {
       role="alert"
       style={{
         display: 'flex', alignItems: 'center', gap: 10, padding: '9px 13px',
-        background: alpha('#d04a4a', 10),
-        borderBottom: '1px solid ' + alpha('#d04a4a', 35),
-        borderTop: '1px solid ' + alpha('#d04a4a', 35),
+        background: alpha('var(--bad)', 10),
+        borderBottom: '1px solid ' + alpha('var(--bad)', 35),
+        borderTop: '1px solid ' + alpha('var(--bad)', 35),
       }}
     >
-      <span style={{ fontSize: 14 }}>⚠️</span>
+      <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--bad)', flexShrink: 0 }} />
       <div style={{ flex: 1, fontSize: 12.5, lineHeight: 1.4 }}>
         <div style={{ fontWeight: 600, color: 'var(--text)' }}>Dependency changed</div>
         <div style={{ color: 'var(--text-muted)' }}>
@@ -131,7 +219,7 @@ function DepChangedBanner({ notice, agents, onAskSync }) {
           style={{
             display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 11px',
             borderRadius: 'var(--r-sm)', border: 'none', cursor: 'pointer',
-            background: '#d04a4a', color: '#fff', font: 'inherit', fontSize: 12, fontWeight: 600,
+            background: 'var(--bad)', color: '#fff', font: 'inherit', fontSize: 12, fontWeight: 500,
             flexShrink: 0,
           }}
           title={owner ? `Pre-fill a hand-off to @${owner.role || ownerId} to resync` : 'Open sync hand-off'}
@@ -145,9 +233,9 @@ function DepChangedBanner({ notice, agents, onAskSync }) {
 
 /* ---- Review comments (specs/030 §ReviewCard, issue #6) ------------------- */
 const SEVERITY_COLOR = {
-  blocker: '#d04a4a',
-  major:   '#e6a23c',
-  minor:   '#5eb0ef',
+  blocker: 'var(--bad)',
+  major:   'var(--warn)',
+  minor:   'var(--run)',
   info:    'var(--text-muted)',
 };
 const SEVERITY_LABEL = {
@@ -220,7 +308,8 @@ function ReviewCommentList({ comments, agents, onApplyFix }) {
 /* ---- File artifact -------------------------------------------------------- */
 function FileArtifact({ art, owner, agents, notice, onAskSync, reviewComments, onApplyFix, onOpen }) {
   const [open, setOpen] = useState(false);
-  const lineCount = art.preview.split('\n').length;
+  const preview = art.preview || art.code || '';
+  const lineCount = preview.split('\n').length;
   return (
     <OwnerCard
       owner={owner}
@@ -230,7 +319,7 @@ function FileArtifact({ art, owner, agents, notice, onAskSync, reviewComments, o
       onOpen={onOpen}
       badge={notice ? <span title="Upstream dependency changed" style={{
         display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 7px',
-        borderRadius: 5, background: alpha('#d04a4a', 18), color: '#d04a4a',
+        borderRadius: 5, background: alpha('var(--bad)', 18), color: 'var(--bad)',
         fontSize: 10.5, fontWeight: 700, letterSpacing: '.04em' }}>
         ⚠ DEP CHANGED
       </span> : undefined}
@@ -238,7 +327,7 @@ function FileArtifact({ art, owner, agents, notice, onAskSync, reviewComments, o
       {notice && <DepChangedBanner notice={notice} agents={agents} onAskSync={onAskSync} />}
       <div style={{ position: 'relative', background: 'var(--surface-2)' }}>
         <div style={{ maxHeight: open ? 'none' : 132, overflow: 'hidden' }}>
-          <CodeBlock code={art.preview} />
+          <CodeBlock code={preview} />
         </div>
         {!open && lineCount > 7 && (
           <div style={{ position: 'absolute', inset: 'auto 0 0 0', height: 56, pointerEvents: 'none',
@@ -266,7 +355,7 @@ const textBtn = {
 
 /* ---- Diff artifact (multi-author tinting) -------------------------------- */
 function DiffArtifact({ art, owner, agents, onOpen }) {
-  const d = art.diff;
+  const d = art.diff || normalizeDiff(art.preview || '', art.title, art.ownerAgentId);
   const authors = [...new Set(d.lines.filter(l => l.author).map(l => l.author))];
   return (
     <OwnerCard owner={owner} title={art.title} version={art.version} kindLabel="diff"
@@ -288,10 +377,8 @@ function DiffArtifact({ art, owner, agents, onOpen }) {
                   userSelect: 'none', flexShrink: 0,
                   color: l.t === 'add' ? 'var(--ok)' : l.t === 'del' ? 'var(--bad)' : 'var(--text-faint)' }}>{sign}</span>
                 <span style={{ whiteSpace: 'pre', padding: '1px 10px 1px 0', flex: 1 }}>{l.text || ' '}</span>
-                {a && <span title={`${a.displayName} · @${a.role}`} style={{ alignSelf: 'center', marginRight: 8,
-                  width: 14, height: 14, borderRadius: '50%', background: tint(a.color, 22),
-                  boxShadow: `0 0 0 1px ${alpha(a.color, 55)} inset`, color: a.color,
-                  fontSize: 8.5, fontWeight: 700, display: 'grid', placeItems: 'center' }}>{a.avatar}</span>}
+                {a && <span title={`${a.displayName} · @${a.role}`} style={{ alignSelf: 'center', marginRight: 8, display: 'inline-flex' }}>
+                  <Avatar agent={a} size={16} /></span>}
               </div>
             );
           })}
@@ -315,6 +402,7 @@ function DiffArtifact({ art, owner, agents, onOpen }) {
 /* ---- Preview artifact ----------------------------------------------------- */
 function PreviewArtifact({ art, owner, onOpen }) {
   const [mode, setMode] = useState('preview'); // preview | code
+  const preview = art.preview || art.code || '';
   return (
     <OwnerCard owner={owner} title={art.title} version={art.version} kindLabel="preview" onOpen={onOpen}>
       <div style={{ display: 'flex', gap: 4, padding: '8px 11px', borderBottom: '1px solid var(--border)',
@@ -330,17 +418,17 @@ function PreviewArtifact({ art, owner, onOpen }) {
             boxShadow: 'var(--shadow-card)', background: '#fff' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 10px',
               background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
-              {['#e5687a', '#e6a23c', '#4cc38a'].map(c =>
+              {['#e5687a', 'var(--warn)', '#4cc38a'].map(c =>
                 <span key={c} style={{ width: 9, height: 9, borderRadius: '50%', background: c, opacity: .8 }} />)}
               <span className="mono" style={{ fontSize: 11, color: 'var(--text-faint)', marginLeft: 6 }}>localhost:3000</span>
             </div>
-            <iframe title={art.title} srcDoc={art.preview} sandbox="allow-scripts"
+            <iframe title={art.title} srcDoc={preview} sandbox="allow-scripts"
               style={{ width: '100%', height: 318, border: 'none', display: 'block', background: '#fff' }} />
           </div>
         </div>
       ) : (
         <div style={{ background: 'var(--surface-2)', maxHeight: 318, overflow: 'auto' }}>
-          <CodeBlock code={art.code || art.preview} />
+          <CodeBlock code={art.code || preview} />
         </div>
       )}
     </OwnerCard>
@@ -363,16 +451,17 @@ function Seg({ active, onClick, icon, children }) {
 
 /* ---- Artifact dispatcher -------------------------------------------------- */
 function ArtifactRenderer({ art, agents, notice, onAskSync, reviewComments, onApplyFix, onOpen }) {
-  const owner = agents[art.ownerAgentId];
-  if (!owner) return null;
-  const open = () => onOpen && onOpen(art);
-  switch (art.kind) {
-    case 'file':    return <FileArtifact art={art} owner={owner} agents={agents} notice={notice} onAskSync={onAskSync} reviewComments={reviewComments} onApplyFix={onApplyFix} onOpen={open} />;
-    case 'diff':    return <DiffArtifact art={art} owner={owner} agents={agents} onOpen={open} />;
-    case 'preview': return <PreviewArtifact art={art} owner={owner} onOpen={open} />;
+  const displayArt = normalizeArtifactForDisplay(art);
+  if (!displayArt) return null;
+  const owner = ownerForArtifact(displayArt, agents);
+  const open = () => onOpen && onOpen(displayArt);
+  switch (displayArt.kind) {
+    case 'file':    return <FileArtifact art={displayArt} owner={owner} agents={agents} notice={notice} onAskSync={onAskSync} reviewComments={reviewComments} onApplyFix={onApplyFix} onOpen={open} />;
+    case 'diff':    return <DiffArtifact art={displayArt} owner={owner} agents={agents} onOpen={open} />;
+    case 'preview': return <PreviewArtifact art={displayArt} owner={owner} onOpen={open} />;
     default:        return (
-      <OwnerCard owner={owner} title={art.title} version={art.version} kindLabel={art.kind} onOpen={open}>
-        <div style={{ padding: '13px 15px' }}><Md text={art.preview || ''} /></div>
+      <OwnerCard owner={owner} title={displayArt.title} version={displayArt.version} kindLabel={displayArt.kind} onOpen={open}>
+        <div style={{ padding: '13px 15px' }}><Md text={displayArt.preview || ''} /></div>
       </OwnerCard>
     );
   }
@@ -464,6 +553,91 @@ const SCENARIO_LABEL = {
 function scenarioLabel(scenario) {
   return SCENARIO_LABEL[scenario] || SCENARIO_LABEL.dispatch;
 }
+const CONTEXT_SCOPE_LABEL = {
+  user: 'User memory',
+  workbench: 'Project memory',
+  chat: 'Chat context',
+  artifact: 'Artifacts',
+  review: 'Review notes',
+  handoff: 'Prior hand-offs',
+};
+function sourceStatus(source) {
+  if (!source.included) return { label: 'omitted', color: 'var(--text-faint)' };
+  if (source.compacted) return { label: 'compacted', color: 'var(--warn)' };
+  return { label: 'included', color: 'var(--run)' };
+}
+function ContextAudit({ audit }) {
+  if (!audit) return null;
+  const grouped = (audit.sources || []).reduce((acc, source) => {
+    const scope = source.scope || 'chat';
+    if (!acc[scope]) acc[scope] = [];
+    acc[scope].push(source);
+    return acc;
+  }, {});
+  const budget = audit.budget || {};
+  return (
+    <Field label="Context sources">
+      <div style={{ display: 'grid', gap: 9 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span className="mono tnum" style={{ fontSize: 11.5, color: 'var(--text-muted)',
+            padding: '3px 8px', borderRadius: 5, background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
+            {budget.usedChars ?? 0}/{budget.maxChars ?? 0} chars
+          </span>
+          {budget.compacted && (
+            <span style={{ fontSize: 11.5, color: 'var(--warn)', padding: '3px 8px',
+              borderRadius: 5, background: alpha('var(--warn)', 12), border: '1px solid ' + alpha('var(--warn)', 35) }}>
+              compacted to fit
+            </span>
+          )}
+        </div>
+        {Object.keys(grouped).length === 0 ? (
+          <div style={{ fontSize: 12.5, color: 'var(--text-faint)', fontStyle: 'italic' }}>
+            No context source audit recorded for this hand-off.
+          </div>
+        ) : Object.entries(grouped).map(([scope, sources]) => (
+          <div key={scope} style={{ border: '1px solid var(--border)', borderRadius: 'var(--r-sm)',
+            overflow: 'hidden', background: 'var(--surface-2)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '7px 10px', borderBottom: '1px solid var(--border)' }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)' }}>
+                {CONTEXT_SCOPE_LABEL[scope] || scope}
+              </span>
+              <span className="mono" style={{ fontSize: 10.5, color: 'var(--text-faint)' }}>
+                {sources.length} source{sources.length === 1 ? '' : 's'}
+              </span>
+            </div>
+            <div style={{ display: 'grid' }}>
+              {sources.map((source) => {
+                const status = sourceStatus(source);
+                return (
+                  <div key={`${source.scope}-${source.kind}-${source.id}`} style={{
+                    display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px',
+                    borderTop: '1px solid var(--border)',
+                  }}>
+                    <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: 'var(--text)',
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {source.label}
+                    </span>
+                    <span className="mono" style={{ fontSize: 10.5, color: 'var(--text-faint)' }}>
+                      {source.kind}
+                    </span>
+                    <span className="mono tnum" style={{ fontSize: 10.5, color: 'var(--text-faint)' }}>
+                      {source.chars} chars
+                    </span>
+                    <span style={{ fontSize: 10.5, fontWeight: 700, color: status.color,
+                      padding: '2px 6px', borderRadius: 4, background: alpha(status.color, 12) }}>
+                      {status.label}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </Field>
+  );
+}
 function HandoffCard({ ho, agents, onEdit }) {
   const [open, setOpen] = useState(false);
   const to = ho.to.replace('@', '');
@@ -541,6 +715,8 @@ function HandoffCard({ ho, agents, onEdit }) {
               ))}
             </div>
           </Field>
+
+          <ContextAudit audit={ho.contextAudit} />
 
           <div style={{ display: 'flex', gap: 8, paddingTop: 2 }}>
             <button
@@ -629,7 +805,7 @@ function BreakoutChip({ data, agents }) {
           <div style={{ padding: '11px 14px', borderTop: '1px solid var(--border)', display: 'flex',
             alignItems: 'center', gap: 10, background: 'var(--surface-2)' }}>
             <button style={{ ...ghostBtn, background: 'var(--accent)', color: '#fff', border: 'none',
-              fontWeight: 600 }}><Icon name="door" size={14} /> Step into room</button>
+              fontWeight: 500 }}><Icon name="door" size={14} /> Step into room</button>
             <span style={{ fontSize: 11.5, color: 'var(--text-faint)' }}>Full room arrives in a later batch</span>
           </div>
         </div>
@@ -640,5 +816,5 @@ function BreakoutChip({ data, agents }) {
 
 export {
   TodoListCard, ArtifactRenderer, HandoffCard, BreakoutChip, OwnerCard, CodeBlock, VChip, iconBtn,
-  DepChangedBanner, ReviewCommentList,
+  DepChangedBanner, ReviewCommentList, normalizeArtifactForDisplay, artifactFromFileChangeEvent,
 };

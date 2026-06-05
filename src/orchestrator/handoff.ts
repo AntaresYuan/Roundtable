@@ -4,6 +4,7 @@ import type {
   AgentRoleId,
   ArtifactRef,
   HandoffCard,
+  HandoffContextAudit,
   PinnedMessage,
   PlanTask,
 } from '../contracts/index.js';
@@ -18,8 +19,10 @@ export interface HandoffGeneratorInput {
   state: OrchestratorState;
   task: PlanTask;
   role: AgentRoleId;
+  taskBrief?: string;
   pinnedMessages?: PinnedMessage[];
   relevantArtifacts?: ArtifactRef[];
+  contextAudit?: HandoffContextAudit;
   previousCards?: HandoffCard[];
 }
 
@@ -64,10 +67,11 @@ export function fallbackHandoffCard(input: HandoffGeneratorInput): HandoffCard {
     to: input.role,
     scenario: 'dispatch',
     userIntent: oneSentence(input.state.intake?.userVisibleSummary ?? input.state.userMessage),
-    taskBrief: input.task.title,
+    taskBrief: input.taskBrief ?? input.task.title,
     pinnedMessages: capPinnedMessages(input.pinnedMessages ?? []),
     rolesInGroup: [],
     relevantArtifacts: input.relevantArtifacts ?? [],
+    ...(input.contextAudit ? { contextAudit: input.contextAudit } : {}),
     fullHistoryRef: `chat:${input.state.chatId}`,
     createdAt: new Date(),
     generatedBy: 'orchestrator',
@@ -102,6 +106,7 @@ export function buildHandoffSystemPrompt(card: HandoffCard): string {
       rolesInGroup: card.rolesInGroup,
       previousAgent: card.previousAgent,
       relevantArtifacts: card.relevantArtifacts,
+      contextAudit: card.contextAudit,
       fullHistoryRef: card.fullHistoryRef,
     },
   };
@@ -129,10 +134,12 @@ async function tryGenerate(
       to: input.role,
       scenario: 'dispatch',
       generatedBy: 'orchestrator',
+      taskBrief: fallback.taskBrief,
       pinnedMessages: capPinnedMessages(
         getPinnedMessages(raw) ?? fallback.pinnedMessages,
       ),
       relevantArtifacts: getRelevantArtifacts(raw) ?? fallback.relevantArtifacts,
+      contextAudit: fallback.contextAudit,
       fullHistoryRef: `chat:${input.state.chatId}`,
       createdAt: new Date(),
     });
@@ -150,10 +157,11 @@ function toPromptPayload(input: HandoffGeneratorInput) {
   return {
     userMessage: input.state.userMessage,
     intake: input.state.intake,
-    task: input.task,
+    task: { ...input.task, title: input.taskBrief ?? input.task.title },
     recipientRole: input.role,
     pinnedMessages: capPinnedMessages(input.pinnedMessages ?? []),
     relevantArtifacts: input.relevantArtifacts ?? [],
+    contextAudit: input.contextAudit,
     recentHandoffCards: summarizePreviousCards(input.previousCards ?? []),
     fullHistoryRef: `chat:${input.state.chatId}`,
   };
@@ -164,6 +172,7 @@ function summarizePreviousCards(cards: HandoffCard[]): HandoffCard[] {
     ...card,
     pinnedMessages: capPinnedMessages(card.pinnedMessages),
     previousAgent: undefined,
+    contextAudit: undefined,
   }));
 }
 

@@ -9,6 +9,39 @@ export const PinnedMessageSchema = z.object({
 });
 export type PinnedMessage = z.infer<typeof PinnedMessageSchema>;
 
+export const HandoffContextSourceScopeSchema = z.enum([
+  'user',
+  'workbench',
+  'chat',
+  'artifact',
+  'review',
+  'handoff',
+]);
+export type HandoffContextSourceScope = z.infer<
+  typeof HandoffContextSourceScopeSchema
+>;
+
+export const HandoffContextSourceSchema = z.object({
+  scope: HandoffContextSourceScopeSchema,
+  kind: z.string(),
+  id: z.string(),
+  label: z.string(),
+  chars: z.number().int().nonnegative(),
+  included: z.boolean(),
+  compacted: z.boolean().default(false),
+});
+export type HandoffContextSource = z.infer<typeof HandoffContextSourceSchema>;
+
+export const HandoffContextAuditSchema = z.object({
+  budget: z.object({
+    maxChars: z.number().int().positive(),
+    usedChars: z.number().int().nonnegative(),
+    compacted: z.boolean(),
+  }),
+  sources: z.array(HandoffContextSourceSchema),
+});
+export type HandoffContextAudit = z.infer<typeof HandoffContextAuditSchema>;
+
 export const AgentRoleSnapshotSchema = z.object({
   agentId: z.string(),
   role: AgentRoleIdSchema,
@@ -46,6 +79,8 @@ export const HandoffCardSchema = z.object({
     .optional(),
 
   relevantArtifacts: z.array(ArtifactRefSchema),
+
+  contextAudit: HandoffContextAuditSchema.optional(),
 
   fullHistoryRef: z.string(),
 

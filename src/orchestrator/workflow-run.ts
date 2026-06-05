@@ -25,11 +25,15 @@ export function workflowRunFromState(state: OrchestratorState): WorkflowRun | un
   return {
     specId: workflow.id,
     specVersion: workflow.version,
+    autonomyPolicy: state.autonomyPolicy,
+    autonomyDecisions: state.autonomyDecisions,
     stageStates,
     ...(activeStageId ? { activeStageId } : {}),
     ...(state.pendingGate
       ? { pendingGate: { stageId: state.pendingGate.stageId, gate: state.pendingGate.gate } }
       : {}),
+    ...(state.pendingRecovery ? { pendingRecovery: state.pendingRecovery } : {}),
+    failureRecoveryCards: state.failureRecoveryCards,
     depEdges: [],
   };
 }
@@ -83,6 +87,10 @@ function computeStageStatus(
   records: DispatchRecord[],
 ): StageStatus {
   if (state.pendingGate?.stageId === stageId) return 'blocked';
+  const recoveryTaskId = state.pendingRecovery?.taskId;
+  if (recoveryTaskId && records.some((r) => r.taskId === recoveryTaskId)) {
+    return 'blocked';
+  }
   if (records.length === 0) return 'pending';
   if (records.some((r) => r.status === 'failed')) return 'failed';
   if (records.every((r) => r.status === 'completed')) return 'done';

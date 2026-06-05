@@ -2,8 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { and, eq, type SQL } from 'drizzle-orm';
 import type { AgentEvent, Artifact, ArtifactId, ArtifactKind } from '../contracts/index.js';
-import { artifactVersions, artifacts, messages } from '../db/schema.js';
-import type * as schema from '../db/schema.js';
+import { artifactVersions, artifacts, chats, messages } from '../db/schema.js';
 import { buildDepChangedMessage } from './dependency-broadcast.js';
 import type { DependencyGraph } from './dependency-graph.js';
 import { persistDependency, type DependencyStore } from './dependency-store.js';
@@ -16,9 +15,9 @@ type InsertableValue =
 
 interface ArtifactDb {
   select: () => {
-    from: (table: typeof artifacts) => {
+    from: (table: typeof artifacts | typeof chats) => {
       where: (condition: SQL<unknown>) => {
-        limit: (count: number) => Promise<(typeof artifacts.$inferSelect)[]>;
+        limit: (count: number) => Promise<unknown[]>;
       };
     };
   };
@@ -32,14 +31,10 @@ interface ArtifactDb {
   };
 }
 
-type RoundtableDb = ArtifactDb & {
-  _: { fullSchema: typeof schema };
-};
-
 type FileChangeEvent = Extract<AgentEvent, { type: 'file_change' }>;
 
 export interface ArtifactWatcherContext {
-  db: RoundtableDb;
+  db: ArtifactDb;
   chatId: string;
   ownerAgentId: string;
   dependencyGraph?: DependencyGraph;
@@ -215,8 +210,9 @@ async function persistArtifact(
   unit: PendingArtifactUnit,
 ): Promise<Artifact> {
   const now = new Date();
+  const workbenchId = await workbenchIdForChat(ctx, ctx.chatId);
   const lookupCondition = and(
-    eq(artifacts.chatId, ctx.chatId),
+    eq(artifacts.workbenchId, workbenchId),
     eq(artifacts.uri, unit.uri),
   );
   if (!lookupCondition) throw new Error('Unable to build artifact lookup condition.');
@@ -225,9 +221,9 @@ async function persistArtifact(
     .select()
     .from(artifacts)
     .where(lookupCondition)
-    .limit(1);
+    .limit(1) as (typeof artifacts.$inferSelect)[];
 
-  const artifactId = existing?.id ?? artifactIdFor(ctx.chatId, unit.uri);
+  const artifactId = existing?.id ?? artifactIdFor(workbenchId, unit.uri);
   const parentVersion = existing?.currentVersion ?? null;
   const version = parentVersion === null ? 1 : parentVersion + 1;
   const artifact: Artifact = {
@@ -254,7 +250,8 @@ async function persistArtifact(
   } else {
     await ctx.db.insert(artifacts).values({
       id: artifactId,
-      chatId: ctx.chatId,
+      workbenchId,
+      createdInChatId: ctx.chatId,
       kind: unit.kind,
       title: unit.title,
       ownerAgentId: ctx.ownerAgentId,
@@ -277,6 +274,19 @@ async function persistArtifact(
   });
 
   return artifact;
+}
+
+async function workbenchIdForChat(
+  ctx: ArtifactWatcherContext,
+  chatId: string,
+): Promise<string> {
+  const [chat] = await ctx.db
+    .select()
+    .from(chats)
+    .where(eq(chats.id, chatId))
+    .limit(1) as (typeof chats.$inferSelect)[];
+  if (!chat) throw new Error(`chat not found for artifact persistence: ${chatId}`);
+  return chat.workbenchId;
 }
 
 function formatChangeDiff(change: FileChangeEvent): string {
@@ -325,9 +335,9 @@ function commonDirectory(paths: readonly string[]): string {
   return root.length > 0 ? root : '.';
 }
 
-function artifactIdFor(chatId: string, uri: string): string {
+function artifactIdFor(workbenchId: string, uri: string): string {
   const digest = createHash('sha256')
-    .update(`${chatId}:${uri}`)
+    .update(`${workbenchId}:${uri}`)
     .digest();
   const versionByte = digest[6];
   const variantByte = digest[8];

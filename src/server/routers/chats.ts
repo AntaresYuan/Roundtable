@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { and, desc, eq } from 'drizzle-orm';
+import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
-import { chats } from '../../db/index.js';
+import { chats, workbenches } from '../../db/index.js';
 import { createTRPCRouter, protectedProcedure, protectedRateLimitedProcedure } from '../trpc.js';
 
 export const chatsRouter = createTRPCRouter({
@@ -27,21 +28,37 @@ export const chatsRouter = createTRPCRouter({
     .input(
       z.object({
         title: z.string().min(1).max(160),
-        workspacePath: z.string().min(1),
+        workbenchId: z.string().uuid(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      const [workbench] = await ctx.db
+        .select({ id: workbenches.id })
+        .from(workbenches)
+        .where(
+          and(
+            eq(workbenches.id, input.workbenchId),
+            eq(workbenches.ownerUserId, ctx.user.id),
+          ),
+        );
+      if (!workbench) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'workbench not found or not owned by user',
+        });
+      }
+
       const [chat] = await ctx.db
         .insert(chats)
         .values({
           id: randomUUID(),
           ownerUserId: ctx.user.id,
+          workbenchId: input.workbenchId,
           title: input.title,
-          workspacePath: input.workspacePath,
         })
         .returning();
 
-      ctx.logger.event('chat.created', { chatId: chat?.id });
+      ctx.logger.event('chat.created', { chatId: chat?.id, workbenchId: input.workbenchId });
       return chat;
     }),
 });

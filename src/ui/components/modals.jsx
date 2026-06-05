@@ -7,6 +7,8 @@
 import React from 'react';
 import { RT } from '../lib/rt';
 import { Icon, Avatar, tint, alpha } from './primitives';
+import { trpc } from '../lib/trpc';
+import { useSession } from 'next-auth/react';
 const { useState: useStateM } = React;
 const iconBtn = { display: 'grid', placeItems: 'center', width: 30, height: 30, flexShrink: 0, borderRadius: 'var(--r-sm)',
   border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-muted)', cursor: 'pointer' };
@@ -24,7 +26,7 @@ function Modal({ title, sub, icon, onClose, children, footer, width = 540 }) {
             {icon && <span style={{ display: 'grid', placeItems: 'center', width: 32, height: 32, borderRadius: 9,
               background: tint('var(--accent)', 14), color: 'var(--accent)' }}><Icon name={icon} size={17} /></span>}
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 15, fontWeight: 700 }}>{title}</div>
+              <div style={{ fontSize: 15, fontWeight: 600 }}>{title}</div>
               {sub && <div style={{ fontSize: 12.5, color: 'var(--text-faint)' }}>{sub}</div>}
             </div>
             <button onClick={onClose} style={iconBtn}><Icon name="x" size={16} /></button>
@@ -39,11 +41,15 @@ function Modal({ title, sub, icon, onClose, children, footer, width = 540 }) {
 }
 function Btn({ children, primary, onClick, disabled }) {
   return (
-    <button onClick={onClick} disabled={disabled} style={{ display: 'inline-flex', alignItems: 'center', gap: 7,
-      padding: '9px 16px', borderRadius: 'var(--r-sm)', font: 'inherit', fontSize: 13, fontWeight: 600,
+    <button onClick={onClick} disabled={disabled}
+      onMouseEnter={(e) => { if (!disabled) e.currentTarget.style.background = primary ? '#6a59ab' : 'var(--surface-2)'; }}
+      onMouseLeave={(e) => { if (!disabled) e.currentTarget.style.background = primary ? 'var(--accent)' : 'var(--surface)'; }}
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 6,
+      padding: '6px 13px', borderRadius: 'var(--r-sm)', font: 'inherit', fontSize: 13.5, fontWeight: 500,
       cursor: disabled ? 'default' : 'pointer', border: primary ? 'none' : '1px solid var(--border)',
       background: primary ? (disabled ? 'var(--surface-3)' : 'var(--accent)') : 'var(--surface)',
-      color: primary ? (disabled ? 'var(--text-faint)' : '#fff') : 'var(--text)', transition: 'all .15s' }}>{children}</button>
+      color: primary ? (disabled ? 'var(--text-faint)' : '#fff') : 'var(--text)',
+      boxShadow: primary ? 'none' : '0 1px 1px rgba(40,40,70,.04)', transition: 'background .12s' }}>{children}</button>
   );
 }
 const fieldStyle = { width: '100%', padding: '10px 12px', borderRadius: 'var(--r-sm)', border: '1px solid var(--border)',
@@ -97,15 +103,13 @@ function NewWorkbenchModal({ agents, onClose, onCreate }) {
               border: `1.5px solid ${active ? 'var(--accent)' : 'var(--border)'}` }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
                 <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--text)' }}>{t.name}</span>
-                {t.tag && <span style={{ fontSize: 10, fontWeight: 600, padding: '1px 7px', borderRadius: 999,
+                {t.tag && <span style={{ fontSize: 10, fontWeight: 600, padding: '1px 7px', borderRadius: 4,
                   background: tint('var(--accent)', 16), color: 'var(--accent)' }}>{t.tag}</span>}
               </div>
               <div style={{ fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.45, marginBottom: 9 }}>{t.desc}</div>
               <div style={{ display: 'flex', gap: 4 }}>
                 {t.roles.length ? t.roles.map((r, i) => (
-                  <span key={i} title={'@' + r} style={{ width: 22, height: 22, borderRadius: '50%', background: tint(roleColors[r], 22),
-                    boxShadow: `0 0 0 1.5px ${alpha(roleColors[r], 55)} inset`, display: 'grid', placeItems: 'center',
-                    fontSize: 9, fontWeight: 700, color: roleColors[r], fontFamily: 'var(--font-mono)' }}>{r[0].toUpperCase()}</span>
+                  <span key={i} title={'@' + r} style={{ display: 'inline-flex' }}><Avatar agent={{ id: r, color: roleColors[r] }} size={22} /></span>
                 )) : <span style={{ fontSize: 11.5, color: 'var(--text-faint)', fontStyle: 'italic' }}>empty — you choose</span>}
               </div>
             </button>
@@ -126,13 +130,29 @@ function NewWorkbenchModal({ agents, onClose, onCreate }) {
 /* ---- New Task ------------------------------------------------------------ */
 function NewTaskModal({ workbench, members, agents, onClose, onCreate }) {
   const [goal, setGoal] = useStateM('');
-  const examples = ['A pricing page with monthly/annual toggle', 'A REST endpoint for CSV export', 'Dark mode across the app'];
+  const polish = trpc.ai.polish.useMutation({ onSuccess: (r) => setGoal(r.text) });
+  const { status: authStatus } = useSession();
+  const suggestQ = trpc.ai.suggestTasks.useQuery(undefined, {
+    enabled: authStatus === 'authenticated',
+    retry: false,
+    staleTime: 60_000,
+  });
+  // Personalized suggestions when signed in (+ LLM key); static fallback otherwise.
+  const examples = suggestQ.data ?? ['A pricing page with monthly/annual toggle', 'A REST endpoint for CSV export', 'Dark mode across the app'];
   return (
     <Modal title="New task" sub={`${workbench?.name} will pick it up and run its workflow`} icon="plus" onClose={onClose} width={560}
       footer={<><Btn onClick={onClose}>Cancel</Btn><Btn primary disabled={!goal.trim()} onClick={() => onCreate(goal)}>Start task</Btn></>}>
       <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>What should the team build?</div>
       <textarea value={goal} onChange={(e) => setGoal(e.target.value)} rows={3} autoFocus
         placeholder="Describe the outcome in plain language — the facilitator will plan it." style={{ ...fieldStyle, resize: 'vertical' }} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+        <button onClick={() => goal.trim() && polish.mutate({ text: goal.trim() })} disabled={!goal.trim() || polish.isPending}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 'var(--r-chip)',
+            border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', font: 'inherit', fontSize: 12,
+            cursor: goal.trim() && !polish.isPending ? 'pointer' : 'default', opacity: goal.trim() ? 1 : 0.5 }}>
+          <Icon name="sparkle" size={13} style={{ color: 'var(--accent)' }} /> {polish.isPending ? 'Polishing…' : 'Polish with AI'}</button>
+        {polish.error && <span style={{ fontSize: 11, color: 'var(--bad)' }}>{polish.error.message}</span>}
+      </div>
       <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginTop: 10 }}>
         {examples.map((ex) => (
           <button key={ex} onClick={() => setGoal(ex)} style={{ padding: '5px 10px', borderRadius: 'var(--r-chip)', cursor: 'pointer',
@@ -140,7 +160,12 @@ function NewTaskModal({ workbench, members, agents, onClose, onCreate }) {
         ))}
       </div>
       <div style={{ marginTop: 18, padding: '12px 14px', borderRadius: 'var(--r-card)', background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
-        <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 9 }}>Members on the job</div>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 9, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)' }}>Members on the job</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: 'var(--text-faint)' }}>
+            <Icon name="eye" size={11} /> read-only · this workbench's fixed team — change members in the sidebar, or per stage in Workflow
+          </span>
+        </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {(members || []).map((id) => agents[id] && (
             <span key={id} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '4px 11px 4px 4px',
@@ -169,9 +194,7 @@ function AddAgentModal({ onClose, onAdd }) {
       footer={<><Btn onClick={onClose}>Cancel</Btn><Btn primary disabled={!name.trim()} onClick={() => onAdd({ role, name: name.trim(), color: roleColors[role] })}>Add to workbench</Btn></>}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 13, marginBottom: 18, padding: '14px', borderRadius: 'var(--r-card)',
         background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
-        <div style={{ width: 44, height: 44, borderRadius: '50%', flexShrink: 0,
-          background: `radial-gradient(circle at 36% 30%, color-mix(in oklab, ${roleColors[role]} 30%, #fff), color-mix(in oklab, ${roleColors[role]} 58%, #000 8%))`,
-          boxShadow: `inset 0 -4px 8px rgba(0,0,0,.18), 0 3px 8px -3px rgba(0,0,0,.4)` }} />
+        <Avatar agent={{ id: name || role, displayName: name, color: roleColors[role] }} size={44} />
         <div>
           <div style={{ fontSize: 15, fontWeight: 700 }}>{name || 'New agent'}</div>
           <div className="mono" style={{ fontSize: 12, color: roleColors[role] }}>@{role}</div>

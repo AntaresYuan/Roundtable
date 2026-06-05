@@ -96,7 +96,7 @@ export async function dispatchApprovedLocalTurn(
       plan: turn.plan,
     };
     const runtimeRoot = localRuntimeRoot();
-    const workspace = workspaceResolver(join(runtimeRoot, 'workspaces')).resolve(state.chatId);
+    const workspace = await workspaceResolver(join(runtimeRoot, 'workspaces')).resolve(state.chatId);
     const result = await runDispatch(state, {
       registry,
       workspaces: { resolve: () => workspace },
@@ -125,6 +125,7 @@ export async function dispatchApprovedLocalTurn(
   } catch (error) {
     if (error instanceof LocalDispatchError) throw error;
     const message = errorMessage(error);
+    const failedWorkspace = await workspaceResolver(join(localRuntimeRoot(), 'workspaces')).resolve(`local-${turn.id}`);
     const failedTurn = await updateLocalTurn(turn.id, (current) => ({
       ...current,
       dispatchStatus: 'failed',
@@ -132,7 +133,7 @@ export async function dispatchApprovedLocalTurn(
       dispatchedAt: new Date().toISOString(),
       dispatchStage: 'dispatch',
       dispatchError: message,
-      dispatchWorkspacePath: workspaceResolver(join(localRuntimeRoot(), 'workspaces')).resolve(`local-${turn.id}`),
+      dispatchWorkspacePath: failedWorkspace,
     }));
     if (!failedTurn) throw new LocalDispatchError('turn_not_found', 404);
     return toLocalDispatchResponse(failedTurn);

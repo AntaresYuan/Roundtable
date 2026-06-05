@@ -10,3 +10,5 @@ export * from './workflow.js';
 export * from './workflow-run.js';
 export * from './portable-handoff.js';
 export * from './selector.js';
+export * from './autonomy.js';
+export * from './recovery.js';

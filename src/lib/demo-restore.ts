@@ -10,6 +10,7 @@ import {
   messages,
   pinnedMessages,
   users,
+  workbenches,
 } from '../db/schema.js';
 import type { HandoffCard } from '../contracts/index.js';
 import { HandoffCardSchema } from '../contracts/index.js';
@@ -20,11 +21,18 @@ const DemoSeedSchema = z.object({
     email: z.string().email(),
     name: z.string(),
   })),
+  workbenches: z.array(z.object({
+    id: z.string().uuid(),
+    ownerUserId: z.string().uuid(),
+    name: z.string(),
+    description: z.string().optional(),
+    workspacePath: z.string(),
+  })).default([]),
   chats: z.array(z.object({
     id: z.string().uuid(),
     ownerUserId: z.string().uuid(),
+    workbenchId: z.string().uuid(),
     title: z.string(),
-    workspacePath: z.string(),
   })),
   messages: z.array(z.object({
     id: z.string().uuid(),
@@ -96,11 +104,18 @@ export function isLocalDatabaseUrl(databaseUrl: string | undefined): boolean {
  */
 export async function restoreDemo(db: Db, seed: DemoSeed): Promise<void> {
   const chatIds = seed.chats.map((c) => c.id);
+  const workbenchIds = seed.workbenches.map((w) => w.id);
   const now = new Date();
 
   await db.transaction(async (tx) => {
+    // After spec 100 / #96, artifacts cascade from workbenches (not chats).
+    // Deleting workbenches drops chats + messages + handoffs + pins + sessions
+    // AND artifacts in one stroke — the canonical reset.
+    if (workbenchIds.length > 0) {
+      await tx.delete(workbenches).where(inArray(workbenches.id, workbenchIds));
+    }
     if (chatIds.length > 0) {
-      // Cascades through messages / artifacts / handoffs / pinned_messages / agent_sessions.
+      // Any orphan chats not under the seed's workbenches.
       await tx.delete(chats).where(inArray(chats.id, chatIds));
     }
 
@@ -115,6 +130,20 @@ export async function restoreDemo(db: Db, seed: DemoSeed): Promise<void> {
             name: user.name,
           },
         });
+    }
+    if (seed.workbenches.length > 0) {
+      await tx
+        .insert(workbenches)
+        .values(
+          seed.workbenches.map((wb) => ({
+            id: wb.id,
+            ownerUserId: wb.ownerUserId,
+            name: wb.name,
+            workspacePath: wb.workspacePath,
+            ...(wb.description !== undefined ? { description: wb.description } : {}),
+          })),
+        )
+        .onConflictDoNothing({ target: workbenches.id });
     }
     if (seed.chats.length > 0) {
       await tx.insert(chats).values(seed.chats);
@@ -132,17 +161,27 @@ export async function restoreDemo(db: Db, seed: DemoSeed): Promise<void> {
       );
     }
     if (seed.artifacts.length > 0) {
+      const chatWorkbenches = new Map(seed.chats.map((c) => [c.id, c.workbenchId]));
       await tx.insert(artifacts).values(
-        seed.artifacts.map((a) => ({
-          id: a.id,
-          chatId: a.chatId,
-          kind: a.kind,
-          title: a.title,
-          ownerAgentId: a.ownerAgentId,
-          currentVersion: a.currentVersion,
-          ...(a.uri !== undefined ? { uri: a.uri } : {}),
-          ...(a.preview !== undefined ? { preview: a.preview } : {}),
-        })),
+        seed.artifacts.map((a) => {
+          const workbenchId = chatWorkbenches.get(a.chatId);
+          if (!workbenchId) {
+            throw new Error(
+              `Artifact ${a.id} references chat ${a.chatId} which has no workbench in seed`,
+            );
+          }
+          return {
+            id: a.id,
+            workbenchId,
+            createdInChatId: a.chatId,
+            kind: a.kind,
+            title: a.title,
+            ownerAgentId: a.ownerAgentId,
+            currentVersion: a.currentVersion,
+            ...(a.uri !== undefined ? { uri: a.uri } : {}),
+            ...(a.preview !== undefined ? { preview: a.preview } : {}),
+          };
+        }),
       );
     }
     if (seed.artifactDeps.length > 0) {

@@ -1,7 +1,10 @@
 import type {
   AgentEvent,
   Artifact,
+  AutonomyDecision,
+  AutonomyPolicy,
   Gate,
+  FailureRecoveryCard,
   HandoffCard,
   IntakeResult,
   Plan,
@@ -9,6 +12,7 @@ import type {
   ReviewComment,
   Workflow,
 } from '../contracts/index.js';
+import { DEFAULT_AUTONOMY_POLICY as DEFAULT_POLICY } from '../contracts/index.js';
 
 export type StageId =
   | 'intake'
@@ -18,6 +22,7 @@ export type StageId =
   | 'monitor'
   | 'review'
   | 'gate'
+  | 'recovery'
   | 'aggregate'
   | 'done';
 
@@ -56,6 +61,8 @@ export interface AggregateSummary {
   quickActions: { id: string; label: string }[];
 }
 
+export type ProposeSkillEvent = Extract<AgentEvent, { type: 'propose_skill' }>;
+
 export interface OrchestratorState {
   chatId: string;
   userMessage: string;
@@ -69,7 +76,17 @@ export interface OrchestratorState {
   artifacts: Artifact[];
   reviewNotes: string[];
   reviewComments: ReviewComment[];
+  /**
+   * PM-emitted `propose_skill` events from the aggregate stage (#100 / #119).
+   * UI surfaces these as "Save as my skill" prompts; nothing persists until
+   * the user confirms via `userSkills.create` (ADR-007).
+   */
+  proposedSkills: ProposeSkillEvent[];
+  autonomyPolicy: AutonomyPolicy;
+  autonomyDecisions: AutonomyDecision[];
   pendingGate: PendingGate | undefined;
+  pendingRecovery: FailureRecoveryCard | undefined;
+  failureRecoveryCards: FailureRecoveryCard[];
   gateDecisions: Record<string, GateDecision>;
   aggregate?: AggregateSummary;
   errors: { stage: StageId; message: string }[];
@@ -79,6 +96,7 @@ export function initialState(
   chatId: string,
   userMessage: string,
   workflow?: Workflow,
+  autonomyPolicy: AutonomyPolicy = DEFAULT_POLICY,
 ): OrchestratorState {
   return {
     chatId,
@@ -90,7 +108,12 @@ export function initialState(
     artifacts: [],
     reviewNotes: [],
     reviewComments: [],
+    proposedSkills: [],
+    autonomyPolicy,
+    autonomyDecisions: [],
     pendingGate: undefined,
+    pendingRecovery: undefined,
+    failureRecoveryCards: [],
     gateDecisions: {},
     errors: [],
   };

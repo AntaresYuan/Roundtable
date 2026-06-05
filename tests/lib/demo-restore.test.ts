@@ -118,11 +118,18 @@ describe('demo:restore', () => {
     await restoreDemo(db, seed);
 
     const extraChatId = '99999999-9999-4999-8999-999999999998';
+    const extraWorkbenchId = '99999999-9999-4999-8999-999999999997';
+    await db.insert(schema.workbenches).values({
+      id: extraWorkbenchId,
+      ownerUserId: seed.users[0]!.id,
+      name: 'local scratch workbench',
+      workspacePath: `/tmp/demo-scratch-${extraChatId}`,
+    });
     await db.insert(schema.chats).values({
       id: extraChatId,
       ownerUserId: seed.users[0]!.id,
+      workbenchId: extraWorkbenchId,
       title: 'local scratch chat',
-      workspacePath: `/tmp/demo-scratch-${extraChatId}`,
     });
 
     await restoreDemo(db, seed);

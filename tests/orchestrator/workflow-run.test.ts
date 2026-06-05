@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AdapterRegistry, createMockAdapter } from '../../src/adapters/index.js';
+import { AUTONOMY_POLICY_PRESETS } from '../../src/contracts/index.js';
 import type {
   AgentEvent,
   Artifact,
@@ -75,6 +76,29 @@ function landingArtifact(): Artifact {
     ownerAgentId: 'implementer',
     version: 1,
     createdAt: new Date('2026-06-01T00:00:00Z'),
+  };
+}
+
+function highRiskShipWorkflow(): Workflow {
+  return {
+    id: 'wf-ship',
+    name: 'Ship to production',
+    desc: 'High-risk deploy gate',
+    origin: { kind: 'builtin' },
+    planning: { cut: 'by_role', clarifyThreshold: 0.6, maxClarifyQuestions: 3 },
+    version: 1,
+    updatedAt: '2026-06-05T00:00:00Z',
+    stages: [
+      {
+        id: 'ship',
+        name: 'Ship',
+        icon: 'rocket',
+        desc: 'deploy to production',
+        kind: 'ship',
+        seats: [{ ref: { kind: 'role', role: 'implementer' }, brief: 'deploy safely' }],
+        gate: { kind: 'user_approval' },
+      },
+    ],
   };
 }
 
@@ -201,6 +225,120 @@ describe('runOrchestrator + workflow-driven gated review', () => {
 
     const finalRun = workflowRunFromState(resumed);
     expect(finalRun?.stageStates['review']?.status).toBe('done');
+  });
+
+  it('auto-approves a low-risk reviewer gate when policy allows it', async () => {
+    const registry = new AdapterRegistry();
+    registry.register(
+      createMockAdapter({
+        scriptedEvents: [
+          { type: 'artifact', artifact: landingArtifact() },
+          { type: 'done', finishReason: 'stop' },
+        ],
+      }),
+    );
+    registry.bindRole('implementer', 'mock');
+    registry.bindRole('reviewer', 'mock');
+
+    const result = await runOrchestrator(
+      {
+        chatId: 'chat-auto-gate',
+        userMessage: 'build a waitlist landing page',
+        threadId: 'thread-auto-gate',
+        workflow: gatedWorkflow(),
+        autonomyPolicy: AUTONOMY_POLICY_PRESETS.auto_fix_safe,
+      },
+      {
+        registry,
+        workspaces: workspaceResolver(workDir),
+        checkpointer: new MemorySaver(),
+      },
+    );
+
+    expect(result.stage).toBe('done');
+    expect(result.pendingGate).toBeUndefined();
+    expect(result.gateDecisions['review']).toBe('approve');
+    expect(result.autonomyDecisions).toHaveLength(1);
+    expect(result.autonomyDecisions[0]).toMatchObject({
+      action: 'approve_gate',
+      risk: 'low',
+      decision: 'auto_approved',
+    });
+
+    const run = workflowRunFromState(result);
+    expect(run?.autonomyPolicy.level).toBe('auto_fix_safe');
+    expect(run?.autonomyDecisions[0]?.decision).toBe('auto_approved');
+  });
+
+  it('still pauses high-risk ship gates under run-until-blocked policy', async () => {
+    const registry = new AdapterRegistry();
+    registry.register(createMockAdapter());
+    registry.bindRole('implementer', 'mock');
+
+    const halted = await runOrchestrator(
+      {
+        chatId: 'chat-high-risk',
+        userMessage: 'ship this to production',
+        threadId: 'thread-high-risk',
+        workflow: highRiskShipWorkflow(),
+        autonomyPolicy: AUTONOMY_POLICY_PRESETS.run_until_blocked,
+      },
+      {
+        registry,
+        workspaces: workspaceResolver(workDir),
+        checkpointer: new MemorySaver(),
+      },
+    );
+
+    expect(halted.stage).toBe('gate');
+    expect(halted.pendingGate?.stageId).toBe('ship');
+    expect(halted.gateDecisions['ship']).toBeUndefined();
+    expect(halted.autonomyDecisions[0]).toMatchObject({
+      action: 'approve_gate',
+      risk: 'high',
+      decision: 'requires_user',
+    });
+  });
+
+  it('projects pending failure recovery cards into WorkflowRun', async () => {
+    const registry = new AdapterRegistry();
+    registry.register(
+      createMockAdapter({
+        scriptedEvents: [
+          { type: 'error', message: 'temporary tool outage', recoverable: true },
+        ],
+      }),
+    );
+    registry.bindRole('implementer', 'mock');
+
+    const halted = await runOrchestrator(
+      {
+        chatId: 'chat-recovery',
+        userMessage: 'build a waitlist landing page',
+        threadId: 'thread-recovery',
+        workflow: {
+          ...gatedWorkflow(),
+          stages: [gatedWorkflow().stages[0]!],
+        },
+      },
+      {
+        registry,
+        workspaces: workspaceResolver(workDir),
+        checkpointer: new MemorySaver(),
+      },
+    );
+
+    expect(halted.stage).toBe('recovery');
+
+    const run = workflowRunFromState(halted);
+    expect(run?.activeStageId).toBe('build');
+    expect(run?.stageStates['build']?.status).toBe('blocked');
+    expect(run?.pendingRecovery).toMatchObject({
+      taskId: 'build__0',
+      agentId: 'implementer',
+      summary: 'temporary tool outage',
+    });
+    expect(run?.failureRecoveryCards).toHaveLength(1);
   });
 });
 

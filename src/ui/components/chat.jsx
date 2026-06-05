@@ -7,7 +7,7 @@
 import React from 'react';
 import { RT } from '../lib/rt';
 import { Icon, Spinner, Avatar, RoleTag, Md, useTypewriter, alpha } from './primitives';
-import { ArtifactRenderer, iconBtn } from './cards';
+import { ArtifactRenderer, artifactFromFileChangeEvent, iconBtn } from './cards';
 const { useState, useRef, useEffect } = React;
 
 /* ---- ThinkingBlock : collapsed shimmer, expandable ----------------------- */
@@ -45,7 +45,7 @@ function WorkingChip({ ev, working }) {
         display: 'inline-flex', alignItems: 'center', gap: 8, padding: '6px 11px',
         borderRadius: 'var(--r-chip)', cursor: 'pointer', font: 'inherit', fontSize: 12.5,
         background: 'var(--surface-2)', border: '1px solid var(--border)', color: 'var(--text-muted)' }}>
-        <span style={{ fontSize: 13 }}>🤖</span>
+        <Icon name="wrench" size={13} style={{ color: 'var(--text-faint)' }} />
         {working
           ? <><Spinner size={13} color="var(--text-muted)" /><span>{ev.name} is working…</span></>
           : <><Icon name="check" size={13} style={{ color: 'var(--ok)' }} /><span>{ev.name} · ran <span className="mono">{cmd}</span></span></>}
@@ -76,7 +76,7 @@ function MessageGroup({ beat, agents, playing, onOpenArtifact, noticesByArtifact
   const thinkText = ev.filter(e => e.type === 'thinking_delta').map(e => e.delta).join(' ');
   const toolEv = ev.find(e => e.type === 'tool_use');
   const fullText = ev.filter(e => e.type === 'text_delta').map(e => e.delta).join('');
-  const artifactEvs = ev.filter(e => e.type === 'artifact');
+  const artifactEvs = ev.filter(e => e.type === 'artifact' || e.type === 'file_change');
   const doneEv = ev.find(e => e.type === 'done');
   const errEv = ev.find(e => e.type === 'error');
 
@@ -103,8 +103,7 @@ function MessageGroup({ beat, agents, playing, onOpenArtifact, noticesByArtifact
   if (isPM) {
     return (
       <div className="rt-rise" style={{ display: 'flex', gap: 11, padding: '2px 0', alignItems: 'flex-start' }}>
-        <div style={{ width: 26, height: 26, display: 'grid', placeItems: 'center', fontSize: 15,
-          opacity: .85, flexShrink: 0 }}>{agent.avatar}</div>
+        <Avatar agent={agent} size={26} ring={false} />
         <div style={{ flex: 1, paddingTop: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
             <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--pm)' }}>{agent.displayName}</span>
@@ -153,7 +152,7 @@ function MessageGroup({ beat, agents, playing, onOpenArtifact, noticesByArtifact
         )}
 
         {stage >= 3 && artifactEvs.map((e, i) => {
-          const art = RT.ARTIFACTS[e.artifactId];
+          const art = artifactFromEvent(e, beat, agents);
           const notice = art && noticesByArtifact ? noticesByArtifact.get(art.id) : null;
           const reviews = art && reviewsByArtifact ? reviewsByArtifact.get(art.id) : null;
           return art ? <div key={i} style={{ marginTop: i ? 12 : 0 }}>
@@ -175,6 +174,24 @@ function MessageGroup({ beat, agents, playing, onOpenArtifact, noticesByArtifact
       </div>
     </div>
   );
+}
+
+function artifactFromEvent(event, beat, agents) {
+  if (event.type === 'artifact') {
+    if (event.artifact) return event.artifact;
+    if (event.artifactId) return RT.ARTIFACTS[event.artifactId];
+    return null;
+  }
+  if (event.type === 'file_change') {
+    const agent = agents?.[beat.agentId];
+    return artifactFromFileChangeEvent(event, {
+      ownerAgentId: beat.agentId,
+      version: event.version || 1,
+      id: `diff:${beat.id}:${event.path}:${event.kind}`,
+      ...(agent?.role ? { role: agent.role } : {}),
+    });
+  }
+  return null;
 }
 
 /* ---- Composer with @mention ---------------------------------------------- */
@@ -246,28 +263,27 @@ function Composer({ agents, onSend }) {
 
 /* ---- ConversationRail ----------------------------------------------------- */
 /* ---- LogoMark : the rounded 3D table, as the brand mark ------------------ */
+// Roundtable mark: a solid 3D table (top ellipse + front thickness), single-colour,
+// inherits currentColor so it reads as a clean ink mark in light/dark.
 function LogoMark({ size = 26 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 40 40" aria-hidden="true">
-      {[[20, 8], [9, 13], [31, 13], [13, 24], [27, 24]].map(([cx, cy], i) => (
-        <circle key={i} cx={cx} cy={cy} r="2.4" fill="var(--accent)" opacity={i === 0 ? 1 : 0.55} />
-      ))}
-      <ellipse cx="20" cy="25" rx="13.5" ry="6.2" fill="color-mix(in oklab, var(--accent) 70%, #000 30%)" />
-      <ellipse cx="20" cy="22.5" rx="13.5" ry="6.2" fill="var(--accent)" />
-      <ellipse cx="17" cy="20.8" rx="8" ry="3" fill="#fff" opacity=".35" />
+      <path d="M4.5,20 A15.5,7.8 0 0 0 35.5,20 L35.5,23.4 A15.5,7.8 0 0 1 4.5,23.4 Z"
+        fill="currentColor" opacity="0.45" />
+      <ellipse cx="20" cy="20" rx="15.5" ry="7.8" fill="currentColor" />
     </svg>
   );
 }
 
 function ConversationRail({ workbench, workbenches, tasks, agents, activeId, onPick, memberIds, onRemoveMember, onAddMember, onNewTask, onNewWorkbench, onPickWorkbench, onCollapse }) {
   const dot = { live: 'var(--run)', done: 'var(--ok)', queued: 'var(--warn)', idle: 'var(--text-faint)' };
-  const [wbMenu, setWbMenu] = useState(false);
-  const members = (memberIds || workbench?.members || []).map((id) => agents[id]).filter(Boolean);
   const taskMeta = (meta) => {
     if (!meta) return '';
     if (String(meta).trim().startsWith('[') || String(meta).length > 96) return 'Needs attention · details in chat';
     return meta;
   };
+  const [wbMenu, setWbMenu] = useState(false);
+  const members = (memberIds || workbench?.members || []).map((id) => agents[id]).filter(Boolean);
   return (
     <div style={{ width: 256, flexShrink: 0, background: 'var(--surface)', borderRight: '1px solid var(--border)',
       display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -284,7 +300,6 @@ function ConversationRail({ workbench, workbenches, tasks, agents, activeId, onP
         <button onClick={() => setWbMenu((o) => !o)} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 9, padding: '9px 11px',
           borderRadius: 'var(--r-sm)', border: '1px solid var(--border)', background: 'var(--surface-2)',
           color: 'var(--text)', font: 'inherit', cursor: 'pointer' }}>
-          <LogoMark size={18} />
           <div style={{ flex: 1, textAlign: 'left', minWidth: 0 }}>
             <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{workbench?.name}</div>
             <div style={{ fontSize: 10.5, color: 'var(--text-faint)' }}>workbench · {members.length} members</div>
@@ -298,13 +313,13 @@ function ConversationRail({ workbench, workbenches, tasks, agents, activeId, onP
               <button key={w.id} onClick={() => { setWbMenu(false); onPickWorkbench && onPickWorkbench(w.id); }} style={{ width: '100%', display: 'flex',
                 alignItems: 'center', gap: 9, padding: '9px 12px', border: 'none', background: w.id === workbench?.id ? 'var(--surface-2)' : 'transparent',
                 color: 'var(--text)', font: 'inherit', fontSize: 13, cursor: 'pointer', textAlign: 'left' }}>
-                <LogoMark size={16} /><span style={{ flex: 1 }}>{w.name}</span>
+                <span style={{ flex: 1 }}>{w.name}</span>
                 {w.id === workbench?.id && <Icon name="check" size={13} style={{ color: 'var(--accent)' }} />}
               </button>
             ))}
             <button onClick={() => { setWbMenu(false); onNewWorkbench && onNewWorkbench(); }} style={{ width: '100%', display: 'flex',
               alignItems: 'center', gap: 9, padding: '10px 12px', border: 'none', borderTop: '1px solid var(--border)', background: 'transparent',
-              color: 'var(--accent)', font: 'inherit', fontSize: 13, fontWeight: 600, cursor: 'pointer', textAlign: 'left' }}>
+              color: 'var(--accent)', font: 'inherit', fontSize: 13, fontWeight: 500, cursor: 'pointer', textAlign: 'left' }}>
               <Icon name="plus" size={15} /> New workbench
             </button>
           </div>
@@ -335,8 +350,8 @@ function ConversationRail({ workbench, workbenches, tasks, agents, activeId, onP
 
       <div style={{ padding: '4px 12px 10px' }}>
         <button onClick={onNewTask} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-          padding: '9px 12px', borderRadius: 'var(--r-sm)', border: 'none', background: 'var(--accent)',
-          color: '#fff', font: 'inherit', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+          padding: '8px 12px', borderRadius: 'var(--r-sm)', border: 'none', background: 'var(--accent)',
+          color: '#fff', font: 'inherit', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>
           <Icon name="plus" size={15} /> New task
         </button>
       </div>
@@ -348,10 +363,9 @@ function ConversationRail({ workbench, workbenches, tasks, agents, activeId, onP
           const active = c.id === activeId;
           return (
             <button key={c.id} onClick={() => onPick && onPick(c.id)} style={{ width: '100%', textAlign: 'left',
-              display: 'flex', gap: 10, padding: '10px 11px', marginBottom: 2, borderRadius: 'var(--r-sm)',
+              display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', marginBottom: 1, borderRadius: 'var(--r-sm)',
               border: 'none', cursor: 'pointer', font: 'inherit',
-              background: active ? 'var(--surface-3)' : 'transparent', color: 'var(--text)',
-              boxShadow: active ? `inset 2px 0 0 var(--accent)` : 'none' }}
+              background: active ? 'var(--surface-3)' : 'transparent', color: 'var(--text)' }}
               onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = 'var(--surface-2)'; }}
               onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = 'transparent'; }}>
               <span style={{ width: 7, height: 7, borderRadius: '50%', marginTop: 6, flexShrink: 0,
@@ -370,8 +384,7 @@ function ConversationRail({ workbench, workbenches, tasks, agents, activeId, onP
 
       <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)', display: 'flex',
         alignItems: 'center', gap: 10 }}>
-        <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--surface-3)',
-          display: 'grid', placeItems: 'center', fontSize: 13, fontWeight: 600, color: 'var(--text-muted)' }}>U</div>
+        <Avatar agent={{ id: 'you-user', displayName: 'You', color: '#8076a0' }} size={28} />
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 12.5, fontWeight: 500 }}>You</div>
           <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>Building, not coding</div>

@@ -124,6 +124,17 @@ the artifacts produced, the reviewer's anchored comments, and
 `[Approve & continue]` / `[Request changes]` / `[✎ Edit hand-off]`. This is the
 mandatory-review-pass made physical and realizes golden-path beats 7–8.
 
+### S6 — Workflow recommendation banner (advisory, non-editable)
+Because every task carries a description, the active workflow may not be the best fit. When a
+task is selected, a dismissible banner surfaces a better-fit suggestion: *"✨ This task fits
+**X** better — &lt;reason&gt;"* with `[Use it]` (switches the workbench's `workflowId`) and `✕`.
+The reason renders **inline, not on hover** (owner preference). Two-tier: the server query
+`ai.recommendWorkflow({ task, workflows })` (`src/server/routers/ai.ts`) asks the PM model —
+火山引擎 via `defaultOrchestratorModel()`, NOT Anthropic — for `{ workflowId, reason }`,
+validates `workflowId ∈ input` (else returns `null`); a local keyword heuristic is the offline
+fallback. This is advisory only: it never edits a `Workflow`, only proposes switching which one
+the workbench runs, so it stays outside the anti-canvas boundary (§2).
+
 ### Deliberately NOT built
 Node canvas, edge-drawing, beginner/advanced mode-select at the door, empty-canvas custom
 template, editable-YAML authoring, and an always-on command palette (fast-follow, §9).
@@ -374,6 +385,9 @@ sprint survives intact.
      on` / `Plan: by role` header chips and diff toasts.
    - `modals.jsx`: generalize `AddAgentModal` to support a pick-existing-member path (drop
      `NAME_POOL`-only).
+   - `ai.ts` + `app-root.jsx`: the **S6 recommendation banner** — `ai.recommendWorkflow` query
+     (PM model via `defaultOrchestratorModel`) + a local keyword heuristic fallback + the
+     dismissible Dock banner with inline reason and `[Use it]`.
 
 4. **Bind the strip to real run state + the `GateCard`.**
    - `rt.js`: add a `WorkflowRun` fixture + `runStateFromScript(workflow, clock)` reducer

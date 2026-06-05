@@ -24,6 +24,7 @@ import {
   DependencyGraph,
   inMemoryDependencyStore,
   inMemoryHandoffLog,
+  workbenchWorkspaceResolver,
   workspaceResolver,
 } from '../../src/orchestrator/index.js';
 import { runDispatch } from '../../src/orchestrator/nodes/dispatch.js';
@@ -55,6 +56,49 @@ describe('runDispatch', () => {
     const workspace = await stat(join(rootDir, 'chat_1'));
     expect(workspace.isDirectory()).toBe(true);
     expect(result.dispatch[0]?.status).toBe('completed');
+  });
+
+  it('resolves adapter cwd from the chat workbench workspace path', { timeout: 10_000 }, async () => {
+    const client = new PGlite();
+    const db = drizzle(client, { schema });
+    const userId = '68000000-0000-4000-8000-000000000001';
+    const workbenchId = '68000000-0000-4000-8000-000000000002';
+    const chatId = '68000000-0000-4000-8000-000000000003';
+    const registry = new AdapterRegistry();
+    registry.register(createMockAdapter());
+    registry.bindRole('implementer', 'mock');
+
+    try {
+      await migrate(db, { migrationsFolder: 'drizzle' });
+      await db.insert(users).values({
+        id: userId,
+        email: 'dispatch-workbench-workspace@roundtable.local',
+      });
+      await db.insert(workbenches).values({
+        id: workbenchId,
+        ownerUserId: userId,
+        name: 'Dispatch workbench workspace',
+        workspacePath: 'projects/shared-workspace',
+      });
+      await db.insert(chats).values({
+        id: chatId,
+        ownerUserId: userId,
+        workbenchId,
+        title: 'Dispatch from workbench workspace',
+      });
+
+      const result = await runDispatch(withPlan('@implementer', chatId), {
+        registry,
+        workspaces: workbenchWorkspaceResolver(db as unknown as Db, rootDir),
+        handoffLog: inMemoryHandoffLog(),
+      });
+
+      const workspace = await stat(join(rootDir, 'projects/shared-workspace'));
+      expect(workspace.isDirectory()).toBe(true);
+      expect(result.dispatch[0]?.status).toBe('completed');
+    } finally {
+      await client.close();
+    }
   });
 
   it('records an unavailable adapter as a failed task instead of throwing', async () => {

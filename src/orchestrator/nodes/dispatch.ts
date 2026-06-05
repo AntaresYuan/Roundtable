@@ -32,7 +32,7 @@ import { ensureWorkspace } from '../workspace.js';
 import type { Db } from '../../db/index.js';
 
 export interface WorkspaceResolver {
-  resolve(chatId: string): string;
+  resolve(chatId: string): string | Promise<string>;
 }
 
 export interface DispatchDeps {
@@ -99,7 +99,7 @@ export async function runDispatch(
     cards.push(card);
     await deps.handoffLog.append(card);
 
-    const cwd = deps.workspaces.resolve(state.chatId);
+    const cwd = await deps.workspaces.resolve(state.chatId);
     const startedAt = new Date();
 
     try {

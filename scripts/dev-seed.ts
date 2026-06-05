@@ -19,6 +19,7 @@ import {
   messageAuthorTypeEnum,
   messages,
   users,
+  workbenches,
 } from '../src/db/schema.js';
 
 if (process.env['NODE_ENV'] === 'production') {
@@ -66,6 +67,8 @@ const SEED: SeedChat[] = [
   },
 ];
 
+const DEV_WORKBENCH_PREFIX = 'workspaces/dev-seed/';
+
 async function main(): Promise<void> {
   const email = (process.argv[2] ?? process.env['SEED_EMAIL'] ?? 'demo@roundtable.local')
     .trim()
@@ -87,19 +90,32 @@ async function main(): Promise<void> {
     }
     if (!userId) throw new Error(`could not resolve a user id for ${email}`);
 
-    // Idempotent: drop only this script's previously-seeded chats (cascade clears their
-    // messages + artifacts), never the user's real chats.
+    // Idempotent: drop only this script's previously-seeded workbenches (cascade clears
+    // their chats/messages/artifacts), never the user's real workbenches.
     await db
-      .delete(chats)
-      .where(and(eq(chats.ownerUserId, userId), like(chats.workspacePath, 'workspaces/dev-seed/%')));
+      .delete(workbenches)
+      .where(
+        and(
+          eq(workbenches.ownerUserId, userId),
+          like(workbenches.workspacePath, `${DEV_WORKBENCH_PREFIX}%`),
+        ),
+      );
 
     for (const c of SEED) {
+      const workbenchId = randomUUID();
       const chatId = randomUUID();
+      const workspacePath = `${DEV_WORKBENCH_PREFIX}${c.slug}-${workbenchId.slice(0, 8)}`;
+      await db.insert(workbenches).values({
+        id: workbenchId,
+        ownerUserId: userId,
+        name: c.title,
+        workspacePath,
+      });
       await db.insert(chats).values({
         id: chatId,
         ownerUserId: userId,
+        workbenchId,
         title: c.title,
-        workspacePath: `workspaces/dev-seed/${c.slug}-${chatId.slice(0, 8)}`,
       });
       await db.insert(messages).values(
         c.thread.map((m) => ({
@@ -113,7 +129,8 @@ async function main(): Promise<void> {
       await db.insert(artifacts).values(
         c.files.map((a) => ({
           id: randomUUID(),
-          chatId,
+          workbenchId,
+          createdInChatId: chatId,
           kind: a.kind,
           title: a.title,
           ownerAgentId: a.ownerAgentId,

@@ -212,7 +212,7 @@ export async function POST(req: Request) {
 
   // ---- Workbench (a fixed team) running multiple tasks --------------------
   // A round table === a workbench: a persistent set of members that runs many tasks.
-  const WORKBENCH = { id: 'wb-product', name: 'Product Squad', members: ['orchestrator', 'atlas', 'beam', 'vera', 'nova'] };
+  const WORKBENCH = { id: 'wb-product', name: 'Product Squad', members: ['orchestrator', 'atlas', 'beam', 'vera', 'nova'], workflowId: 'wf-fullstack' };
   const WORKBENCHES = [
     { id: 'wb-product', name: 'Product Squad' },
     { id: 'wb-growth', name: 'Growth Pod' },

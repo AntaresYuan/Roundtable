@@ -529,7 +529,7 @@ function TranscriptSheet({ scene, agents, onOpenArtifact }) {
 }
 
 /* ---- Now-dock (roundtable view) ------------------------------------------ */
-function Dock({ st, agents, scene, onAction, onOpenChat, onOpenWorkflow }) {
+function Dock({ st, agents, scene, onAction, onOpenChat, onOpenWorkflow, onSend }) {
   let dotColor = 'var(--text-faint)', body;
   if (st.decision) {
     const ag = agents[st.decision.agentId];
@@ -605,7 +605,7 @@ function Dock({ st, agents, scene, onAction, onOpenChat, onOpenWorkflow }) {
           boxShadow: st.speech ? `0 0 0 4px ${alpha(dotColor, 22)}` : 'none' }} />
         {body}
       </div>
-      <Composer agents={agents} onSend={() => scene.replay()} />
+      <Composer agents={agents} onSend={onSend || (() => scene.replay())} />
     </div>
   );
 }
@@ -1073,6 +1073,7 @@ function App() {
   const trpcUtils = trpc.useUtils();
   const createChat = trpc.chats.create.useMutation({ onSuccess: () => trpcUtils.chats.list.invalidate() });
   const createWorkbench = trpc.workbenches.create.useMutation({ onSuccess: () => trpcUtils.workbenches.list.invalidate() });
+  const createMessage = trpc.messages.create.useMutation({ onSuccess: () => trpcUtils.messages.list.invalidate() });
   // P3.2: chats/artifacts are workbench-scoped now (spec 100). Wire the rail to real workbenches.
   const [selectedWorkbenchId, setSelectedWorkbenchId] = useState(null);
   const liveWorkbenches = authed && workbenchesQ.data
@@ -1139,6 +1140,16 @@ function App() {
     if (id === 'fix') setDrawerArt(RT.ARTIFACTS.diff);
     if (id === 'deploy') setDrawerArt(RT.ARTIFACTS.preview);
     if (id.indexOf('decide:') === 0) setDecided(true);
+  };
+  // P3.3: send a real user message to the active chat; open the inspector thread to show it.
+  // (Agent replies still need the live orchestrator — Evan's lane, unmerged branch.)
+  const sendMessage = (text) => {
+    if (authed && activeChatId) {
+      createMessage.mutate({ chatId: activeChatId, content: text });
+      setInspectorTab('chat'); setNotesOpen(true);
+    } else {
+      scene.replay();
+    }
   };
   const breakoutData = RT.SCRIPT.find((b) => b.kind === 'breakout');
 
@@ -1230,7 +1241,7 @@ function App() {
                 {notesOpen && <InspectorPanel tab={inspectorTab} setTab={setInspectorTab} clock={scene.clock} width={compact ? 'min(100vw, 420px)' : inspectorW}
                   agents={agents} scene={scene} live={authed && !!activeChatId} liveArtifacts={liveArtifacts} liveMessages={liveMessages} liveHandoffs={liveHandoffs} onOpenArtifact={setDrawerArt} onAction={onAction} onClose={() => setNotesOpen(false)} />}
               </div>
-              <Dock st={st} agents={agents} scene={scene} onAction={onAction}
+              <Dock st={st} agents={agents} scene={scene} onAction={onAction} onSend={sendMessage}
                 onOpenChat={() => { setInspectorTab('chat'); setNotesOpen(true); }}
                 onOpenWorkflow={() => setView('workflow')} />
             </>

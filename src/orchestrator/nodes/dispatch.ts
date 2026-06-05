@@ -4,6 +4,7 @@ import type {
   Artifact,
   ArtifactId,
   HandoffCard,
+  PlanTask,
   Stage,
 } from '../../contracts/index.js';
 import type { AdapterRegistry } from '../../adapters/index.js';
@@ -46,6 +47,18 @@ export interface DispatchDeps {
   pinnedDb?: Db;
 }
 
+interface PreparedDispatchTask {
+  task: PlanTask;
+  role: AgentRoleId;
+  card: HandoffCard;
+}
+
+interface TaskRunResult {
+  record: DispatchRecord;
+  artifacts: Artifact[];
+  cards: HandoffCard[];
+}
+
 export async function runDispatch(
   state: OrchestratorState,
   deps: DispatchDeps,
@@ -69,109 +82,69 @@ export async function runDispatch(
     artifacts: dedupeArtifacts([...persistedArtifacts, ...state.artifacts]),
   };
 
-  for (const task of state.plan.tasks) {
-    const role = parseAssignee(task.assignee);
-    if (!role) {
-      records.push(failedRecord(task.id, `invalid assignee: ${task.assignee}`));
-      continue;
+  const completedTaskIds = new Set(
+    state.dispatch
+      .filter((r) => r.status === 'completed')
+      .map((r) => r.taskId),
+  );
+  const failedTaskIds = new Set(
+    state.dispatch
+      .filter((r) => r.status === 'failed')
+      .map((r) => r.taskId),
+  );
+  const remaining = new Map(state.plan.tasks.map((task) => [task.id, task]));
+
+  while (remaining.size > 0) {
+    const batch = state.plan.tasks.filter(
+      (task) =>
+        remaining.has(task.id) &&
+        task.deps.every((dep) => completedTaskIds.has(dep)),
+    );
+
+    if (batch.length === 0) {
+      for (const task of state.plan.tasks.filter((t) => remaining.has(t.id))) {
+        const unmet = task.deps.filter((dep) => !completedTaskIds.has(dep));
+        const failed = unmet.filter((dep) => failedTaskIds.has(dep));
+        records.push(
+          failedRecord(
+            task.id,
+            failed.length > 0
+              ? `dependency failed: ${failed.join(', ')}`
+              : `unmet dependencies: ${unmet.join(', ') || 'none'}`,
+          ),
+        );
+        remaining.delete(task.id);
+        failedTaskIds.add(task.id);
+      }
+      break;
     }
 
-    const baseCard = await generateHandoffCard(
-      {
-        state: contextState,
-        task,
-        role,
-        previousCards: cards,
-        ...(await composeHandoffContext({
-          state: contextState,
-          task,
-          role,
-          previousCards: cards,
-          ...(deps.pinnedDb ? { db: deps.pinnedDb } : {}),
-        })),
-      },
-      deps.handoff,
-    );
-    const card = applyHandoffOverride(
-      baseCard,
-      findStageForTask(state, task.workflowStageId),
-    );
-    cards.push(card);
-    await deps.handoffLog.append(card);
-
-    const cwd = await deps.workspaces.resolve(state.chatId);
-    const startedAt = new Date();
-
-    try {
-      await ensureWorkspace(cwd);
-
-      const adapter = deps.registry.resolve(role);
-      const session = await adapter.createSession({
-        cwd,
-        role,
-        agentMeta: { displayName: adapter.displayName, color: '#888' },
-        systemPrompt: buildHandoffSystemPrompt(card),
-      });
-
-      const events: AgentEvent[] = [];
-      let status: DispatchRecord['status'] = 'completed';
-      const artifactWatcher = deps.artifactDb && deps.dependencyGraph
-        ? new ArtifactWatcher({
-            db: deps.artifactDb,
-            chatId: state.chatId,
-            ownerAgentId: role,
-            dependencyGraph: deps.dependencyGraph,
-            ...(deps.dependencyStore ? { dependencyStore: deps.dependencyStore } : {}),
-          })
-        : undefined;
-
-      try {
-        for await (const rawEvent of session.send({ text: card.taskBrief })) {
-          const observedEvents = artifactWatcher
-            ? await artifactWatcher.accept(rawEvent)
-            : [rawEvent];
-          for (const event of observedEvents) {
-            events.push(event);
-            if (event.type === 'artifact') {
-              artifacts.push(event.artifact);
-            }
-            if (!artifactWatcher) {
-              const dependencyEvents = await handleDependencyEvent(event, {
-                chatId: state.chatId,
-                handoffLog: deps.handoffLog,
-                ...(deps.dependencyGraph ? { graph: deps.dependencyGraph } : {}),
-                ...(deps.dependencyStore ? { store: deps.dependencyStore } : {}),
-              });
-              events.push(...dependencyEvents.events);
-              cards.push(...dependencyEvents.cards);
-            }
-            if (event.type === 'error' && !event.recoverable) {
-              status = 'failed';
-              break;
-            }
-          }
-          if (status === 'failed') break;
-        }
-      } finally {
-        await session.close();
+    const prepared: PreparedDispatchTask[] = [];
+    for (const task of batch) {
+      remaining.delete(task.id);
+      const result = await prepareDispatchTask(task, state, contextState, cards, deps);
+      if ('record' in result) {
+        records.push(result.record);
+        failedTaskIds.add(task.id);
+        continue;
       }
+      prepared.push(result);
+      cards.push(result.card);
+      await deps.handoffLog.append(result.card);
+    }
 
-      records.push({
-        taskId: task.id,
-        handoffCardId: card.id,
-        sessionId: session.id,
-        status,
-        events,
-        startedAt,
-        finishedAt: new Date(),
-      });
-    } catch (error) {
-      records.push(
-        failedRecord(task.id, errorMessage(error), {
-          handoffCardId: card.id,
-          startedAt,
-        }),
-      );
+    const batchResults = await Promise.all(
+      prepared.map((task) => runPreparedTask(task, state, deps)),
+    );
+    for (const result of batchResults) {
+      records.push(result.record);
+      artifacts.push(...result.artifacts);
+      cards.push(...result.cards);
+      if (result.record.status === 'completed') {
+        completedTaskIds.add(result.record.taskId);
+      } else {
+        failedTaskIds.add(result.record.taskId);
+      }
     }
   }
 
@@ -194,6 +167,134 @@ export async function runDispatch(
     ...(pendingGate ? { pendingGate } : {}),
     stage: nextStage,
   };
+}
+
+async function prepareDispatchTask(
+  task: PlanTask,
+  state: OrchestratorState,
+  contextState: OrchestratorState,
+  previousCards: HandoffCard[],
+  deps: DispatchDeps,
+): Promise<PreparedDispatchTask | { record: DispatchRecord }> {
+  const role = parseAssignee(task.assignee);
+  if (!role) {
+    return { record: failedRecord(task.id, `invalid assignee: ${task.assignee}`) };
+  }
+
+  const baseCard = await generateHandoffCard(
+    {
+      state: contextState,
+      task,
+      role,
+      previousCards,
+      ...(await composeHandoffContext({
+        state: contextState,
+        task,
+        role,
+        previousCards,
+        ...(deps.pinnedDb ? { db: deps.pinnedDb } : {}),
+      })),
+    },
+    deps.handoff,
+  );
+  return {
+    task,
+    role,
+    card: applyHandoffOverride(
+      baseCard,
+      findStageForTask(state, task.workflowStageId),
+    ),
+  };
+}
+
+async function runPreparedTask(
+  prepared: PreparedDispatchTask,
+  state: OrchestratorState,
+  deps: DispatchDeps,
+): Promise<TaskRunResult> {
+  const { task, role, card } = prepared;
+  const artifacts: Artifact[] = [];
+  const cards: HandoffCard[] = [];
+  const cwd = await deps.workspaces.resolve(state.chatId);
+  const startedAt = new Date();
+
+  try {
+    await ensureWorkspace(cwd);
+
+    const adapter = deps.registry.resolve(role);
+    const session = await adapter.createSession({
+      cwd,
+      role,
+      agentMeta: { displayName: adapter.displayName, color: '#888' },
+      systemPrompt: buildHandoffSystemPrompt(card),
+    });
+
+    const events: AgentEvent[] = [];
+    let status: DispatchRecord['status'] = 'completed';
+    const artifactWatcher = deps.artifactDb && deps.dependencyGraph
+      ? new ArtifactWatcher({
+          db: deps.artifactDb,
+          chatId: state.chatId,
+          ownerAgentId: role,
+          dependencyGraph: deps.dependencyGraph,
+          ...(deps.dependencyStore ? { dependencyStore: deps.dependencyStore } : {}),
+        })
+      : undefined;
+
+    try {
+      for await (const rawEvent of session.send({ text: card.taskBrief })) {
+        const observedEvents = artifactWatcher
+          ? await artifactWatcher.accept(rawEvent)
+          : [rawEvent];
+        for (const event of observedEvents) {
+          events.push(event);
+          if (event.type === 'artifact') {
+            artifacts.push(event.artifact);
+          }
+          if (!artifactWatcher) {
+            const dependencyEvents = await handleDependencyEvent(event, {
+              chatId: state.chatId,
+              handoffLog: deps.handoffLog,
+              ...(deps.dependencyGraph ? { graph: deps.dependencyGraph } : {}),
+              ...(deps.dependencyStore ? { store: deps.dependencyStore } : {}),
+            });
+            events.push(...dependencyEvents.events);
+            cards.push(...dependencyEvents.cards);
+          }
+          if (event.type === 'error' && !event.recoverable) {
+            status = 'failed';
+            break;
+          }
+        }
+        if (status === 'failed') break;
+      }
+    } finally {
+      await session.close();
+    }
+
+    return {
+      record: {
+        taskId: task.id,
+        handoffCardId: card.id,
+        sessionId: session.id,
+        status,
+        events,
+        startedAt,
+        finishedAt: new Date(),
+      },
+      artifacts,
+      cards,
+    };
+  } catch (error) {
+    return {
+      record: failedRecord(task.id, errorMessage(error), {
+        handoffCardId: card.id,
+        startedAt,
+      }),
+      artifacts,
+      cards,
+    };
+  }
 }
 
 function findStageForTask(

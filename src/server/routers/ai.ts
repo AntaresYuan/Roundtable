@@ -48,4 +48,25 @@ export const aiRouter = createTRPCRouter({
     });
     return object.suggestions;
   }),
+
+  // Pick the best-fit workflow for a task description (drives the recommendation chip).
+  recommendWorkflow: protectedProcedure
+    .input(
+      z.object({
+        task: z.string().min(1).max(2000),
+        workflows: z.array(z.object({ id: z.string(), name: z.string(), desc: z.string() })).min(1).max(20),
+      }),
+    )
+    .query(async ({ input }) => {
+      const ids = input.workflows.map((w) => w.id);
+      const { object } = await generateObject({
+        model: defaultOrchestratorModel(),
+        schema: z.object({ workflowId: z.string(), reason: z.string() }),
+        system:
+          "Given a non-coder's build task and a list of available workflows (id + name + description), " +
+          'pick the single best-fit workflow for the task. Reply with its exact id and a one-sentence reason (<=16 words).',
+        prompt: `Task: ${input.task}\n\nWorkflows:\n${input.workflows.map((w) => `- ${w.id}: ${w.name} — ${w.desc}`).join('\n')}`,
+      });
+      return ids.includes(object.workflowId) ? object : null;
+    }),
 });

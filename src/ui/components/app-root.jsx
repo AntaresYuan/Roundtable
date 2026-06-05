@@ -121,6 +121,23 @@ function Drawer({ art, agents, onClose }) {
 }
 
 /* ---- Aggregate quick actions --------------------------------------------- */
+// AI-ish workflow fit: a local heuristic that backs ai.recommendWorkflow when the LLM
+// (火山引擎) isn't configured. Returns a better-fit workflow for the task, or null.
+function recommendWorkflow(task, workflows, currentId) {
+  const t = (task || '').toLowerCase();
+  if (t.length < 4) return null;
+  let pick = 'wf-fullstack';
+  let reason = 'A full build → review → ship loop fits a feature like this.';
+  if (/research|brief|spec|investigat|explore|compare|analy|gather|source|study|audit/.test(t)) {
+    pick = 'wf-research'; reason = 'This reads like research — gather → synthesize → brief fits better.';
+  } else if (/landing|marketing|convert|sign\s?up|wait\s?list|campaign|\bseo\b|hero|pricing page/.test(t)) {
+    pick = 'wf-growth'; reason = 'This is a marketing page — brief → build → QA → launch fits better.';
+  }
+  const wf = (workflows || []).find((w) => w.id === pick);
+  if (!wf || pick === currentId) return null;
+  return { id: wf.id, name: wf.name, reason };
+}
+
 function Aggregate({ beat, agents, onAction }) {
   const pm = agents.orchestrator;
   return (
@@ -529,7 +546,7 @@ function TranscriptSheet({ scene, agents, onOpenArtifact }) {
 }
 
 /* ---- Now-dock (roundtable view) ------------------------------------------ */
-function Dock({ st, agents, scene, onAction, onOpenChat, onOpenWorkflow, onSend }) {
+function Dock({ st, agents, scene, onAction, onOpenChat, onOpenWorkflow, onSend, rec }) {
   let dotColor = 'var(--text-faint)', body;
   if (st.decision) {
     const ag = agents[st.decision.agentId];
@@ -598,6 +615,10 @@ function Dock({ st, agents, scene, onAction, onOpenChat, onOpenWorkflow, onSend 
     <div style={{ borderTop: '1px solid var(--border)', background: 'var(--surface)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 22px 0' }}>
         <WorkflowStrip clock={scene.clock} onOpen={onOpenWorkflow} />
+        {rec && <button onClick={onOpenWorkflow} title={rec.reason} style={{ display: 'inline-flex', alignItems: 'center', gap: 6,
+          padding: '4px 11px', borderRadius: 999, border: `1px solid ${alpha('var(--accent)', 38)}`, background: alpha('var(--accent)', 10),
+          color: 'var(--accent)', font: 'inherit', fontSize: 11.5, fontWeight: 500, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+          <Icon name="sparkle" size={12} /> Try “{rec.name}”</button>}
         <span style={{ flex: 1 }} />
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '9px 22px 4px' }}>
@@ -1103,6 +1124,23 @@ function App() {
   );
   const liveMessages = authed && messagesQ.data ? messagesQ.data : null;
   const liveHandoffs = authed && handoffsQ.data ? handoffsQ.data : null;
+  // AI workflow recommendation for the active task — real AI via ai.recommendWorkflow (火山引擎),
+  // with a local heuristic fallback when the LLM isn't configured.
+  const activeTaskTitle = (authed && activeChatId && tasks.find((tk) => tk.id === activeChatId)?.title) || '';
+  const recQ = trpc.ai.recommendWorkflow.useQuery(
+    { task: activeTaskTitle, workflows: RT.BUILTIN_WORKFLOWS.map((w) => ({ id: w.id, name: w.name, desc: w.desc })) },
+    { enabled: authed && activeTaskTitle.length > 3, retry: false, staleTime: Infinity },
+  );
+  const workflowRec = (() => {
+    if (!activeTaskTitle) return null;
+    const cur = RT.WORKBENCH.workflowId;
+    if (recQ.data) {
+      if (recQ.data.workflowId === cur) return null;
+      const w = RT.BUILTIN_WORKFLOWS.find((x) => x.id === recQ.data.workflowId);
+      if (w) return { id: w.id, name: w.name, reason: recQ.data.reason };
+    }
+    return recommendWorkflow(activeTaskTitle, RT.BUILTIN_WORKFLOWS, cur);
+  })();
   const agents = useMemo(() => palettize(t.palette), [t.palette, memberIds]);
   const scene = useScene(t.autoplay, t.speed);
   const compact = useMediaQuery('(max-width: 760px)');
@@ -1241,7 +1279,7 @@ function App() {
                 {notesOpen && <InspectorPanel tab={inspectorTab} setTab={setInspectorTab} clock={scene.clock} width={compact ? 'min(100vw, 420px)' : inspectorW}
                   agents={agents} scene={scene} live={authed && !!activeChatId} liveArtifacts={liveArtifacts} liveMessages={liveMessages} liveHandoffs={liveHandoffs} onOpenArtifact={setDrawerArt} onAction={onAction} onClose={() => setNotesOpen(false)} />}
               </div>
-              <Dock st={st} agents={agents} scene={scene} onAction={onAction} onSend={sendMessage}
+              <Dock st={st} agents={agents} scene={scene} onAction={onAction} onSend={sendMessage} rec={workflowRec}
                 onOpenChat={() => { setInspectorTab('chat'); setNotesOpen(true); }}
                 onOpenWorkflow={() => setView('workflow')} />
             </>

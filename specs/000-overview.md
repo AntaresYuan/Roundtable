@@ -24,6 +24,67 @@ Roundtable is designed for people who want to build with AI but do not want to o
 
 The user should be able to understand what is happening without reading raw terminal output. The system should expose agent decisions as task cards, artifacts, diffs, previews, review comments, and next-step buttons.
 
+## User-visible boundary
+
+Roundtable's main chat is a collaboration surface, not a terminal mirror. The
+main chat should show only five object families:
+
+1. **Plan** — what the Orchestrator intends to do.
+2. **Progress** — which agents are working, blocked, or done.
+3. **Artifact** — files, diffs, previews, review comments, and dependency badges.
+4. **Decision** — gates, failure recovery, approval, retry, reassign, and edit-handoff
+   choices that need the user or were automatically handled by policy.
+5. **Result** — the aggregate summary and next-step actions.
+
+Everything else must be mapped into one of four visibility tiers:
+
+| Tier | Product rule | UI treatment |
+|---|---|---|
+| Main-chat card | The user needs to understand or act now. | Inline card or bubble. |
+| Collapsed details | Useful for trust, audit, or intervention, but not the main story. | Expandable section inside the related card. |
+| Side panel | Long-running context that helps inspect work but should not interrupt chat flow. | Artifact, dependency, handoff, or workflow panel. |
+| Debug-only log | Vendor/runtime machinery. Useful for developers, noisy for users. | Hidden behind debug mode or logs; never appears inline by default. |
+
+### Visibility mapping
+
+| Object or event | Tier | Notes |
+|---|---|---|
+| User message | Main-chat card | Always visible as the user's source intent. |
+| Orchestrator plan | Main-chat card | Summarized as tasks; internal decomposition details stay collapsed. |
+| Todo/progress updates | Main-chat card | One live card per dispatch turn; updates in place. |
+| Final agent reply | Main-chat card | Show the useful outcome, not every intermediate token. |
+| Artifact created or version bumped | Main-chat card | Inline summary plus link to preview/diff panel. |
+| Diff / preview | Side panel | Main chat links to it; detailed inspection happens off the primary transcript. |
+| Review comments | Main-chat card when blocking; side panel otherwise | Blocking comments are decisions; non-blocking comments are artifact detail. |
+| Dependency-changed badge | Main-chat card on affected artifact | Dependency graph internals remain side-panel/debug. |
+| Gate pending | Main-chat card | The run is paused; show approve/request-changes/edit choices clearly. |
+| Failure recovery | Main-chat card | Show agent, task, concise failure summary, retry/reassign/edit/stop actions. |
+| Autonomy decision | Collapsed details | Main card may say "Auto-retried once"; full policy/audit goes in details. |
+| HandoffCard | Collapsed details by default; main-chat card when editable before dispatch | Users may inspect/edit carried context; raw prompt construction is not inline. |
+| HandoffCard context audit | Collapsed details or side panel | Show source names and inclusion decisions, not full raw history. |
+| Side conversation | Collapsed details | Render as a compact chip; expandable with interject action. |
+| Tool use / tool result | Collapsed details | Show tool name and status; raw inputs/outputs are debug unless user-facing. |
+| Raw terminal / stream-json | Debug-only log | Never leak into normal chat. |
+| `thinking_delta` | Debug-only log by default | May be a privacy setting later; hidden in v1. |
+| Recoverable adapter error | Collapsed details unless it blocks | If policy auto-retries, show a short audit note; if blocked, show FailureRecovery. |
+| Non-recoverable adapter error | Main-chat card | Must become FailureRecovery, not a stack trace. |
+| Aggregate summary | Main-chat card | Four lines or less, with next actions and artifact links. |
+
+### Boundary rules
+
+- A user decision point is always visible: approve, request changes, retry, reassign,
+  edit handoff, stop, deploy, tool-access expansion, auth/secrets changes, and large
+  deletion.
+- Safe automatic actions are visible as audit chips, not as interruptions. The user can
+  expand to see the `AutonomyDecision` reason and policy level.
+- Raw logs never become product copy. They may be attached as `debugDetails` on the
+  related card or stored in developer logs.
+- Internal graphs and selectors explain outcomes only when useful: "Dependency changed"
+  is visible; topological sorting, selector runner-up scoring, and retry-loop plumbing are
+  debug or collapsed details.
+- Agent-visible context is not the same as user-visible context. Agents receive bounded
+  `HandoffCard` context; users see the card summary and source audit.
+
 ## Product stance
 
 | Compared with | Roundtable stance |
@@ -89,6 +150,7 @@ The user sees a friendly group-work surface while the system controls real CLI t
 
 ## Changelog
 
+- 2026-06-05 — added the user-visible orchestration boundary and visibility tiers.
 - 2026-06-04 — added Memory layers (spec 100) to the pillars table.
 - 2026-05-25 — reframed as consumer-friendly multi-CLI vibe coding workbench.
 - 2026-05-24 — initial draft.

@@ -29,6 +29,7 @@ const LocalDispatchRecordSchema = z.object({
 
 export const LocalTurnSchema = z.object({
   id: z.string().min(1),
+  localChatId: z.string().optional(),
   message: z.string().min(1),
   status: z.enum(['done', 'error']),
   createdAt: z.string(),
@@ -54,10 +55,11 @@ export type LocalTurn = z.infer<typeof LocalTurnSchema>;
 
 const LocalTurnListSchema = z.array(LocalTurnSchema);
 
-export async function listLocalTurns(): Promise<LocalTurn[]> {
+export async function listLocalTurns(chatId?: string): Promise<LocalTurn[]> {
   try {
     const raw = await readFile(localTurnStorePath(), 'utf8');
-    return sortLocalTurns(LocalTurnListSchema.parse(JSON.parse(raw)));
+    const all = sortLocalTurns(LocalTurnListSchema.parse(JSON.parse(raw)));
+    return chatId ? all.filter((t) => t.localChatId === chatId) : all;
   } catch (error) {
     if (isMissingFile(error)) return [];
     throw error;

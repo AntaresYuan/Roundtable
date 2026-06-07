@@ -14,6 +14,7 @@ export const dynamic = 'force-dynamic';
 const BodySchema = z.object({
   message: z.string().trim().min(1).max(4000),
   turnId: z.string().trim().min(1).optional(),
+  chatId: z.string().optional(),
 });
 
 const TurnResponseSchema = z.object({
@@ -33,6 +34,7 @@ type TurnResponse = z.infer<typeof TurnResponseSchema>;
 export async function POST(req: Request) {
   let turnId = `turn-${Date.now()}`;
   let message = '';
+  let chatId: string | undefined;
   try {
     const body = BodySchema.safeParse(await req.json());
     if (!body.success) {
@@ -41,6 +43,7 @@ export async function POST(req: Request) {
 
     turnId = body.data.turnId ?? turnId;
     message = body.data.message;
+    chatId = body.data.chatId;
     requireOrchestratorKey();
 
     const llmErrors: unknown[] = [];
@@ -54,7 +57,7 @@ export async function POST(req: Request) {
     }).classify(message);
 
     const state = {
-      ...initialState('local-ui-turn', message),
+      ...initialState(chatId ?? `local-${turnId}`, message),
       intake,
       stage: 'plan' as const,
     };
@@ -83,6 +86,7 @@ export async function POST(req: Request) {
 
     await saveLocalTurn({
       id: turnId,
+      localChatId: chatId,
       message,
       status: 'done',
       createdAt: new Date().toISOString(),
@@ -101,6 +105,7 @@ export async function POST(req: Request) {
     if (message) {
       await saveLocalTurn({
         id: turnId,
+        localChatId: chatId,
         message,
         status: 'error',
         createdAt: new Date().toISOString(),

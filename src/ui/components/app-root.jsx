@@ -1510,6 +1510,7 @@ function App() {
   const [memberIds, setMemberIds] = useState(RT.WORKBENCH.members);
   const [localTurns, setLocalTurns] = useState([]);
   const [localStatus, setLocalStatus] = useState('idle');
+  const [localChatId] = useState(() => crypto.randomUUID());
   // P3.2: live chats when signed in; fall back to fixtures for the logged-out demo.
   const { status: authStatus } = useSession();
   const authed = authStatus === 'authenticated';
@@ -1627,7 +1628,7 @@ function App() {
     let cancelled = false;
     const loadHistory = async () => {
       try {
-        const res = await fetch('/api/orchestrator/history', { cache: 'no-store' });
+        const res = await fetch(`/api/orchestrator/history?chatId=${localChatId}`, { cache: 'no-store' });
         const data = await res.json();
         if (cancelled || !res.ok || !data.ok) return;
         setLocalTurns((data.turns || []).map(storedTurnToLiveTurn));
@@ -1678,7 +1679,7 @@ function App() {
       const res = await fetch('/api/orchestrator/turn', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, turnId: id }),
+        body: JSON.stringify({ message, turnId: id, chatId: localChatId }),
       });
       const data = await res.json();
       if (!res.ok || !data.ok) {

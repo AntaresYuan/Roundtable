@@ -42,6 +42,7 @@ corepack pnpm db:seed            # insert minimal demo rows
 | `pnpm check:console` | blocks `console.log` outside debug paths |
 | `pnpm spec:lint` | ensures specs are referenced from the AGENTS.md index |
 | `pnpm orch:smoke` | runs the orchestrator through mock adapters end-to-end |
+| `pnpm orch:smoke:llm` | runs the live LLM-backed orchestrator smoke against the selected provider |
 | `pnpm demo:restore` | wipes + re-inserts the demo dataset (see § 8) |
 | `pnpm dev:seed [email]` | dev-only: seeds 2 demo chats (thread + artifacts) for an email so the live UI has content to switch between (default `demo@roundtable.local`; log in with the same email). Idempotent; refuses to run in prod. Distinct from `db:seed` (#35). |
 | `pnpm sandbox:reap` | one-shot e2b sandbox idle-reaper sweep |
@@ -67,7 +68,11 @@ Group | Variable | Required? | Default | Used by
 **Email auth** | `AUTH_EMAIL_SERVER` | when sending verify emails | — | `src/server/auth.ts`
 **Email auth** | `AUTH_EMAIL_FROM` | when sending verify emails | — | `src/server/auth.ts`
 **Email auth** | `MAILHOG_SMTP_PORT` / `MAILHOG_UI_PORT` | local mail testing | `1025` / `8025` | `docker-compose.yml` (mail profile)
-**LLM** | `ANTHROPIC_API_KEY` | for LLM-backed nodes (`llmIntake`, `llmPlanner`, `llmSelector`, `createAISDKHandoffModelClient`) | — | `src/orchestrator/llm/provider.ts`
+**LLM** | `ROUNDTABLE_LLM_PROVIDER` | optional provider selector | `anthropic` | `src/orchestrator/llm/provider.ts`
+**LLM** | `ANTHROPIC_API_KEY` | when provider is `anthropic` | — | `src/orchestrator/llm/provider.ts`
+**LLM** | `DEEPSEEK_API_KEY` / `DEEPSEEK_MODEL` / `DEEPSEEK_BASE_URL` | when provider is `deepseek` | `deepseek-v4-flash` / `https://api.deepseek.com` | `src/orchestrator/llm/provider.ts`
+**LLM** | `OPENAI_API_KEY` / `OPENAI_MODEL` / `OPENAI_BASE_URL` | when provider is `openai` | `gpt-4o-mini` / unset | `src/orchestrator/llm/provider.ts`
+**LLM** | `MINIMAX_API_KEY` / `MINIMAX_MODEL` / `MINIMAX_BASE_URL` | when provider is `minimax` | `MiniMax-M3` / `https://api.minimax.io/anthropic/v1` | `src/orchestrator/llm/provider.ts`
 **Sandboxing** | `E2B_API_KEY` | when serving live `web_app` previews | — | `src/lib/sandbox-provider-e2b.ts`
 **Sandboxing** | `SANDBOX_URL_SIGNING_SECRET` | always (HMAC for iframe URLs) | — | `src/lib/sandbox.ts`
 **Maintenance** | `CHECKPOINT_TTL_DAYS` | optional GC tuning | `30` | `scripts/cleanup-checkpoints.ts`
@@ -77,6 +82,12 @@ Group | Variable | Required? | Default | Used by
 **Maintenance** | `ROUNDTABLE_CLAUDE_COMMAND` | override the `claude` binary path | `claude` | same test
 
 Anything marked "required: prod" still has a useful local default; missing values throw at boot rather than silently misbehaving.
+
+### LLM provider diagnostics
+
+Use `GET /api/orchestrator/diagnostics` before a live turn when provider setup is unclear. It returns selected provider, model, base URL, expected key env var, whether that key is present, and the smoke command `corepack pnpm orch:smoke:llm`. It never returns secret values.
+
+Live-turn failures are normalized into missing key, auth, quota/balance, network, unsupported provider, or model/schema compatibility categories. If diagnostics says the provider is configured but a turn still fails, reproduce locally with `corepack pnpm orch:smoke:llm` and inspect the sanitized category returned by the turn API.
 
 ---
 

@@ -78,6 +78,24 @@ export const agentSessionStatusEnum = pgEnum('agent_session_status', [
   'interrupted',
 ]);
 
+export const liveTurnStatusEnum = pgEnum('live_turn_status', [
+  'done',
+  'error',
+]);
+
+export const liveTurnApprovalStatusEnum = pgEnum('live_turn_approval_status', [
+  'pending',
+  'approved',
+  'changes_requested',
+]);
+
+export const liveTurnDispatchStatusEnum = pgEnum('live_turn_dispatch_status', [
+  'not_started',
+  'running',
+  'completed',
+  'failed',
+]);
+
 export const handoffScenarioEnum = pgEnum('handoff_scenario', [
   'dispatch',
   'agent_handoff',
@@ -386,6 +404,48 @@ export const agentSessions = pgTable(
       table.startedAt,
     ),
     adapterIdx: index('agent_sessions_adapter_id_idx').on(table.adapterId),
+  }),
+);
+
+export const liveTurns = pgTable(
+  'live_turns',
+  {
+    id: text('id').primaryKey(),
+    chatId: uuid('chat_id')
+      .notNull()
+      .references(() => chats.id, { onDelete: 'cascade' }),
+    message: text('message').notNull(),
+    status: liveTurnStatusEnum('status').notNull(),
+    provider: text('provider'),
+    model: text('model'),
+    pmMessage: text('pm_message'),
+    needsApproval: boolean('needs_approval'),
+    approvalStatus: liveTurnApprovalStatusEnum('approval_status'),
+    approvedAt: timestamp('approved_at', { withTimezone: true }),
+    dispatchStatus: liveTurnDispatchStatusEnum('dispatch_status'),
+    dispatchAdapter: text('dispatch_adapter'),
+    dispatchedAt: timestamp('dispatched_at', { withTimezone: true }),
+    dispatch: jsonb('dispatch').$type<unknown[]>(),
+    artifacts: jsonb('artifacts').$type<Artifact[]>(),
+    dispatchStage: text('dispatch_stage'),
+    dispatchError: text('dispatch_error'),
+    dispatchWorkspacePath: text('dispatch_workspace_path'),
+    intake: jsonb('intake').$type<unknown>(),
+    plan: jsonb('plan').$type<unknown>(),
+    error: text('error'),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    chatCreatedIdx: index('live_turns_chat_id_created_at_idx').on(
+      table.chatId,
+      table.createdAt,
+    ),
+    statusIdx: index('live_turns_status_idx').on(table.status),
   }),
 );
 

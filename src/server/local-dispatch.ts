@@ -22,9 +22,9 @@ import {
   requireOrchestratorKey,
 } from '@/orchestrator/llm';
 import {
-  getLocalTurn,
+  getLiveTurn,
   localRuntimeRoot,
-  updateLocalTurn,
+  updateLiveTurn,
   type LocalTurn,
 } from '@/server/local-turn-store';
 
@@ -56,7 +56,7 @@ export async function dispatchApprovedLocalTurn(
   turnId: string,
   options: LocalDispatchOptions = {},
 ) {
-  const turn = await getLocalTurn(turnId);
+  const turn = await getLiveTurn(turnId);
   if (!turn) throw new LocalDispatchError('turn_not_found', 404);
   if (!turn.plan || !turn.intake) throw new LocalDispatchError('turn_has_no_plan', 409);
   if (turn.approvalStatus !== 'approved') throw new LocalDispatchError('turn_not_approved', 409);
@@ -69,7 +69,7 @@ export async function dispatchApprovedLocalTurn(
         turn.dispatchWorkspacePath,
         turn.plan.tasks,
       );
-      const refreshedTurn = await updateLocalTurn(turn.id, (current) => ({
+      const refreshedTurn = await updateLiveTurn(turn.id, (current) => ({
         ...current,
         artifacts: refreshedArtifacts,
       }));
@@ -78,7 +78,7 @@ export async function dispatchApprovedLocalTurn(
     return toLocalDispatchResponse(turn);
   }
 
-  await updateLocalTurn(turn.id, (current) => {
+  await updateLiveTurn(turn.id, (current) => {
     const { dispatchError: _dispatchError, ...rest } = current;
     return {
       ...rest,
@@ -109,7 +109,7 @@ export async function dispatchApprovedLocalTurn(
       workspace,
       turn.plan.tasks,
     );
-    const nextTurn = await updateLocalTurn(turn.id, (current) => ({
+    const nextTurn = await updateLiveTurn(turn.id, (current) => ({
       ...current,
       dispatchAdapter: agentAdapter,
       dispatchStatus: failed ? 'failed' : 'completed',
@@ -126,7 +126,7 @@ export async function dispatchApprovedLocalTurn(
     if (error instanceof LocalDispatchError) throw error;
     const message = errorMessage(error);
     const failedWorkspace = await workspaceResolver(join(localRuntimeRoot(), 'workspaces')).resolve(`local-${turn.id}`);
-    const failedTurn = await updateLocalTurn(turn.id, (current) => ({
+    const failedTurn = await updateLiveTurn(turn.id, (current) => ({
       ...current,
       dispatchStatus: 'failed',
       dispatchAdapter: resolveLocalAgentAdapterMode(options.agentAdapter),

@@ -767,7 +767,24 @@ function TranscriptSheet({ scene, agents, onOpenArtifact }) {
 }
 
 /* ---- Now-dock (roundtable view) ------------------------------------------ */
-function Dock({ st, agents, scene, onAction, onOpenChat, onOpenWorkflow, onSend, liveStatus }) {
+// AI-ish workflow fit: a local heuristic (main has no backend ai.recommendWorkflow).
+// Returns a better-fit builtin workflow for the active task, or null.
+function recommendWorkflow(task, workflows, currentId) {
+  const t = (task || '').toLowerCase();
+  if (t.length < 4) return null;
+  let pick = 'wf-fullstack';
+  let reason = 'A full build → review → ship loop fits a feature like this.';
+  if (/research|brief|spec|investigat|explore|compare|analy|gather|source|study|audit/.test(t)) {
+    pick = 'wf-research'; reason = 'This reads like research — gather → synthesize → brief fits better.';
+  } else if (/landing|marketing|convert|sign\s?up|wait\s?list|campaign|\bseo\b|hero|pricing page/.test(t)) {
+    pick = 'wf-growth'; reason = 'This is a marketing page — brief → build → QA → launch fits better.';
+  }
+  const wf = (workflows || []).find((w) => w.id === pick);
+  if (!wf || pick === currentId) return null;
+  return { id: wf.id, name: wf.name, reason };
+}
+
+function Dock({ st, agents, scene, onAction, onOpenChat, onOpenWorkflow, onSend, liveStatus, rec, onUseWorkflow, onDismissRec }) {
   let dotColor = 'var(--text-faint)', body;
   if (st.decision) {
     const ag = agents[st.decision.agentId];
@@ -838,6 +855,20 @@ function Dock({ st, agents, scene, onAction, onOpenChat, onOpenWorkflow, onSend,
         <WorkflowStrip clock={scene.clock} onOpen={onOpenWorkflow} />
         <span style={{ flex: 1 }} />
       </div>
+      {rec && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '8px 22px 0', padding: '8px 12px',
+          borderRadius: 'var(--r-sm)', border: `1px solid ${alpha('var(--accent)', 30)}`, background: alpha('var(--accent)', 8) }}>
+          <Icon name="sparkle" size={15} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+          <div style={{ flex: 1, fontSize: 12.5, lineHeight: 1.45, minWidth: 0 }}>
+            <span>This task fits <b>“{rec.name}”</b> better</span>
+            <span style={{ color: 'var(--text-muted)' }}> — {rec.reason}</span>
+          </div>
+          <button onClick={() => onUseWorkflow && onUseWorkflow(rec.id)} style={{ flexShrink: 0, padding: '5px 12px', borderRadius: 'var(--r-sm)',
+            border: 'none', background: 'var(--accent)', color: '#fff', font: 'inherit', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>Use it</button>
+          <button onClick={() => onDismissRec && onDismissRec()} title="Dismiss" style={{ flexShrink: 0, display: 'grid', placeItems: 'center',
+            width: 24, height: 24, borderRadius: 'var(--r-sm)', border: 'none', background: 'transparent', color: 'var(--text-faint)', cursor: 'pointer' }}><Icon name="x" size={13} /></button>
+        </div>
+      )}
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '9px 22px 4px' }}>
         <span style={{ width: 8, height: 8, borderRadius: '50%', background: dotColor, flexShrink: 0,
           boxShadow: st.speech ? `0 0 0 4px ${alpha(dotColor, 22)}` : 'none' }} />
@@ -1591,6 +1622,15 @@ function App() {
   const compact = useMediaQuery('(max-width: 760px)');
   const [decided, setDecided] = useState(false);
   const localLive = !authed && localTurns.length > 0;
+  // Workflow recommendation for the active task (local heuristic; no backend on main).
+  const activeTaskTitle = localLive
+    ? (tasks[0]?.title ?? '')
+    : (tasks.find((tk) => tk.id === activeChatId)?.title ?? '');
+  const [recDismissed, setRecDismissed] = useState(null);
+  const [, setWfTick] = useState(0);
+  const workflowRec = recommendWorkflow(activeTaskTitle, RT.BUILTIN_WORKFLOWS, RT.WORKBENCH.workflowId);
+  const applyWorkflow = (id) => { RT.WORKBENCH.workflowId = id; setWfTick((n) => n + 1); setRecDismissed(null); };
+  const effectiveRec = workflowRec && recDismissed !== workflowRec.id ? workflowRec : null;
   const st = useMemo(() => {
     const s = sceneAt(localLive ? 0 : scene.clock);
     if (decided) s.decision = null;
@@ -1875,7 +1915,8 @@ function App() {
               </div>
               <Dock st={st} agents={agents} scene={scene} onAction={onAction}
                 onOpenChat={() => { setInspectorTab('chat'); setNotesOpen(true); }}
-                onOpenWorkflow={() => setView('workflow')} onSend={sendComposerMessage} liveStatus={localStatus} />
+                onOpenWorkflow={() => setView('workflow')} onSend={sendComposerMessage} liveStatus={localStatus}
+                rec={effectiveRec} onUseWorkflow={applyWorkflow} onDismissRec={() => setRecDismissed(workflowRec?.id)} />
             </>
           )}
           {view === 'workflow' && <WorkflowView agents={agents} onAddAgent={() => setModal('agent')} onOpenTemplates={() => setModal('table')} />}

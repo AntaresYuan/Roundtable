@@ -19,6 +19,7 @@ export async function POST(req: Request) {
 
   try {
     return Response.json(await dispatchApprovedLocalTurn(body.data.turnId, {
+      background: true,
       ...(body.data.agentAdapter ? { agentAdapter: body.data.agentAdapter } : {}),
     }));
   } catch (error) {

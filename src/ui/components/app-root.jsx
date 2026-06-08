@@ -17,7 +17,7 @@ import { MemoryPanel } from './memory-panel';
 import { useSession } from 'next-auth/react';
 import { trpc } from '@/ui/lib/trpc';
 
-const { useState, useEffect, useMemo, useRef } = React;
+const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
 // Minimal tweak-state hook — replaces the prototype's tweaks-panel dev tool.
 function useTweaks(defaults) {
@@ -1663,24 +1663,33 @@ function App() {
     r.dataset.density = t.density;
   }, [t.aesthetic, t.theme, t.density]);
 
+  const loadLocalHistory = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/orchestrator/history?chatId=${localChatId}`, { cache: 'no-store' });
+      const data = await res.json();
+      if (!res.ok || !data.ok) return;
+      setLocalTurns((data.turns || []).map(storedTurnToLiveTurn));
+    } catch {
+      // Local history is a dev convenience; a fresh turn should still work.
+    }
+  }, [localChatId]);
+
   useEffect(() => {
     if (authStatus === 'loading' || authed) return;
-    let cancelled = false;
-    const loadHistory = async () => {
-      try {
-        const res = await fetch(`/api/orchestrator/history?chatId=${localChatId}`, { cache: 'no-store' });
-        const data = await res.json();
-        if (cancelled || !res.ok || !data.ok) return;
-        setLocalTurns((data.turns || []).map(storedTurnToLiveTurn));
-      } catch {
-        // Local history is a dev convenience; a fresh turn should still work.
-      }
-    };
-    loadHistory();
-    return () => {
-      cancelled = true;
-    };
-  }, [authStatus, authed]);
+    loadLocalHistory();
+  }, [authStatus, authed, loadLocalHistory]);
+
+  // Dispatch runs in the background on the server (fire-and-forget), so while a
+  // turn's dispatch is 'running' we poll history to fill in artifacts as they
+  // land — instead of holding a multi-minute request open and timing out.
+  const localInFlight = !authed && localTurns.some(
+    (turn) => turn.result?.dispatchStatus === 'running',
+  );
+  useEffect(() => {
+    if (authed || !localInFlight) return;
+    const iv = setInterval(() => { loadLocalHistory(); }, 2500);
+    return () => clearInterval(iv);
+  }, [authed, localInFlight, loadLocalHistory]);
 
   const onAction = (id) => {
     if (id === 'preview') setDrawerArt(RT.ARTIFACTS.preview);

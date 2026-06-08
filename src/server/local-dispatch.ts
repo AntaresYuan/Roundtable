@@ -41,6 +41,8 @@ type LocalAgentAdapterMode = 'local-dispatch' | 'claude-code';
 
 export interface LocalDispatchOptions {
   agentAdapter?: string;
+  /** Run the heavy dispatch in the background and return immediately with status 'running'. */
+  background?: boolean;
 }
 
 export class LocalDispatchError extends Error {
@@ -86,6 +88,28 @@ export async function dispatchApprovedLocalTurn(
     };
   });
 
+  if (options.background) {
+    // Fire-and-forget: the heavy runDispatch continues on the event loop and
+    // persists its own 'completed'/'failed' status to the turn store. The client
+    // polls history for the result instead of holding a multi-minute request open.
+    void executeDispatchWork(turn, options).catch(() => {
+      // executeDispatchWork persists its own 'failed' status; nothing to do here.
+    });
+    return toLocalDispatchResponse({
+      ...turn,
+      dispatchStatus: 'running',
+      dispatch: [],
+      artifacts: turn.artifacts ?? [],
+    });
+  }
+  return executeDispatchWork(turn, options);
+}
+
+async function executeDispatchWork(
+  turn: LocalTurn,
+  options: LocalDispatchOptions,
+): Promise<ReturnType<typeof toLocalDispatchResponse>> {
+  if (!turn.plan || !turn.intake) throw new LocalDispatchError('turn_has_no_plan', 409);
   try {
     const agentAdapter = resolveLocalAgentAdapterMode(options.agentAdapter);
     const registry = createLocalDispatchRegistry(agentAdapter);

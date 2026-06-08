@@ -10,6 +10,32 @@ export interface OrchestratorModelConfig {
   baseURL?: string;
 }
 
+export type ProviderDiagnosticStatus = 'configured' | 'missing_key' | 'unsupported_provider';
+export type ProviderErrorCategory =
+  | 'missing_key'
+  | 'quota_or_balance'
+  | 'model_or_schema'
+  | 'network'
+  | 'unsupported_provider'
+  | 'auth'
+  | 'unknown';
+
+export interface ProviderDiagnostics {
+  provider: OrchestratorProvider | 'unsupported';
+  model?: string;
+  baseURL?: string;
+  keyEnv?: string;
+  keyPresent: boolean;
+  status: ProviderDiagnosticStatus;
+  smokeCommand: string;
+}
+
+export interface ProviderErrorInfo {
+  category: ProviderErrorCategory;
+  message: string;
+  retryable: boolean;
+}
+
 const DEFAULT_ANTHROPIC_MODEL = 'claude-sonnet-4-6';
 const DEFAULT_DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
 const DEFAULT_DEEPSEEK_MODEL = 'deepseek-v4-flash';
@@ -137,6 +163,108 @@ export function requireOrchestratorKey(): void {
   }
 }
 
+export function providerDiagnostics(): ProviderDiagnostics {
+  let config: OrchestratorModelConfig;
+  try {
+    config = orchestratorModelConfig();
+  } catch {
+    return {
+      provider: 'unsupported',
+      keyPresent: false,
+      status: 'unsupported_provider',
+      smokeCommand: 'corepack pnpm orch:smoke:llm',
+    };
+  }
+
+  const keyEnv = keyEnvForProvider(config.provider);
+  const keyPresent = !!process.env[keyEnv];
+  return {
+    provider: config.provider,
+    model: config.model,
+    ...(config.baseURL ? { baseURL: config.baseURL } : {}),
+    keyEnv,
+    keyPresent,
+    status: keyPresent ? 'configured' : 'missing_key',
+    smokeCommand: 'corepack pnpm orch:smoke:llm',
+  };
+}
+
+export function categorizeProviderError(error: unknown): ProviderErrorInfo {
+  const raw = error instanceof Error ? error.message : String(error ?? '');
+  const message = redactSecrets(raw);
+  const lower = message.toLowerCase();
+
+  if (lower.includes('unsupported roundtable_llm_provider')) {
+    return {
+      category: 'unsupported_provider',
+      message,
+      retryable: false,
+    };
+  }
+  if (lower.includes('api_key is not set') || lower.includes('missing api key')) {
+    return {
+      category: 'missing_key',
+      message,
+      retryable: false,
+    };
+  }
+  if (
+    lower.includes('insufficient balance') ||
+    lower.includes('quota') ||
+    lower.includes('billing') ||
+    lower.includes('rate limit')
+  ) {
+    return {
+      category: 'quota_or_balance',
+      message,
+      retryable: lower.includes('rate limit'),
+    };
+  }
+  if (
+    lower.includes('incorrect api key') ||
+    lower.includes('invalid api key') ||
+    lower.includes('unauthorized') ||
+    lower.includes('401')
+  ) {
+    return {
+      category: 'auth',
+      message,
+      retryable: false,
+    };
+  }
+  if (
+    lower.includes('schema') ||
+    lower.includes('structured') ||
+    lower.includes('generateobject') ||
+    lower.includes('model') ||
+    lower.includes('404')
+  ) {
+    return {
+      category: 'model_or_schema',
+      message,
+      retryable: false,
+    };
+  }
+  if (
+    lower.includes('econnrefused') ||
+    lower.includes('fetch failed') ||
+    lower.includes('timeout') ||
+    lower.includes('network') ||
+    lower.includes('socket')
+  ) {
+    return {
+      category: 'network',
+      message,
+      retryable: true,
+    };
+  }
+  return {
+    category: 'unknown',
+    message,
+    retryable: false,
+  };
+}
+
 function normalizeProvider(value: string | undefined): OrchestratorProvider {
   if (!value) return 'anthropic';
   const normalized = value.toLowerCase();
@@ -145,4 +273,17 @@ function normalizeProvider(value: string | undefined): OrchestratorProvider {
   if (normalized === 'anthropic') return 'anthropic';
   if (normalized === 'openai') return 'openai';
   throw new Error(`Unsupported ROUNDTABLE_LLM_PROVIDER: ${value}`);
+}
+
+function keyEnvForProvider(provider: OrchestratorProvider): string {
+  if (provider === 'deepseek') return 'DEEPSEEK_API_KEY';
+  if (provider === 'minimax') return 'MINIMAX_API_KEY';
+  if (provider === 'openai') return 'OPENAI_API_KEY';
+  return 'ANTHROPIC_API_KEY';
+}
+
+function redactSecrets(value: string): string {
+  return value
+    .replace(/\bsk-\S+/g, 'sk-[redacted]')
+    .replace(/\b(k-cp-|eyJ)\S+/g, '[redacted]');
 }

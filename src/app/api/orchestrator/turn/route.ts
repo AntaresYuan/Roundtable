@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { IntakeResultSchema, PlanSchema } from '@/contracts';
+import { ArtifactIdSchema, ArtifactSchema, IntakeResultSchema, PlanSchema } from '@/contracts';
 import {
   llmIntake,
   llmPlanner,
@@ -7,7 +7,8 @@ import {
   requireOrchestratorKey,
 } from '@/orchestrator/llm';
 import { initialState } from '@/orchestrator/state';
-import { saveLocalTurn } from '@/server/local-turn-store';
+import { categorizeProviderError } from '@/orchestrator/llm/provider';
+import { saveLiveTurn } from '@/server/local-turn-store';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,6 +28,7 @@ const TurnResponseSchema = z.object({
   approvalStatus: z.literal('pending'),
   intake: IntakeResultSchema,
   plan: PlanSchema,
+  artifacts: z.array(ArtifactSchema),
 });
 
 type TurnResponse = z.infer<typeof TurnResponseSchema>;
@@ -72,6 +74,7 @@ export async function POST(req: Request) {
     }).buildPlan(state);
 
     const config = orchestratorModelConfig();
+    const artifacts = buildTurnArtifacts(turnId, responseChatId(chatId, turnId), message, intake, plan);
     const response: TurnResponse = {
       ok: true,
       id: turnId,
@@ -82,9 +85,10 @@ export async function POST(req: Request) {
       approvalStatus: 'pending',
       intake,
       plan,
+      artifacts,
     };
 
-    await saveLocalTurn({
+    await saveLiveTurn({
       id: turnId,
       localChatId: chatId,
       message,
@@ -97,13 +101,14 @@ export async function POST(req: Request) {
       approvalStatus: 'pending',
       intake: response.intake,
       plan: response.plan,
+      artifacts,
     });
 
     return Response.json(TurnResponseSchema.parse(response));
   } catch (error) {
     const sanitized = sanitizeError(error);
     if (message) {
-      await saveLocalTurn({
+      await saveLiveTurn({
         id: turnId,
         localChatId: chatId,
         message,
@@ -124,7 +129,64 @@ function buildPmMessage(taskCount: number, risk: string): string {
   return `I drafted a ${taskCount}-task plan.${suffix}`;
 }
 
+function responseChatId(chatId: string | undefined, turnId: string): string {
+  return chatId ?? `local-${turnId}`;
+}
+
+function buildTurnArtifacts(
+  turnId: string,
+  chatId: string,
+  message: string,
+  intake: z.infer<typeof IntakeResultSchema>,
+  plan: z.infer<typeof PlanSchema>,
+): z.infer<typeof ArtifactSchema>[] {
+  const createdAt = new Date();
+  const intakeMarkdown = [
+    `# Intake summary`,
+    '',
+    `- Chat: ${chatId}`,
+    `- Intent: ${intake.intentType}`,
+    `- Clarity: ${intake.clarity}`,
+    `- Complexity: ${intake.complexity}`,
+    `- Risk: ${intake.risk}`,
+    `- Roles: ${intake.suggestedRoles.join(', ')}`,
+    '',
+    `## User request`,
+    '',
+    message,
+    '',
+    `## Summary`,
+    '',
+    intake.userVisibleSummary,
+  ].join('\n');
+
+  return [
+    {
+      id: ArtifactIdSchema.parse(`intake-${turnId}`),
+      kind: 'markdown',
+      title: `intake/${turnId}.md`,
+      ownerAgentId: 'orchestrator',
+      version: 1,
+      uri: `turn://${turnId}/intake`,
+      preview: `${intakeMarkdown}\n`,
+      createdAt,
+    },
+    {
+      id: ArtifactIdSchema.parse(`plan-${turnId}`),
+      kind: 'spec',
+      title: `plans/${turnId}.json`,
+      ownerAgentId: 'orchestrator',
+      version: 1,
+      uri: `turn://${turnId}/plan`,
+      preview: `${JSON.stringify(plan, null, 2)}\n`,
+      createdAt,
+    },
+  ];
+}
+
 function sanitizeError(error: unknown): string {
+  const categorized = categorizeProviderError(error);
+  if (categorized.category !== 'unknown') return categorized.message;
   if (!(error instanceof Error)) return 'llm_turn_failed';
   const message = error.message
     .replace(/\bsk-\S+/g, 'sk-[redacted]')

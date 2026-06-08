@@ -2,9 +2,11 @@ import { MockLanguageModelV3 } from 'ai/test';
 import { afterEach, describe, expect, it } from 'vitest';
 import { llmIntake as publicLlmIntake, llmPlanner as publicLlmPlanner } from '../../src/lib/llm.js';
 import {
+  categorizeProviderError,
   llmIntake,
   llmPlanner,
   orchestratorModelConfig,
+  providerDiagnostics,
   requireOrchestratorKey,
 } from '../../src/orchestrator/llm/index.js';
 import type { IntakeClassifier } from '../../src/orchestrator/nodes/intake.js';
@@ -308,5 +310,34 @@ describe('orchestratorModelConfig', () => {
     expect(() => requireOrchestratorKey()).toThrow(
       'OPENAI_API_KEY is not set. Configure it before using OpenAI-backed orchestrator nodes.',
     );
+  });
+});
+
+describe('providerDiagnostics', () => {
+  it('reports DeepSeek config without exposing the key value', () => {
+    process.env['ROUNDTABLE_LLM_PROVIDER'] = 'deepseek';
+    process.env['DEEPSEEK_API_KEY'] = 'sk-secret-for-test';
+    process.env['DEEPSEEK_MODEL'] = 'deepseek-v4-flash';
+
+    const diagnostics = providerDiagnostics();
+
+    expect(diagnostics).toMatchObject({
+      provider: 'deepseek',
+      model: 'deepseek-v4-flash',
+      keyEnv: 'DEEPSEEK_API_KEY',
+      keyPresent: true,
+      status: 'configured',
+      smokeCommand: 'corepack pnpm orch:smoke:llm',
+    });
+    expect(JSON.stringify(diagnostics)).not.toContain('sk-secret-for-test');
+  });
+
+  it('normalizes common provider failures into actionable categories', () => {
+    expect(categorizeProviderError(new Error('DEEPSEEK_API_KEY is not set')).category).toBe('missing_key');
+    expect(categorizeProviderError(new Error('insufficient balance')).category).toBe('quota_or_balance');
+    expect(categorizeProviderError(new Error('connect ECONNREFUSED 127.0.0.1:8045')).category).toBe('network');
+    expect(categorizeProviderError(new Error('Incorrect API key provided: sk-test')).category).toBe('auth');
+    expect(categorizeProviderError(new Error('Unsupported ROUNDTABLE_LLM_PROVIDER: nope')).category).toBe('unsupported_provider');
+    expect(categorizeProviderError(new Error('Incorrect API key provided: sk-test')).message).not.toContain('sk-test');
   });
 });

@@ -4,8 +4,8 @@ import {
   LocalDispatchError,
 } from '@/server/local-dispatch';
 import {
-  getLocalTurn,
-  resolveLocalTurnApproval,
+  getLiveTurn,
+  resolveLiveTurnApproval,
 } from '@/server/local-turn-store';
 
 export const dynamic = 'force-dynamic';
@@ -23,7 +23,7 @@ export async function POST(req: Request) {
     return Response.json({ ok: false, error: 'invalid_approval_request' }, { status: 400 });
   }
 
-  const currentTurn = await getLocalTurn(body.data.turnId);
+  const currentTurn = await getLiveTurn(body.data.turnId);
   if (!currentTurn) {
     return Response.json({ ok: false, error: 'turn_not_found' }, { status: 404 });
   }
@@ -31,7 +31,7 @@ export async function POST(req: Request) {
     return Response.json({ ok: false, error: 'turn_has_no_plan' }, { status: 409 });
   }
 
-  const turn = await resolveLocalTurnApproval(body.data.turnId, body.data.decision);
+  const turn = await resolveLiveTurnApproval(body.data.turnId, body.data.decision);
   if (!turn) {
     return Response.json({ ok: false, error: 'turn_not_found' }, { status: 404 });
   }

@@ -37,3 +37,9 @@ jobs:
 
       - name: Test
         run: corepack pnpm test
+
+      - name: Install Playwright browsers
+        run: corepack pnpm exec playwright install --with-deps chromium
+
+      - name: E2E
+        run: corepack pnpm test:e2e

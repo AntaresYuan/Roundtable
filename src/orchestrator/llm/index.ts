@@ -1,10 +1,16 @@
 export {
   defaultOrchestratorModel,
+  categorizeProviderError,
   orchestratorModelConfig,
+  providerDiagnostics,
   requireAnthropicKey,
   requireOrchestratorKey,
 } from './provider.js';
-export type { OrchestratorModelConfig } from './provider.js';
+export type {
+  OrchestratorModelConfig,
+  ProviderDiagnostics,
+  ProviderErrorInfo,
+} from './provider.js';
 export { llmIntake } from './llm-intake.js';
 export type { LlmIntakeOpts } from './llm-intake.js';
 export { llmPlanner } from './llm-planner.js';

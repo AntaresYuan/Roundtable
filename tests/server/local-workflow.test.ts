@@ -164,19 +164,20 @@ describe.sequential('local backend workflow', () => {
     }));
     const body = await response.json();
 
+    // autoDispatch fires the dispatch in the background and returns immediately
+    // with 'running'; the client polls for the result instead of blocking.
     expect(response.status).toBe(200);
     expect(body).toMatchObject({
       ok: true,
       id: 'turn-smoke',
       approvalStatus: 'approved',
-      dispatchStatus: 'completed',
-      dispatchStage: 'review',
+      dispatchStatus: 'running',
     });
-    expect(body.records).toHaveLength(2);
 
-    const stored = await getLocalTurn('turn-smoke');
+    const stored = await waitForDispatch('turn-smoke');
     expect(stored?.approvalStatus).toBe('approved');
     expect(stored?.dispatchStatus).toBe('completed');
+    expect(stored?.dispatch).toHaveLength(2);
   });
 
   it('rejects dispatch before approval', async () => {
@@ -252,6 +253,15 @@ function seedTurn(id: string): LocalTurn {
       ],
     },
   };
+}
+
+async function waitForDispatch(id: string): Promise<LocalTurn | null> {
+  for (let i = 0; i < 120; i += 1) {
+    const turn = await getLocalTurn(id);
+    if (turn?.dispatchStatus === 'completed' || turn?.dispatchStatus === 'failed') return turn;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return getLocalTurn(id);
 }
 
 function jsonRequest(body: unknown): Request {

@@ -40,6 +40,7 @@ export async function POST(req: Request) {
   if (body.data.decision === 'approve' && body.data.autoDispatch) {
     try {
       dispatch = await dispatchApprovedLocalTurn(turn.id, {
+        background: true,
         ...(body.data.agentAdapter ? { agentAdapter: body.data.agentAdapter } : {}),
       });
     } catch (error) {

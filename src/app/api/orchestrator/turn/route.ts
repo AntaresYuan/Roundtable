@@ -7,6 +7,8 @@ import {
   requireOrchestratorKey,
 } from '@/orchestrator/llm';
 import { initialState } from '@/orchestrator/state';
+import { heuristicIntake } from '@/orchestrator/nodes/intake';
+import { rolePlanner } from '@/orchestrator/nodes/plan';
 import { categorizeProviderError } from '@/orchestrator/llm/provider';
 import { saveLiveTurn } from '@/server/local-turn-store';
 
@@ -26,6 +28,7 @@ const TurnResponseSchema = z.object({
   pmMessage: z.string(),
   needsApproval: z.literal(true),
   approvalStatus: z.literal('pending'),
+  degraded: z.boolean().optional(),
   intake: IntakeResultSchema,
   plan: PlanSchema,
   artifacts: z.array(ArtifactSchema),
@@ -46,17 +49,29 @@ export async function POST(req: Request) {
     turnId = body.data.turnId ?? turnId;
     message = body.data.message;
     chatId = body.data.chatId;
-    requireOrchestratorKey();
+    // Demo-critical resilience: the turn must always produce a plan, even with
+    // no API key or a flaky provider. We try the live LLM first, then fall back
+    // to the deterministic heuristic intake/planner instead of failing the
+    // whole turn. A throwing fallback here used to 500 the very first step of
+    // the demo whenever the model hiccuped.
+    // The turn must always produce a plan. We try the live LLM (which has its
+    // own JSON-text retry for providers that reject json_schema structured
+    // output, e.g. Volcano), and only mark the turn "degraded" when the
+    // deterministic heuristic actually runs — i.e. no key, or every model path
+    // failed. A model hiccup the JSON-text fallback recovers from is NOT degraded.
+    const hasKey = orchestratorKeyPresent();
+    let heuristicUsed = !hasKey;
 
-    const llmErrors: unknown[] = [];
-    const intake = await llmIntake({
-      onError: (error) => llmErrors.push(error),
-      fallback: {
-        async classify() {
-          throw llmErrors[0] ?? new Error('llm_intake_failed');
-        },
-      },
-    }).classify(message);
+    const intake = hasKey
+      ? await llmIntake({
+          fallback: {
+            async classify(text) {
+              heuristicUsed = true;
+              return heuristicIntake().classify(text);
+            },
+          },
+        }).classify(message)
+      : await heuristicIntake().classify(message);
 
     const state = {
       ...initialState(chatId ?? `local-${turnId}`, message),
@@ -64,25 +79,29 @@ export async function POST(req: Request) {
       stage: 'plan' as const,
     };
 
-    const plan = await llmPlanner({
-      onError: (error) => llmErrors.push(error),
-      fallback: {
-        async buildPlan() {
-          throw llmErrors[llmErrors.length - 1] ?? new Error('llm_plan_failed');
-        },
-      },
-    }).buildPlan(state);
+    const plan = hasKey
+      ? await llmPlanner({
+          fallback: {
+            async buildPlan(planState) {
+              heuristicUsed = true;
+              return rolePlanner().buildPlan(planState);
+            },
+          },
+        }).buildPlan(state)
+      : await rolePlanner().buildPlan(state);
 
+    const degraded = heuristicUsed;
     const config = orchestratorModelConfig();
     const artifacts = buildTurnArtifacts(turnId, responseChatId(chatId, turnId), message, intake, plan);
     const response: TurnResponse = {
       ok: true,
       id: turnId,
       provider: config.provider,
-      model: config.model,
-      pmMessage: buildPmMessage(plan.tasks.length, intake.risk),
+      model: displayModel(config.provider, config.model),
+      pmMessage: buildPmMessage(plan.tasks.length, intake.risk, degraded),
       needsApproval: true,
       approvalStatus: 'pending',
+      ...(degraded ? { degraded: true } : {}),
       intake,
       plan,
       artifacts,
@@ -121,12 +140,32 @@ export async function POST(req: Request) {
   }
 }
 
-function buildPmMessage(taskCount: number, risk: string): string {
+function buildPmMessage(taskCount: number, risk: string, degraded = false): string {
   const suffix =
     risk === 'high'
       ? ' This looks high-risk, so I will not start work without your explicit approval.'
       : ' I will wait for your approval before dispatching any agents.';
-  return `I drafted a ${taskCount}-task plan.${suffix}`;
+  const note = degraded
+    ? ' (Drafted with the built-in heuristic planner — the live model was unavailable, so double-check the plan before approving.)'
+    : '';
+  return `I drafted a ${taskCount}-task plan.${suffix}${note}`;
+}
+
+// Never surface an account-specific inference endpoint id (e.g. Volcano's
+// `ep-...`) to clients. The provider name is enough for a "running on a real
+// model" badge; the raw endpoint id is an internal resource identifier.
+function displayModel(provider: string, model: string): string {
+  if (provider === 'volcano' || /^ep-/.test(model)) return 'ark';
+  return model;
+}
+
+function orchestratorKeyPresent(): boolean {
+  try {
+    requireOrchestratorKey();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function responseChatId(chatId: string | undefined, turnId: string): string {

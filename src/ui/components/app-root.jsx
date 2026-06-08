@@ -361,7 +361,7 @@ function LocalLiveTurn({ turn, agents, onApproveTurn, showPreview }) {
           </div>
           {turn.status === 'pending' && (
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: 'var(--text-muted)', fontSize: 13.5 }}>
-              <Spinner size={13} color="var(--text-muted)" /> calling the real model...
+              <Spinner size={13} color="var(--text-muted)" /> drafting the plan…
             </div>
           )}
           {turn.status === 'error' && (
@@ -825,7 +825,7 @@ function Dock({ st, agents, scene, onAction, onOpenChat, onOpenWorkflow, onSend,
   } else {
     body = (
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 1, fontSize: 13.5 }}>
-        <span>{liveStatus === 'pending' ? 'Planning with the real model' : !st.started ? 'Ready to begin' : 'The table is quiet'}</span>
+        <span>{liveStatus === 'pending' ? 'Drafting the plan…' : !st.started ? 'Ready to begin' : 'The table is quiet'}</span>
         {!st.started && (
           <span style={{ fontSize: 12.5, color: 'var(--text-faint)' }}>create a task or message the table</span>
         )}
@@ -1821,7 +1821,7 @@ function App() {
                       onAction={onAction} onOpenBreakouts={() => setHubOpen(true)} onSeatClick={(id) => setDmAgent(id)}
                       onOpenFiles={() => { setInspectorTab('files'); setNotesOpen(true); }}
                       onZoomWhiteboard={() => setZoomWB(true)} wide={!railOpen && !notesOpen} memberIds={memberIds} />
-                    {((authed && activeChatId) || localLive) && (
+                    {authed && activeChatId && !localLive && (
                       <div style={{ position: 'absolute', top: 14, left: '50%', transform: 'translateX(-50%)', zIndex: 40,
                         display: 'inline-flex', alignItems: 'center', gap: 7, padding: '5px 13px', borderRadius: 'var(--r-chip)',
                         border: '1px solid var(--border)', background: 'color-mix(in oklab, var(--surface) 90%, transparent)',
@@ -1883,7 +1883,7 @@ function App() {
       </div>
 
       {drawerArt && <Drawer art={drawerArt} agents={agents} onClose={() => setDrawerArt(null)} />}
-      {zoomWB && <WhiteboardZoom tasks={st.tasks} agents={agents} onClose={() => setZoomWB(false)} />}
+      {zoomWB && <WhiteboardZoom tasks={st.tasks} agents={agents} live={st.live} run={st.run} posted={st.planPosted} onClose={() => setZoomWB(false)} />}
       {breakoutOpen && <BreakoutModal data={breakoutData} agents={agents} onClose={() => setBreakoutOpen(false)}
         onBringBack={() => { setInspectorTab('notes'); setNotesOpen(true); }} />}
       {hubOpen && <BreakoutsHub agents={agents} memberIds={memberIds} autoRoom={st.breakout ? breakoutData : null}

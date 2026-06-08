@@ -2,7 +2,7 @@ import type { LanguageModel } from 'ai';
 import { anthropic, createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
 
-type OrchestratorProvider = 'anthropic' | 'deepseek' | 'minimax' | 'openai';
+type OrchestratorProvider = 'anthropic' | 'deepseek' | 'minimax' | 'openai' | 'volcano';
 
 export interface OrchestratorModelConfig {
   provider: OrchestratorProvider;
@@ -42,6 +42,10 @@ const DEFAULT_DEEPSEEK_MODEL = 'deepseek-v4-flash';
 const DEFAULT_MINIMAX_BASE_URL = 'https://api.minimax.io/anthropic/v1';
 const DEFAULT_MINIMAX_MODEL = 'MiniMax-M3';
 const DEFAULT_OPENAI_MODEL = 'gpt-4o-mini';
+// Volcano Engine (Ark) is OpenAI-compatible. The "model" is an account-specific
+// inference endpoint id (ep-...), so there is no sensible default — VOLCANO_MODEL
+// must be set explicitly.
+const DEFAULT_VOLCANO_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3';
 
 /**
  * Roundtable's default model for orchestrator-side reasoning (intake, planner,
@@ -81,6 +85,15 @@ export function defaultOrchestratorModel(): LanguageModel {
     });
     return minimax(config.model);
   }
+  if (config.provider === 'volcano') {
+    const volcano = createOpenAI({
+      apiKey: process.env['VOLCANO_API_KEY'] ?? '',
+      baseURL: config.baseURL ?? DEFAULT_VOLCANO_BASE_URL,
+      name: 'volcano',
+    });
+    return volcano.chat(config.model);
+  }
+
   if (config.provider === 'openai') {
     const openai = createOpenAI({
       apiKey: process.env['OPENAI_API_KEY'] ?? '',
@@ -109,6 +122,14 @@ export function orchestratorModelConfig(): OrchestratorModelConfig {
       baseURL: process.env['MINIMAX_BASE_URL'] || DEFAULT_MINIMAX_BASE_URL,
     };
   }
+  if (provider === 'volcano') {
+    return {
+      provider,
+      model: process.env['VOLCANO_MODEL'] || '',
+      baseURL: process.env['VOLCANO_BASE_URL'] || DEFAULT_VOLCANO_BASE_URL,
+    };
+  }
+
   if (provider === 'openai') {
     return {
       provider,
@@ -142,6 +163,15 @@ export function requireOrchestratorKey(): void {
     if (!process.env['MINIMAX_API_KEY']) {
       throw new Error(
         'MINIMAX_API_KEY is not set. Configure it before using MiniMax-backed orchestrator nodes.',
+      );
+    }
+    return;
+  }
+
+  if (config.provider === 'volcano') {
+    if (!process.env['VOLCANO_API_KEY']) {
+      throw new Error(
+        'VOLCANO_API_KEY is not set. Configure it before using Volcano-backed orchestrator nodes.',
       );
     }
     return;
@@ -272,6 +302,7 @@ function normalizeProvider(value: string | undefined): OrchestratorProvider {
   if (normalized === 'minimax') return 'minimax';
   if (normalized === 'anthropic') return 'anthropic';
   if (normalized === 'openai') return 'openai';
+  if (normalized === 'volcano') return 'volcano';
   throw new Error(`Unsupported ROUNDTABLE_LLM_PROVIDER: ${value}`);
 }
 
@@ -279,6 +310,7 @@ function keyEnvForProvider(provider: OrchestratorProvider): string {
   if (provider === 'deepseek') return 'DEEPSEEK_API_KEY';
   if (provider === 'minimax') return 'MINIMAX_API_KEY';
   if (provider === 'openai') return 'OPENAI_API_KEY';
+  if (provider === 'volcano') return 'VOLCANO_API_KEY';
   return 'ANTHROPIC_API_KEY';
 }
 

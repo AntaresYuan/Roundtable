@@ -696,14 +696,14 @@ function RoundtableScene({ agents, scene, memberIds, onOpenArtifact, onAction, o
 }
 
 /* ---- WhiteboardZoom : full lightbox of the board ------------------------- */
-function WhiteboardZoom({ tasks, agents, onClose }) {
+function WhiteboardZoom({ tasks, agents, onClose, live, run, posted = true }) {
   const w = Math.min(940, window.innerWidth - 80), h = Math.round(w * 0.52);
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 120, background: alpha('#000', 40),
       backdropFilter: 'blur(3px)', display: 'grid', placeItems: 'center', padding: 24 }}>
       <div onClick={(e) => e.stopPropagation()} className="rt-zoom" style={{ position: 'relative', width: w, height: h }}>
         <BoardFrame w={w} h={h}>
-          <WhiteboardSurface tasks={tasks} agents={agents} posted w={w - 22} h={h - 22} big />
+          <WhiteboardSurface tasks={tasks} agents={agents} posted={posted} live={live} run={run} w={w - 22} h={h - 22} big />
         </BoardFrame>
         <button onClick={onClose} style={{ position: 'absolute', top: 20, right: 20, display: 'grid', placeItems: 'center',
           width: 32, height: 32, borderRadius: 9, border: '1px solid var(--border)', background: 'var(--surface)',

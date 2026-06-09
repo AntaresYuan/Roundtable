@@ -29,7 +29,7 @@ test('local live UI creates a task, restores history, and preserves approval', a
   await page.getByPlaceholder(/Message the table/).fill('Build a waitlist page with email capture');
   await page.getByRole('button', { name: 'Send message' }).click();
 
-  await expect(page.getByText('Planning with the real model')).toBeVisible();
+  await expect(page.getByText(/Drafting the plan/)).toBeVisible();
   await expect(page.getByText('Plan drafted')).toBeVisible();
   await expect(page.getByText('awaiting approval', { exact: true }).first()).toBeVisible();
   await expect(page.getByText('Implement waitlist page').first()).toBeVisible();

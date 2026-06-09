@@ -23,6 +23,7 @@ import {
 } from '@/orchestrator/llm';
 import {
   getLiveTurn,
+  handoffLogPath,
   localRuntimeRoot,
   updateLiveTurn,
   type LocalTurn,
@@ -124,7 +125,7 @@ async function executeDispatchWork(
     const result = await runDispatch(state, {
       registry,
       workspaces: { resolve: () => workspace },
-      handoffLog: fileHandoffLog(join(runtimeRoot, 'handoffs.jsonl')),
+      handoffLog: fileHandoffLog(handoffLogPath()),
     });
     const failed = result.dispatch.some((record) => record.status === 'failed');
     const artifacts = await collectDispatchArtifacts(
@@ -720,7 +721,10 @@ function escapeScriptContent(value: string): string {
 async function writeWorkspaceFile(cwd: string, relativePath: string, contents: string): Promise<void> {
   const root = resolve(cwd);
   const target = resolve(root, relativePath);
-  if (target !== root && !target.startsWith(`${root}/`)) {
+  // Separator-agnostic containment check: a hardcoded `${root}/` prefix never
+  // matches on Windows, where resolve() yields backslash-separated paths.
+  const rel = relative(root, target);
+  if (rel !== '' && (rel.startsWith('..') || isAbsolute(rel))) {
     throw new Error(`refusing to write outside workspace: ${relativePath}`);
   }
   await mkdir(dirname(target), { recursive: true });

@@ -23,6 +23,7 @@ import {
 } from '@/orchestrator/llm';
 import {
   getLiveTurn,
+  handoffLogPath,
   localRuntimeRoot,
   updateLiveTurn,
   type LocalTurn,
@@ -124,7 +125,7 @@ async function executeDispatchWork(
     const result = await runDispatch(state, {
       registry,
       workspaces: { resolve: () => workspace },
-      handoffLog: fileHandoffLog(join(runtimeRoot, 'handoffs.jsonl')),
+      handoffLog: fileHandoffLog(handoffLogPath()),
     });
     const failed = result.dispatch.some((record) => record.status === 'failed');
     const artifacts = await collectDispatchArtifacts(

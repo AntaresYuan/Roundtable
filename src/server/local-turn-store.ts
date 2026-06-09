@@ -20,6 +20,15 @@ export function localTurnStorePath(): string {
   return process.env['ROUNDTABLE_LOCAL_TURN_STORE'] ?? join(localRuntimeRoot(), 'local-turns.json');
 }
 
+/**
+ * Where live dispatch appends one hand-off record per line. Defaults to the
+ * repo-tracked `ai-logs/handoffs.jsonl` so the audit trail is visible during the
+ * demo (the evaluator opens this file live). Override with ROUNDTABLE_HANDOFF_LOG.
+ */
+export function handoffLogPath(): string {
+  return process.env['ROUNDTABLE_HANDOFF_LOG'] ?? join(process.cwd(), 'ai-logs', 'handoffs.jsonl');
+}
+
 const LocalDispatchRecordSchema = z.object({
   taskId: z.string(),
   handoffCardId: z.string(),

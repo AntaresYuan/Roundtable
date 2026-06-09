@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   getDbTurn,
+  handoffLogPath,
   listLocalTurns,
   listDbTurns,
   saveDbTurn,
@@ -73,6 +74,32 @@ describe('listLocalTurns', () => {
     await saveLocalTurn(turn('turn-untagged'));
     expect(await listLocalTurns('chat-1')).toHaveLength(1);
     expect(await listLocalTurns()).toHaveLength(2);
+  });
+});
+
+describe('handoffLogPath', () => {
+  let previous: string | undefined;
+
+  beforeEach(() => {
+    previous = process.env['ROUNDTABLE_HANDOFF_LOG'];
+  });
+
+  afterEach(() => {
+    if (previous === undefined) {
+      delete process.env['ROUNDTABLE_HANDOFF_LOG'];
+    } else {
+      process.env['ROUNDTABLE_HANDOFF_LOG'] = previous;
+    }
+  });
+
+  it('defaults to the repo-tracked ai-logs/handoffs.jsonl (issue #135)', () => {
+    delete process.env['ROUNDTABLE_HANDOFF_LOG'];
+    expect(handoffLogPath()).toBe(join(process.cwd(), 'ai-logs', 'handoffs.jsonl'));
+  });
+
+  it('honors the ROUNDTABLE_HANDOFF_LOG override', () => {
+    process.env['ROUNDTABLE_HANDOFF_LOG'] = '/tmp/custom-handoffs.jsonl';
+    expect(handoffLogPath()).toBe('/tmp/custom-handoffs.jsonl');
   });
 });
 

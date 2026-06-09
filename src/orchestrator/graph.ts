@@ -73,7 +73,6 @@ const StateAnnotation = Annotation.Root({
   handoffCards: Annotation<HandoffCard[]>(lastWins<HandoffCard[]>()),
   dispatch: Annotation<DispatchRecord[]>(lastWins<DispatchRecord[]>()),
   artifacts: Annotation<Artifact[]>(lastWins<Artifact[]>()),
-  reviewNotes: Annotation<string[]>(lastWins<string[]>()),
   reviewComments: Annotation<ReviewComment[]>(lastWins<ReviewComment[]>()),
   proposedSkills: Annotation<ProposeSkillEvent[]>(lastWins<ProposeSkillEvent[]>()),
   autonomyPolicy: Annotation<OrchestratorState['autonomyPolicy']>(

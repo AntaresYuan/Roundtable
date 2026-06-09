@@ -74,7 +74,6 @@ export interface OrchestratorState {
   handoffCards: HandoffCard[];
   dispatch: DispatchRecord[];
   artifacts: Artifact[];
-  reviewNotes: string[];
   reviewComments: ReviewComment[];
   /**
    * PM-emitted `propose_skill` events from the aggregate stage (#100 / #119).
@@ -106,7 +105,6 @@ export function initialState(
     handoffCards: [],
     dispatch: [],
     artifacts: [],
-    reviewNotes: [],
     reviewComments: [],
     proposedSkills: [],
     autonomyPolicy,

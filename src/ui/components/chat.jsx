@@ -291,7 +291,13 @@ function ConversationRail({ workbench, workbenches, tasks, agents, activeId, onP
     return meta;
   };
   const [wbMenu, setWbMenu] = useState(false);
+  const [query, setQuery] = useState('');
   const members = (memberIds || workbench?.members || []).map((id) => agents[id]).filter(Boolean);
+  const q = query.trim().toLowerCase();
+  const visibleTasks = q
+    ? (tasks || []).filter((c) =>
+        `${c.title || ''} ${c.meta || ''}`.toLowerCase().includes(q))
+    : (tasks || []);
   return (
     <div style={{ width: 256, flexShrink: 0, background: 'var(--surface)', borderRight: '1px solid var(--border)',
       display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -366,8 +372,25 @@ function ConversationRail({ workbench, workbenches, tasks, agents, activeId, onP
 
       <div style={{ padding: '2px 16px 6px', fontSize: 10, fontWeight: 600, letterSpacing: '.09em',
         textTransform: 'uppercase', color: 'var(--text-faint)' }}>Tasks on this workbench</div>
+      <div style={{ padding: '0 12px 8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '6px 9px',
+          borderRadius: 'var(--r-sm)', border: '1px solid var(--border)', background: 'var(--surface-2)' }}>
+          <Icon name="search" size={13} style={{ color: 'var(--text-faint)', flexShrink: 0 }} />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search tasks…"
+            style={{ flex: 1, minWidth: 0, border: 'none', outline: 'none', background: 'transparent',
+              font: 'inherit', fontSize: 12.5, color: 'var(--text)' }} />
+          {query && (
+            <button onClick={() => setQuery('')} title="Clear search" style={{ display: 'grid', placeItems: 'center',
+              width: 16, height: 16, borderRadius: '50%', border: 'none', background: 'var(--surface-3)',
+              color: 'var(--text-faint)', cursor: 'pointer', padding: 0 }}><Icon name="x" size={10} /></button>
+          )}
+        </div>
+      </div>
       <div style={{ flex: 1, overflowY: 'auto', padding: '0 8px' }}>
-        {(tasks || []).map((c) => {
+        {q && visibleTasks.length === 0 && (
+          <div style={{ padding: '10px 8px', fontSize: 12, color: 'var(--text-faint)' }}>No tasks match “{query.trim()}”.</div>
+        )}
+        {visibleTasks.map((c) => {
           const active = c.id === activeId;
           return (
             <div key={c.id} className="rt-task-row" style={{ position: 'relative', marginBottom: 1 }}

@@ -1541,7 +1541,20 @@ function App() {
   const [memberIds, setMemberIds] = useState(RT.WORKBENCH.members);
   const [localTurns, setLocalTurns] = useState([]);
   const [localStatus, setLocalStatus] = useState('idle');
-  const [localChatId] = useState(() => crypto.randomUUID());
+  // Persisted so a page refresh restores this chat's live turns from history
+  // instead of starting an empty session (the history API filters by chatId).
+  const [localChatId] = useState(() => {
+    const key = 'roundtable.localChatId';
+    try {
+      const existing = window.localStorage.getItem(key);
+      if (existing) return existing;
+      const id = crypto.randomUUID();
+      window.localStorage.setItem(key, id);
+      return id;
+    } catch {
+      return crypto.randomUUID();
+    }
+  });
   // P3.2: live chats when signed in; fall back to fixtures for the logged-out demo.
   const { status: authStatus } = useSession();
   const authed = authStatus === 'authenticated';

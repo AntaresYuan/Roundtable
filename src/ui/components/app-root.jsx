@@ -300,15 +300,27 @@ function Thread({ agents, scene, onOpenArtifact, onAction }) {
     </div>
   );
 }
-function UserMsg({ text, onQuote }) {
+const msgActBtn = {
+  display: 'grid', placeItems: 'center', width: 24, height: 24, borderRadius: 'var(--r-sm)',
+  border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-faint)',
+  cursor: 'pointer', flexShrink: 0,
+};
+
+function UserMsg({ text, onQuote, onPin }) {
   const [hover, setHover] = useState(false);
+  const [pinned, setPinned] = useState(false);
   return (
     <div className="rt-rise" style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', alignItems: 'center' }}
       onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+      {hover && onPin && (
+        <button onClick={() => { onPin(text); setPinned(true); }}
+          title={pinned ? 'Pinned to workbench memory' : 'Pin as long-term context'}
+          style={{ ...msgActBtn, color: pinned ? 'var(--accent)' : 'var(--text-faint)' }}>
+          <Icon name="pin" size={12} />
+        </button>
+      )}
       {hover && onQuote && (
-        <button onClick={() => onQuote(text)} title="Quote in reply" style={{ display: 'grid', placeItems: 'center',
-          width: 24, height: 24, borderRadius: 'var(--r-sm)', border: '1px solid var(--border)',
-          background: 'var(--surface)', color: 'var(--text-faint)', cursor: 'pointer', flexShrink: 0 }}>
+        <button onClick={() => onQuote(text)} title="Quote in reply" style={msgActBtn}>
           <Icon name="chevron" size={12} style={{ transform: 'rotate(180deg)' }} />
         </button>
       )}
@@ -320,7 +332,7 @@ function UserMsg({ text, onQuote }) {
   );
 }
 
-function LocalLiveThread({ turns, agents, onApproveTurn, turnActions, onQuote }) {
+function LocalLiveThread({ turns, agents, onApproveTurn, turnActions, onQuote, onPin }) {
   if (!turns || turns.length === 0) {
     return (
       <div style={{ minHeight: 220, display: 'grid', placeItems: 'center', textAlign: 'center', color: 'var(--text-faint)' }}>
@@ -343,6 +355,7 @@ function LocalLiveThread({ turns, agents, onApproveTurn, turnActions, onQuote })
             turnActions={turnActions}
             showPreview={index === 0}
             onQuote={onQuote}
+            onPin={onPin}
           />
         ))}
       </div>
@@ -358,7 +371,29 @@ const STAGE_STATUS_STYLE = {
   pending: { color: 'var(--text-faint)', label: 'pending' },
 };
 
-function LocalLiveTurn({ turn, agents, onApproveTurn, turnActions, showPreview, onQuote }) {
+function PmText({ text, onQuote, onPin }) {
+  const [hover, setHover] = useState(false);
+  const [pinned, setPinned] = useState(false);
+  if (!text) return null;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}
+      onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+      <div style={{ flex: 1, minWidth: 0 }}>{text}</div>
+      {hover && onPin && (
+        <button onClick={() => { onPin(text); setPinned(true); }}
+          title={pinned ? 'Pinned to workbench memory' : 'Pin as long-term context'}
+          style={{ ...msgActBtn, color: pinned ? 'var(--accent)' : 'var(--text-faint)' }}>
+          <Icon name="pin" size={12} /></button>
+      )}
+      {hover && onQuote && (
+        <button onClick={() => onQuote(text)} title="Quote in reply" style={msgActBtn}>
+          <Icon name="chevron" size={12} style={{ transform: 'rotate(180deg)' }} /></button>
+      )}
+    </div>
+  );
+}
+
+function LocalLiveTurn({ turn, agents, onApproveTurn, turnActions, showPreview, onQuote, onPin }) {
   const completed = turn.result?.dispatchStatus === 'completed';
   const failed = turn.result?.dispatchStatus === 'failed';
   const running = turn.result?.dispatchStatus === 'running';
@@ -368,7 +403,7 @@ function LocalLiveTurn({ turn, agents, onApproveTurn, turnActions, showPreview, 
   const previewArtifact = artifacts.find((artifact) => artifact.kind === 'preview');
   return (
     <>
-      <UserMsg text={turn.message} onQuote={onQuote} />
+      <UserMsg text={turn.message} onQuote={onQuote} onPin={onPin} />
       <div className="rt-rise" style={{ display: 'flex', gap: 11, alignItems: 'flex-start' }}>
         <Avatar agent={agents.orchestrator} size={28} ring={false} />
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -394,7 +429,7 @@ function LocalLiveTurn({ turn, agents, onApproveTurn, turnActions, showPreview, 
           )}
           {turn.result && (
             <div style={{ color: 'var(--text-muted)', fontSize: 13.5, lineHeight: 1.55 }}>
-              <div style={{ marginBottom: 12 }}>{turn.result.pmMessage}</div>
+              <PmText text={turn.result.pmMessage} onQuote={onQuote} onPin={onPin} />
               <LocalPlanCard
                 plan={turn.result.plan}
                 intake={turn.result.intake}
@@ -1415,7 +1450,7 @@ function FileRow({ art, agents, onOpen, activeChatId }) {
     </button>
   );
 }
-function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifact, onAction, onClose, live, liveArtifacts, liveMessages, liveHandoffs, activeChatId, memory, localTurns, localStatus, onApproveLocalTurn, localTurnActions, onRewrite, onQuote }) {
+function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifact, onAction, onClose, live, liveArtifacts, liveMessages, liveHandoffs, activeChatId, memory, localTurns, localStatus, onApproveLocalTurn, localTurnActions, onRewrite, onQuote, onPin }) {
   const placed = sceneAt(clock).placed;
   const hasLocalTurns = localTurns && localTurns.length > 0;
   const localArtifacts = hasLocalTurns ? liveArtifactsFromTurns(localTurns, agents, localStatus) : [];
@@ -1450,7 +1485,7 @@ function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifa
       {tab === 'chat' ? (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg)' }}>
           {hasLocalTurns
-            ? <LocalLiveThread turns={localTurns} agents={agents} onApproveTurn={onApproveLocalTurn} turnActions={localTurnActions} onQuote={onQuote} />
+            ? <LocalLiveThread turns={localTurns} agents={agents} onApproveTurn={onApproveLocalTurn} turnActions={localTurnActions} onQuote={onQuote} onPin={onPin} />
             : live
             ? <LiveThread messages={liveMessages ?? []} handoffs={liveHandoffs} agents={agents} onRewrite={onRewrite} />
             : <Thread agents={agents} scene={scene} onOpenArtifact={onOpenArtifact} onAction={onAction} narrow />}
@@ -2577,7 +2612,10 @@ function App() {
                   localTurns={localTurns} localStatus={localStatus} onApproveLocalTurn={approveLocalTurn}
                   localTurnActions={{ interrupt: interruptLocalTurn, redispatch: redispatchLocalTurn, discard: discardLocalTurn }}
                   onOpenArtifact={setDrawerArt} onAction={onAction} onClose={() => setNotesOpen(false)}
-                  onRewrite={sendComposerMessage} onQuote={quoteToComposer} />}
+                  onRewrite={sendComposerMessage} onQuote={quoteToComposer}
+                  onPin={authed && activeWorkbenchId
+                    ? (text) => pinWorkbench.mutate({ workbenchId: activeWorkbenchId, content: String(text).slice(0, 2000) })
+                    : null} />}
               </div>
               <Dock st={st} agents={agents} scene={scene} onAction={onAction}
                 onOpenChat={() => { setInspectorTab('chat'); setNotesOpen(true); }}

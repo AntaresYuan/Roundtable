@@ -9,7 +9,7 @@
 **Roundtable（圆桌）** — IM 式多 Agent 协作平台。用户像拉群一样把多个 Coding Agent 请到一张圆桌旁：PM Agent 负责理解意图、拆解任务、按工作流分派与聚合；每一次 Agent 间交接都是一张结构化的 HandoffCard，产物带 owner 与版本，依赖关系可视化。
 
 - **GitHub 仓库（可运行 Demo）**：https://github.com/AntaresYuan/Roundtable
-- **Demo 视频**：【上传后贴链接，拍摄脚本见仓库 `docs/demo/video-script.md`】
+- **Demo 视频**：【上传后贴链接，拍摄计划见仓库 `docs/demo/video-plan.md`】
 - **团队**：袁晨杰（UI/前端 + 产品 + Demo）、Evanlin（Orchestrator/适配器/契约）、Peitong Qi（后端/数据库/沙箱）
 
 ### 30 秒跑起来
@@ -100,6 +100,6 @@ Next.js 15 (App Router) ── tRPC ── Drizzle + Postgres
 
 ## 六、附录
 
-- 视频拍摄脚本：`docs/demo/video-script.md`（逐镜 + 台词 + 评分点）
+- 视频拍摄计划：`docs/demo/video-plan.md`（目标 / 逐镜步骤 / 逐字稿 / 功能覆盖核对表）
 - 演示风险预案：`docs/risk-register.md`
 - 运维手册：`docs/operations.md`

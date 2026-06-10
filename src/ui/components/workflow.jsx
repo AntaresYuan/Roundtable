@@ -398,8 +398,23 @@ function currentStageIndex(clock) {
   if (clock < 22400) return 3;
   return 4;
 }
-function WorkflowStrip({ clock, onOpen }) {
-  const wf = activeWorkflow();
+// Map a live workflowRun onto per-stage {done,active} flags so the strip can
+// render real progress. Returns null when no run is bound (caller falls back to
+// the scripted clock for the logged-out demo).
+function liveStageFlags(workflow, workflowRun) {
+  if (!workflow || !workflowRun) return null;
+  return workflow.stages.map((s) => {
+    const status = workflowRun.stageStates?.[s.id]?.status || 'pending';
+    return {
+      done: status === 'done',
+      active: !s.fixed && workflowRun.activeStageId === s.id,
+    };
+  });
+}
+
+function WorkflowStrip({ clock, onOpen, workflow, workflowRun }) {
+  const live = liveStageFlags(workflow, workflowRun);
+  const wf = live ? workflow : activeWorkflow();
   const stages = wf.stages;
   const cur = currentStageIndex(clock);
   return (
@@ -411,7 +426,8 @@ function WorkflowStrip({ clock, onOpen }) {
       <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', flexShrink: 0, marginRight: 4,
         maxWidth: 170, overflow: 'hidden', textOverflow: 'ellipsis' }} title={wf.name}>{wf.name}</span>
       {stages.map((s, i) => {
-        const done = i < cur, active = i === cur;
+        const done = live ? live[i].done : i < cur;
+        const active = live ? live[i].active : i === cur;
         return (
           <React.Fragment key={s.id}>
             {i > 0 && <span className="rt-workflow-connector" style={{ width: 12, height: 1.5, flexShrink: 0,

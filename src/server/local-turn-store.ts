@@ -8,6 +8,8 @@ import {
   IntakeResultSchema,
   PlanSchema,
   PlanTaskStatusSchema,
+  WorkflowSchema,
+  WorkflowRunSchema,
 } from '../contracts/index.js';
 import { createDbClient, type Db } from '../db/index.js';
 import { liveTurns } from '../db/schema.js';
@@ -61,6 +63,8 @@ export const LocalTurnSchema = z.object({
   dispatchWorkspacePath: z.string().optional(),
   intake: IntakeResultSchema.optional(),
   plan: PlanSchema.optional(),
+  workflow: WorkflowSchema.optional(),
+  workflowRun: WorkflowRunSchema.optional(),
   error: z.string().optional(),
 });
 export type LocalTurn = z.infer<typeof LocalTurnSchema>;
@@ -243,6 +247,8 @@ export async function saveDbTurn(db: Db, chatId: string, turn: LocalTurn): Promi
       dispatchWorkspacePath: turn.dispatchWorkspacePath ?? null,
       intake: turn.intake ?? null,
       plan: turn.plan ?? null,
+      workflow: turn.workflow ?? null,
+      workflowRun: turn.workflowRun ?? null,
       error: turn.error ?? null,
       createdAt: new Date(turn.createdAt),
       updatedAt: new Date(),
@@ -269,6 +275,8 @@ export async function saveDbTurn(db: Db, chatId: string, turn: LocalTurn): Promi
         dispatchWorkspacePath: turn.dispatchWorkspacePath ?? null,
         intake: turn.intake ?? null,
         plan: turn.plan ?? null,
+        workflow: turn.workflow ?? null,
+        workflowRun: turn.workflowRun ?? null,
         error: turn.error ?? null,
         updatedAt: new Date(),
       },
@@ -297,6 +305,8 @@ function dbTurnToLocalTurn(row: typeof liveTurns.$inferSelect): LocalTurn {
     dispatchWorkspacePath: row.dispatchWorkspacePath ?? undefined,
     intake: row.intake ?? undefined,
     plan: row.plan ?? undefined,
+    workflow: row.workflow ?? undefined,
+    workflowRun: row.workflowRun ?? undefined,
     error: row.error ?? undefined,
     createdAt: row.createdAt.toISOString(),
   });

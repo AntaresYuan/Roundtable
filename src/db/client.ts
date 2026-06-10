@@ -16,5 +16,15 @@ export function createDbClient(databaseUrl = process.env.DATABASE_URL) {
   };
 }
 
+// Singleton — survives Next.js hot-reload in dev so we don't leak a new
+// connection pool on every tRPC request.
+const g = globalThis as typeof globalThis & { _rtDbClient?: DbClient };
+export function getDbClient(): DbClient {
+  if (!g._rtDbClient) {
+    g._rtDbClient = createDbClient();
+  }
+  return g._rtDbClient;
+}
+
 export type DbClient = ReturnType<typeof createDbClient>;
 export type Db = DbClient['db'];

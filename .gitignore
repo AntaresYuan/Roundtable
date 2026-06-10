@@ -54,3 +54,9 @@ ai-logs/prompt-history/*.local.md
 
 # Next.js generated
 next-env.d.ts
+
+# Personal agent-tooling artifacts (devloop/iterate session logs)
+/.iteration-state.json
+/LOOP-LOG.md
+/LOOP-FRICTION.jsonl
+/RETRO-*.md

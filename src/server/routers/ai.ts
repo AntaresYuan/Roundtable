@@ -16,16 +16,22 @@ export const aiRouter = createTRPCRouter({
   polish: protectedRateLimitedProcedure
     .input(z.object({ text: z.string().min(1).max(2000) }))
     .mutation(async ({ input }) => {
-      const { text } = await generateText({
-        model: defaultOrchestratorModel(),
-        system:
-          "You refine a non-coder's plain-language build request into a crisp, unambiguous " +
-          'task brief for a team of coding agents. Preserve their intent and language; tighten ' +
-          'the wording and fold in the obvious acceptance criteria. Keep it to <=4 sentences. ' +
-          'Return only the refined brief — no preamble, no markdown headers.',
-        prompt: input.text,
-      });
-      return { text: text.trim() };
+      try {
+        const { text } = await generateText({
+          model: defaultOrchestratorModel(),
+          system:
+            "You refine a non-coder's plain-language build request into a crisp, unambiguous " +
+            'task brief for a team of coding agents. Preserve their intent and language; tighten ' +
+            'the wording and fold in the obvious acceptance criteria. Keep it to <=4 sentences. ' +
+            'Return only the refined brief — no preamble, no markdown headers.',
+          prompt: input.text,
+        });
+        return { text: text.trim() };
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.error('[ai.polish] LLM error:', error);
+        return { text: input.text };
+      }
     }),
 
   // Personalized starter suggestions derived from the user's recent chats.

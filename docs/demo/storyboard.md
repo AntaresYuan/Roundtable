@@ -2,6 +2,30 @@
 
 Short scripted paths the demo runner can follow on stage. Each one is a single coherent story; pick one (or chain them) depending on time.
 
+Risk table + Plan B for judge Q&A: [`docs/risk-register.md`](../risk-register.md).
+
+## Pre-flight (run before recording / going on stage)
+
+1. `docker ps` — postgres/redis up; else `pnpm dev:services`.
+2. LLM reachable: `curl -m12 https://api.deepseek.com` returns an HTTP code (401 is fine). If blocked, switch `ROUNDTABLE_LLM_PROVIDER` in `.env` (see risk register) and restart the dev server.
+3. `pnpm orch:smoke:llm` — must end `"errors": []` and a real intake (not heuristic).
+4. `pnpm ui:dev` boots; send one throwaway message; confirm the plan card is **not** marked `degraded`.
+
+## Live workflow run (primary scenario — fully working)
+
+The end-to-end beat the product is built around: one user request → workflow-staged plan → approval gate → agents work per stage → reviewable artifacts.
+
+**Stage path.**
+
+1. **Ask.** Signed in, send a build request ("Add a dark-mode toggle to settings"). PM drafts a plan that follows the workbench workflow ("Ship a PR-ready feature": Plan → Build → Review → Ship) — point at the homepage WorkflowStrip lighting up the stages.
+2. **Inspect the plan.** The Plan card is a live TodoList: per-task assignee avatars, dependency notes ("waits on T1"), status badges. Click "Show plan" for the structured view — "the plan is a real object, not prose."
+3. **Approve.** Click Approve — "the human owns the gate; nothing dispatches without sign-off." Badges flip to running.
+4. **Watch stages.** Each stage that starts gets its own card: Build (implementer working, spinner) then Review (reviewer). Task rows expand to show the agent's activity events.
+5. **Read the work.** When done, expand the artifacts inside each stage card — real model-written implementation and review content. "Per-agent ownership is visible everywhere: color, avatar, role tag."
+6. **Payoff line.** Re-send a follow-up message into the same task — the loop repeats inside one persistent chat with full history.
+
+**Implementation references.** `src/app/api/orchestrator/turn/route.ts` (workflow-driven planning), `src/server/local-dispatch.ts` (staged dispatch + artifacts), `src/ui/components/app-root.jsx` (`LocalPlanCard` TodoList, `StageCards`).
+
 ## Cross-chat hand-off (scenario 4)
 
 **Why this matters in the demo.** Spec 030 § Four scenarios calls out `cross_chat` as the demo-only scenario. It's the strongest "look, hand-offs really are first-class product objects" beat — the user moves an in-flight task between two chats and the recipient agent picks it up without re-explanation.

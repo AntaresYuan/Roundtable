@@ -17,6 +17,7 @@ import type { ArtifactKind } from '@/contracts';
 import { ArtifactIdSchema } from '@/contracts';
 import { fileHandoffLog, initialState, workspaceResolver } from '@/orchestrator';
 import { runDispatch } from '@/orchestrator/nodes/dispatch';
+import { workflowRunFromState } from '@/orchestrator/workflow-run';
 import {
   defaultOrchestratorModel,
   requireOrchestratorKey,
@@ -28,6 +29,13 @@ import {
   updateLiveTurn,
   type LocalTurn,
 } from '@/server/local-turn-store';
+import {
+  clearDispatchControl,
+  registerDispatchControl,
+  wasDispatchInterrupted,
+} from '@/server/dispatch-control';
+
+export const INTERRUPTED_BY_USER = 'interrupted_by_user';
 
 const CAPABILITIES: AgentCapabilities = {
   streaming: true,
@@ -111,11 +119,12 @@ async function executeDispatchWork(
   options: LocalDispatchOptions,
 ): Promise<ReturnType<typeof toLocalDispatchResponse>> {
   if (!turn.plan || !turn.intake) throw new LocalDispatchError('turn_has_no_plan', 409);
+  const control = registerDispatchControl(turn.id);
   try {
     const agentAdapter = resolveLocalAgentAdapterMode(options.agentAdapter);
     const registry = createLocalDispatchRegistry(agentAdapter);
     const state = {
-      ...initialState(`local-${turn.id}`, turn.message),
+      ...initialState(`local-${turn.id}`, turn.message, turn.workflow),
       stage: 'dispatch' as const,
       intake: turn.intake,
       plan: turn.plan,
@@ -126,7 +135,9 @@ async function executeDispatchWork(
       registry,
       workspaces: { resolve: () => workspace },
       handoffLog: fileHandoffLog(handoffLogPath()),
+      control,
     });
+    const interrupted = wasDispatchInterrupted(turn.id);
     const failed = result.dispatch.some((record) => record.status === 'failed');
     const artifacts = await collectDispatchArtifacts(
       result.artifacts,
@@ -134,16 +145,26 @@ async function executeDispatchWork(
       workspace,
       turn.plan.tasks,
     );
+    // Re-project stage states from the post-dispatch orchestrator state so the
+    // workflow strip advances (done/active/blocked) as seats complete.
+    const workflowRun = turn.workflow
+      ? workflowRunFromState({ ...result })
+      : undefined;
     const nextTurn = await updateLiveTurn(turn.id, (current) => ({
       ...current,
       dispatchAdapter: agentAdapter,
-      dispatchStatus: failed ? 'failed' : 'completed',
+      dispatchStatus: interrupted || failed ? 'failed' : 'completed',
       dispatchedAt: new Date().toISOString(),
       dispatch: result.dispatch,
       artifacts,
-      dispatchStage: result.stage,
+      dispatchStage: interrupted ? 'interrupted' : result.stage,
       dispatchWorkspacePath: workspace,
-      ...(failed ? { dispatchError: 'one_or_more_tasks_failed' } : {}),
+      ...(workflowRun ? { workflowRun } : {}),
+      ...(interrupted
+        ? { dispatchError: INTERRUPTED_BY_USER }
+        : failed
+          ? { dispatchError: 'one_or_more_tasks_failed' }
+          : {}),
     }));
     if (!nextTurn) throw new LocalDispatchError('turn_not_found', 404);
     return toLocalDispatchResponse(nextTurn);
@@ -162,6 +183,8 @@ async function executeDispatchWork(
     }));
     if (!failedTurn) throw new LocalDispatchError('turn_not_found', 404);
     return toLocalDispatchResponse(failedTurn);
+  } finally {
+    clearDispatchControl(turn.id);
   }
 }
 
@@ -177,6 +200,7 @@ export function toLocalDispatchResponse(turn: LocalTurn) {
     ...(turn.dispatchStage ? { dispatchStage: turn.dispatchStage } : {}),
     ...(turn.dispatchError ? { dispatchError: turn.dispatchError } : {}),
     ...(turn.dispatchWorkspacePath ? { workspacePath: turn.dispatchWorkspacePath } : {}),
+    ...(turn.workflowRun ? { workflowRun: turn.workflowRun } : {}),
   };
 }
 

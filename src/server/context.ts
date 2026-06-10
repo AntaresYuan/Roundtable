@@ -1,6 +1,6 @@
 import { getServerSession } from 'next-auth';
 import type { Db } from '../db/index.js';
-import { createDbClient } from '../db/index.js';
+import { getDbClient } from '../db/index.js';
 import { authOptions, type AuthSession, type AuthUser } from './auth.js';
 import { createNoopLogger, type Logger } from './logger.js';
 
@@ -20,7 +20,7 @@ export interface TRPCContext {
 export async function createTRPCContext(
   opts: CreateTRPCContextOptions = {},
 ): Promise<TRPCContext> {
-  const db = opts.db ?? createDbClient().db;
+  const db = opts.db ?? getDbClient().db;
   const session = opts.session ?? null;
 
   return {

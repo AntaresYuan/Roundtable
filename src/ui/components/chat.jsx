@@ -8,6 +8,7 @@ import React from 'react';
 import { RT } from '../lib/rt';
 import { Icon, Spinner, Avatar, RoleTag, Md, useTypewriter, alpha } from './primitives';
 import { ArtifactRenderer, artifactFromFileChangeEvent, iconBtn } from './cards';
+import { trpc } from '../lib/trpc';
 const { useState, useRef, useEffect } = React;
 
 /* ---- ThinkingBlock : collapsed shimmer, expandable ----------------------- */
@@ -201,6 +202,7 @@ function Composer({ agents, onSend }) {
   const [sent, setSent] = useState(false);
   const taRef = useRef(null);
   const mentionable = Object.values(agents);
+  const polish = trpc.ai.polish.useMutation({ onSuccess: (r) => { setVal(r.text); taRef.current && taRef.current.focus(); } });
 
   const onChange = (e) => {
     const v = e.target.value; setVal(v);
@@ -248,6 +250,12 @@ function Composer({ agents, onSend }) {
           placeholder="Message the table…  use @ to bring in an agent"
           style={{ flex: 1, resize: 'none', border: 'none', outline: 'none', background: 'transparent',
             font: 'inherit', fontSize: 14, color: 'var(--text)', lineHeight: 1.5, maxHeight: 120, padding: '6px 0' }} />
+        <button title={polish.isPending ? 'Polishing…' : 'Polish with AI'} onClick={() => val.trim() && polish.mutate({ text: val.trim() })}
+          disabled={!val.trim() || polish.isPending}
+          style={{ ...iconBtn, border: 'none', background: 'var(--surface-2)', opacity: val.trim() ? 1 : 0.4,
+            color: polish.isPending ? 'var(--accent)' : 'var(--text-muted)', transition: 'all .15s' }}>
+          {polish.isPending ? <Spinner size={14} /> : <Icon name="sparkle" size={15} />}
+        </button>
         <button aria-label="Send message" onClick={send} disabled={!val.trim()} style={{ display: 'grid', placeItems: 'center',
           width: 36, height: 36, borderRadius: 'var(--r-sm)', border: 'none', cursor: val.trim() ? 'pointer' : 'default',
           background: val.trim() ? 'var(--accent)' : 'var(--surface-3)',
@@ -255,7 +263,7 @@ function Composer({ agents, onSend }) {
           <Icon name="send" size={17} /></button>
       </div>
       <div style={{ height: 16, marginTop: 6, fontSize: 11.5, color: 'var(--text-faint)', textAlign: 'center' }}>
-        {sent ? 'Sent.' : ''}
+        {sent ? 'Sent.' : polish.error ? 'Polish failed — try again.' : ''}
       </div>
     </div>
   );
@@ -275,7 +283,7 @@ function LogoMark({ size = 26 }) {
   );
 }
 
-function ConversationRail({ workbench, workbenches, tasks, agents, activeId, onPick, memberIds, onRemoveMember, onAddMember, onNewTask, onNewWorkbench, onPickWorkbench, onCollapse }) {
+function ConversationRail({ workbench, workbenches, tasks, agents, activeId, onPick, onDelete, memberIds, onRemoveMember, onAddMember, onNewTask, onNewWorkbench, onPickWorkbench, onCollapse }) {
   const dot = { live: 'var(--run)', done: 'var(--ok)', queued: 'var(--warn)', idle: 'var(--text-faint)' };
   const taskMeta = (meta) => {
     if (!meta) return '';
@@ -362,22 +370,30 @@ function ConversationRail({ workbench, workbenches, tasks, agents, activeId, onP
         {(tasks || []).map((c) => {
           const active = c.id === activeId;
           return (
-            <button key={c.id} onClick={() => onPick && onPick(c.id)} style={{ width: '100%', textAlign: 'left',
-              display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', marginBottom: 1, borderRadius: 'var(--r-sm)',
-              border: 'none', cursor: 'pointer', font: 'inherit',
-              background: active ? 'var(--surface-3)' : 'transparent', color: 'var(--text)' }}
-              onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = 'var(--surface-2)'; }}
-              onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = 'transparent'; }}>
-              <span style={{ width: 7, height: 7, borderRadius: '50%', marginTop: 6, flexShrink: 0,
-                background: dot[c.status] || 'var(--text-faint)',
-                boxShadow: c.status === 'live' ? `0 0 0 3px ${alpha('var(--run)', 22)}` : 'none' }} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: active ? 600 : 500, overflow: 'hidden',
-                  textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.title}</div>
-                <div title={c.meta} style={{ fontSize: 11.5, color: 'var(--text-faint)', overflow: 'hidden',
-                  textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{taskMeta(c.meta)}</div>
-              </div>
-            </button>
+            <div key={c.id} className="rt-task-row" style={{ position: 'relative', marginBottom: 1 }}
+              onMouseEnter={(e) => { e.currentTarget.querySelector('.rt-task-del').style.display = 'grid'; if (!active) e.currentTarget.querySelector('.rt-task-btn').style.background = 'var(--surface-2)'; }}
+              onMouseLeave={(e) => { e.currentTarget.querySelector('.rt-task-del').style.display = 'none'; if (!active) e.currentTarget.querySelector('.rt-task-btn').style.background = 'transparent'; }}>
+              <button className="rt-task-btn" onClick={() => onPick && onPick(c.id)} style={{ width: '100%', textAlign: 'left',
+                display: 'flex', alignItems: 'center', gap: 8, padding: '6px 28px 6px 8px', borderRadius: 'var(--r-sm)',
+                border: 'none', cursor: 'pointer', font: 'inherit',
+                background: active ? 'var(--surface-3)' : 'transparent', color: 'var(--text)' }}>
+                <span style={{ width: 7, height: 7, borderRadius: '50%', marginTop: 6, flexShrink: 0,
+                  background: dot[c.status] || 'var(--text-faint)',
+                  boxShadow: c.status === 'live' ? `0 0 0 3px ${alpha('var(--run)', 22)}` : 'none' }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: active ? 600 : 500, overflow: 'hidden',
+                    textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.title}</div>
+                  <div title={c.meta} style={{ fontSize: 11.5, color: 'var(--text-faint)', overflow: 'hidden',
+                    textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{taskMeta(c.meta)}</div>
+                </div>
+              </button>
+              <button className="rt-task-del" onClick={(e) => { e.stopPropagation(); onDelete && onDelete(c.id); }}
+                title="Delete task" style={{ display: 'none', position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)',
+                  width: 20, height: 20, borderRadius: 4, border: 'none', cursor: 'pointer', placeItems: 'center',
+                  background: 'var(--surface-3)', color: 'var(--text-faint)' }}>
+                <Icon name="x" size={11} />
+              </button>
+            </div>
           );
         })}
       </div>

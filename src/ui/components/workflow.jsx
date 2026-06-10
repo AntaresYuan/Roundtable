@@ -258,7 +258,7 @@ function WfRow({ w, active, onPick }) {
   );
 }
 
-function WorkflowView({ agents, onOpenTemplates }) {
+function WorkflowView({ agents, onOpenTemplates, onPublish }) {
   const allWf = () => RT.BUILTIN_WORKFLOWS.concat(RT.workflows || []);
   const [wfId, setWfId] = useStateW(RT.WORKBENCH.workflowId);
   const [picker, setPicker] = useStateW(false);
@@ -271,6 +271,9 @@ function WorkflowView({ agents, onOpenTemplates }) {
   const switchWorkflow = (id) => {
     const w = allWf().find((x) => x.id === id) || base;
     setWfId(id); RT.WORKBENCH.workflowId = id; setWfName(w.name); setStages(clone(w.stages)); setDrawer(null); setPicker(false);
+    // Bind the picked workflow to the workbench so the next live run follows it
+    // (builtins resolve server-side as the fallback, no publish needed).
+    if (!w.builtin && onPublish) onPublish(w);
   };
   const newWorkflow = () => {
     const id = 'wf-user-' + Date.now();
@@ -308,6 +311,7 @@ function WorkflowView({ agents, onOpenTemplates }) {
       updatedAt: new Date().toISOString(), stages: clone(stages) };
     RT.workflows = [...(RT.workflows || []).filter((w) => w.id !== id), wf];
     RT.WORKBENCH.workflowId = id; setWfId(id); persist();
+    if (onPublish) onPublish(wf);
     setSaved(true); setTimeout(() => setSaved(false), 2600);
   };
 
@@ -398,8 +402,23 @@ function currentStageIndex(clock) {
   if (clock < 22400) return 3;
   return 4;
 }
-function WorkflowStrip({ clock, onOpen }) {
-  const wf = activeWorkflow();
+// Map a live workflowRun onto per-stage {done,active} flags so the strip can
+// render real progress. Returns null when no run is bound (caller falls back to
+// the scripted clock for the logged-out demo).
+function liveStageFlags(workflow, workflowRun) {
+  if (!workflow || !workflowRun) return null;
+  return workflow.stages.map((s) => {
+    const status = workflowRun.stageStates?.[s.id]?.status || 'pending';
+    return {
+      done: status === 'done',
+      active: !s.fixed && workflowRun.activeStageId === s.id,
+    };
+  });
+}
+
+function WorkflowStrip({ clock, onOpen, workflow, workflowRun }) {
+  const live = liveStageFlags(workflow, workflowRun);
+  const wf = live ? workflow : activeWorkflow();
   const stages = wf.stages;
   const cur = currentStageIndex(clock);
   return (
@@ -411,7 +430,8 @@ function WorkflowStrip({ clock, onOpen }) {
       <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', flexShrink: 0, marginRight: 4,
         maxWidth: 170, overflow: 'hidden', textOverflow: 'ellipsis' }} title={wf.name}>{wf.name}</span>
       {stages.map((s, i) => {
-        const done = i < cur, active = i === cur;
+        const done = live ? live[i].done : i < cur;
+        const active = live ? live[i].active : i === cur;
         return (
           <React.Fragment key={s.id}>
             {i > 0 && <span className="rt-workflow-connector" style={{ width: 12, height: 1.5, flexShrink: 0,

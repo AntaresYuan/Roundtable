@@ -30,7 +30,7 @@ test('local live UI creates a task, restores history, and preserves approval', a
   await page.getByRole('button', { name: 'Send message' }).click();
 
   await expect(page.getByText(/Drafting the plan/)).toBeVisible();
-  await expect(page.getByText('Plan drafted')).toBeVisible();
+  await expect(page.getByText(/0\/1 done/)).toBeVisible();
   await expect(page.getByText('awaiting approval', { exact: true }).first()).toBeVisible();
   await expect(page.getByText('Implement waitlist page').first()).toBeVisible();
   await expect(page.getByText(/Files · 3/)).toBeVisible();

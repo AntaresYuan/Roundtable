@@ -87,7 +87,10 @@ function buildPrompt(state: OrchestratorState): string {
     .map((d) => `- ${d.taskId}: ${state.plan?.tasks.find((t) => t.id === d.taskId)?.title ?? '?'}`)
     .join('\n');
   const artifactTitles = state.artifacts.map((a) => `- ${a.title}`).join('\n');
-  const reviewNotes = state.reviewNotes.slice(0, 3).join('\n');
+  const reviewNotes = state.reviewComments
+    .slice(0, 3)
+    .map((c) => c.body)
+    .join('\n');
 
   return [
     `User request:\n"""\n${state.userMessage}\n"""`,

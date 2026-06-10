@@ -130,8 +130,9 @@ Green is **staged**. M1 is the integration floor; M5 is the demo we ship.
 - [ ] Emitted `artifact` events are collected into a state-level `Artifact[]` (blocked
       on Known gap 2 — the adapter emits them but nothing surfaces them).
 - [ ] Generated `file` artifacts render in the UI (not raw text dumps).
-- [ ] The reviewer leaves ≥1 substantive comment **tied to an artifact** (blocked on
-      Known gap 4 — review notes are bare `string[]` with no artifact anchor).
+- [ ] The reviewer leaves ≥1 substantive comment **tied to an artifact** (anchoring shape
+      landed — gap 4 closed; a runtime comment still needs the reviewer wired with the diff,
+      gap 3).
 - [ ] An aggregate summary + Quick Actions appear; **Preview** renders the page.
 - [ ] At no point must the user read raw `stream-json` / terminal output.
 
@@ -173,9 +174,13 @@ of the original audit** — flagged `(half-closed)` inline below.
 3. **Reviewer is blind.** *(open)* `buildHandoffCard` hardcodes `relevantArtifacts: []`
    (`dispatch.ts:31`) and the reviewer is dispatched with only its role title — it cannot
    see the diff it must review.
-4. **Review notes can't anchor to artifacts.** *(open)* `Reviewer.review()` returns
-   `string[]` (`review.ts`) and state stores `reviewNotes: string[]` (`state.ts:56`); needs
-   `{ artifactId, line?, body }` to satisfy "tied to an artifact."
+4. **Review notes can't anchor to artifacts.** *(closed)* `Reviewer.review()` now returns
+   `ReviewComment[]` (`{ id, artifactId, line?, body, author }`, `review.ts`) and `runReview`
+   drains them into `state.reviewComments` — the anchored channel the GateCard / `ReviewCommentList`
+   and `handoff-context.ts` already consume. The vestigial bare `reviewNotes: string[]` was
+   removed from state/graph (aggregate count + skill-proposer now read `reviewComments`). A
+   reviewer that emits a substantive anchored comment at runtime still depends on gap 3 (give
+   the reviewer the diff); the *shape* now satisfies "tied to an artifact."
 5. **The LLM planner exists but is not the default.** *(half-closed)* `llm-planner.ts`
    can now emit the golden-path shape — multiple `@implementer` tasks, `parallel: true`,
    position-based `deps`, and `user_visible: false` for internal planning. But `graph.ts:83`
@@ -186,7 +191,8 @@ of the original audit** — flagged `(half-closed)` inline below.
    each task in a `for` loop, so even a plan marked `parallel: true` runs serially. M2's
    "two color-owned artifacts land concurrently" needs dispatch to fan out parallel siblings.
 
-M1 is blocked on gaps 1, 2, 4 (and gap 3 for a grounded review). M2 is blocked on gaps
+M1 is blocked on gaps 1, 2 (and gap 3 for a grounded review); gap 4 is now closed (above).
+M2 is blocked on gaps
 5 and 6. The real Claude Code adapter itself is **built** (`adapters/claude-code/`); M1's
 remaining adapter work is binding it to the `implementer` role and fixing gap 1.
 

@@ -20,8 +20,8 @@ export async function runAggregate(
     failed > 0
       ? `Partial: ${completed} done, ${failed} failed.`
       : `Done: ${completed} tasks completed${
-          state.reviewNotes.length > 0
-            ? `, ${state.reviewNotes.length} review note${state.reviewNotes.length > 1 ? 's' : ''}`
+          state.reviewComments.length > 0
+            ? `, ${state.reviewComments.length} review note${state.reviewComments.length > 1 ? 's' : ''}`
             : ''
         }.`;
 

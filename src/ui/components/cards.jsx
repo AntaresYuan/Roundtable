@@ -35,19 +35,33 @@ function highlightLine(line, key) {
 function CodeBlock({ code, max }) {
   const lines = code.split('\n');
   const shown = max ? lines.slice(0, max) : lines;
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard.writeText(code).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    }).catch(() => {});
+  };
   return (
-    <pre className="mono" style={{
-      margin: 0, fontSize: 12.5, lineHeight: 1.62, overflowX: 'auto',
-      padding: '14px 16px', color: 'var(--text)', tabSize: 2,
-    }}>
-      {shown.map((l, i) => (
-        <div key={i} style={{ display: 'flex', gap: 14 }}>
-          <span style={{ color: 'var(--text-faint)', userSelect: 'none', textAlign: 'right',
-            minWidth: 18, opacity: .7 }}>{i + 1}</span>
-          <span style={{ whiteSpace: 'pre' }}>{highlightLine(l, i) || ' '}</span>
-        </div>
-      ))}
-    </pre>
+    <div style={{ position: 'relative' }}>
+      <button onClick={copy} title={copied ? 'Copied' : 'Copy code'} style={{
+        ...iconBtn, position: 'absolute', top: 8, right: 8, width: 26, height: 26,
+        background: 'var(--surface-2)', color: copied ? 'var(--ok)' : 'var(--text-faint)', zIndex: 2 }}>
+        <Icon name={copied ? 'check' : 'clip'} size={13} />
+      </button>
+      <pre className="mono" style={{
+        margin: 0, fontSize: 12.5, lineHeight: 1.62, overflowX: 'auto',
+        padding: '14px 16px', color: 'var(--text)', tabSize: 2,
+      }}>
+        {shown.map((l, i) => (
+          <div key={i} style={{ display: 'flex', gap: 14 }}>
+            <span style={{ color: 'var(--text-faint)', userSelect: 'none', textAlign: 'right',
+              minWidth: 18, opacity: .7 }}>{i + 1}</span>
+            <span style={{ whiteSpace: 'pre' }}>{highlightLine(l, i) || ' '}</span>
+          </div>
+        ))}
+      </pre>
+    </div>
   );
 }
 

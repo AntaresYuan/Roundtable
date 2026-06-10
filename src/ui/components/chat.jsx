@@ -306,6 +306,38 @@ function useTaskFlags(key) {
   return [flags, toggle];
 }
 
+/* One agent as a "contact": avatar, name, role + capability tags. */
+function ContactRow({ agent, onRemove }) {
+  const [hover, setHover] = useState(false);
+  const caps = agent.capabilities
+    ? Object.keys(agent.capabilities).filter((k) => agent.capabilities[k]).slice(0, 2)
+    : [];
+  return (
+    <div onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
+      style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '4px 8px', borderRadius: 'var(--r-sm)',
+        background: hover ? 'var(--surface-2)' : 'transparent' }}>
+      <Avatar agent={agent} size={26} ring={false} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 12.5, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {agent.displayName}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+          <span className="mono" style={{ fontSize: 10, color: agent.pm ? 'var(--pm)' : agent.color, flexShrink: 0 }}>
+            {agent.pm ? 'facilitator' : `@${agent.role}`}</span>
+          {caps.map((k) => (
+            <span key={k} className="mono" style={{ fontSize: 9, padding: '0 5px', borderRadius: 4,
+              background: 'var(--surface-3)', color: 'var(--text-faint)', whiteSpace: 'nowrap' }}>{k}</span>
+          ))}
+        </div>
+      </div>
+      {hover && onRemove && (
+        <button onClick={onRemove} title={`Remove ${agent.displayName}`} style={{ display: 'grid', placeItems: 'center',
+          width: 18, height: 18, borderRadius: '50%', border: 'none', background: 'var(--surface-3)',
+          color: 'var(--text-faint)', cursor: 'pointer', padding: 0, flexShrink: 0 }}><Icon name="x" size={10} /></button>
+      )}
+    </div>
+  );
+}
+
 function TaskRow({ c, active, dot, taskMeta, flags, onPick, onDelete, onToggleFlag, dim }) {
   const [hover, setHover] = useState(false);
   const pinned = !!flags?.pinned;
@@ -418,21 +450,15 @@ function ConversationRail({ workbench, workbenches, tasks, agents, activeId, onP
         <span style={{ flex: 1, fontSize: 10, fontWeight: 600, letterSpacing: '.09em', textTransform: 'uppercase', color: 'var(--text-faint)' }}>Members</span>
         <span style={{ fontSize: 10.5, color: 'var(--text-faint)' }}>hover to remove</span>
       </div>
-      <div style={{ padding: '0 14px 12px', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        {members.map((a) => (
-          <span key={a.agentId} className="rt-member" title={`${a.displayName} · ${a.pm ? 'facilitator' : '@' + a.role}`}
-            style={{ position: 'relative' }}>
-            <Avatar agent={a} size={30} />
-            {!a.pm && onRemoveMember && (
-              <button onClick={() => onRemoveMember(a.agentId)} title={`Remove ${a.displayName}`} style={{ position: 'absolute', top: -4, right: -4,
-                width: 16, height: 16, borderRadius: '50%', border: 'none', background: 'var(--bad)', color: '#fff', cursor: 'pointer',
-                display: 'none', placeItems: 'center', padding: 0 }} className="rt-member-x"><Icon name="x" size={10} /></button>
-            )}
-          </span>
-        ))}
-        <button onClick={onAddMember} title="Add member" style={{ width: 30, height: 30, borderRadius: '50%', display: 'grid', placeItems: 'center',
-          border: '1.5px dashed var(--border-strong)', color: 'var(--text-faint)', cursor: 'pointer', background: 'transparent' }}>
-          <Icon name="plus" size={14} /></button>
+      <div style={{ padding: '0 10px 10px', maxHeight: 168, overflowY: 'auto' }}>
+        {members.map((a) => <ContactRow key={a.agentId} agent={a} onRemove={!a.pm && onRemoveMember ? () => onRemoveMember(a.agentId) : null} />)}
+        <button onClick={onAddMember} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 9, padding: '5px 8px',
+          borderRadius: 'var(--r-sm)', border: 'none', background: 'transparent', cursor: 'pointer', font: 'inherit',
+          color: 'var(--text-faint)', fontSize: 12.5 }}>
+          <span style={{ width: 26, height: 26, borderRadius: '50%', display: 'grid', placeItems: 'center',
+            border: '1.5px dashed var(--border-strong)', flexShrink: 0 }}><Icon name="plus" size={13} /></span>
+          Add an agent
+        </button>
       </div>
 
       <div style={{ padding: '4px 12px 10px' }}>

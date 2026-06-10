@@ -425,6 +425,7 @@ function LocalLiveTurn({ turn, agents, onApproveTurn, turnActions, showPreview }
                   artifacts={artifacts}
                   agents={agents}
                   dispatchStatus={turn.result.dispatchStatus}
+                  dispatchAdapter={turn.result.dispatchAdapter}
                 />
               ) : ((completed || failed || artifacts.length > 0) && !(interrupted && turn.discarded) && (
                 <LocalResultCard
@@ -613,7 +614,33 @@ function LocalInterruptedCard({ turn, agents, artifacts, onResume, onDiscard, on
 // store only holds the initial all-pending projection, so we synthesize an
 // "active" marker on the first unfinished stage to keep the run from looking
 // frozen until completion.
-function StageCards({ workflow, workflowRun, artifacts, agents, dispatchStatus }) {
+// Coding-agent platform labels (spec 020: adapter layer). The chip shows which
+// platform executed this turn's tasks; per-role env overrides (e.g.
+// ROUNDTABLE_ADAPTER_REVIEWER=codex) are server-side and not reflected here.
+const ADAPTER_PLATFORM_LABEL = {
+  'claude-code': 'Claude Code',
+  claude: 'Claude Code',
+  codex: 'Codex CLI',
+  'local-dispatch': 'Roundtable local',
+};
+
+function AdapterPlatformChip({ adapter }) {
+  const id = adapter || 'local-dispatch';
+  const label = ADAPTER_PLATFORM_LABEL[id] || id;
+  const external = id !== 'local-dispatch';
+  return (
+    <span className="mono" title={`Coding-agent platform: ${label}`} style={{
+      display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 8px',
+      borderRadius: 'var(--r-chip)', fontSize: 10.5, fontWeight: 600, letterSpacing: '.04em',
+      border: '1px solid var(--border)',
+      background: external ? tint('var(--accent)', 10) : 'var(--surface-2)',
+      color: external ? 'var(--accent)' : 'var(--text-muted)' }}>
+      <Icon name="wrench" size={11} /> {label}
+    </span>
+  );
+}
+
+function StageCards({ workflow, workflowRun, artifacts, agents, dispatchStatus, dispatchAdapter }) {
   if (!workflow || !workflowRun) return null;
   const stages = workflow.stages.filter(
     (s) => s.kind !== 'intake' && (s.seats?.length ?? 0) > 0,
@@ -632,6 +659,9 @@ function StageCards({ workflow, workflowRun, artifacts, agents, dispatchStatus }
 
   return (
     <div style={{ marginTop: 4 }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>
+        <AdapterPlatformChip adapter={dispatchAdapter} />
+      </div>
       {visible.map((stage) => {
         let stageRun = workflowRun.stageStates?.[stage.id];
         const status = stageRun?.status || 'pending';
@@ -2176,7 +2206,7 @@ function App() {
   const onAction = (id) => {
     if (id === 'preview') setDrawerArt(RT.ARTIFACTS.preview);
     if (id === 'fix') setDrawerArt(RT.ARTIFACTS.diff);
-    if (id === 'deploy') setDrawerArt(RT.ARTIFACTS.preview);
+    // 'deploy' intentionally unmapped — no real deploy pipeline yet, so no entry point.
     if (id.indexOf('decide:') === 0) setDecided(true);
   };
   const pickChat = (id) => {

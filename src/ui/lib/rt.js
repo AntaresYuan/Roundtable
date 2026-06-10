@@ -340,7 +340,6 @@ export async function POST(req: Request) {
       actions: [
         { id: 'preview', label: 'Preview live page', kind: 'primary', icon: 'play' },
         { id: 'fix', label: 'Apply review fix', kind: 'default', icon: 'wrench', badge: 1 },
-        { id: 'deploy', label: 'Deploy to Vercel', kind: 'default', icon: 'rocket' },
       ] },
   ];
 

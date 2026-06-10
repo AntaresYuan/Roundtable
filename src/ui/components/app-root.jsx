@@ -6,7 +6,7 @@
 
 import React from 'react';
 import { RT } from '../lib/rt';
-import { Avatar, RoleTag, Icon, Spinner, Chip, tint, alpha } from './primitives';
+import { Avatar, RoleTag, Icon, Spinner, Chip, Md, tint, alpha } from './primitives';
 import { ArtifactRenderer, CodeBlock, VChip, TodoListCard, HandoffCard, BreakoutChip, iconBtn, normalizeArtifactForDisplay } from './cards';
 import { MessageGroup, Composer, ConversationRail, LogoMark } from './chat';
 import { RoundtableScene, WhiteboardZoom, sceneAt, meetingNotes } from './roundtable';
@@ -311,7 +311,7 @@ function UserMsg({ text }) {
   );
 }
 
-function LocalLiveThread({ turns, agents, onApproveTurn }) {
+function LocalLiveThread({ turns, agents, onApproveTurn, turnActions }) {
   if (!turns || turns.length === 0) {
     return (
       <div style={{ minHeight: 220, display: 'grid', placeItems: 'center', textAlign: 'center', color: 'var(--text-faint)' }}>
@@ -331,6 +331,7 @@ function LocalLiveThread({ turns, agents, onApproveTurn }) {
             turn={turn}
             agents={agents}
             onApproveTurn={onApproveTurn}
+            turnActions={turnActions}
             showPreview={index === 0}
           />
         ))}
@@ -339,9 +340,20 @@ function LocalLiveThread({ turns, agents, onApproveTurn }) {
   );
 }
 
-function LocalLiveTurn({ turn, agents, onApproveTurn, showPreview }) {
+const STAGE_STATUS_STYLE = {
+  done: { color: 'var(--ok)', label: 'done' },
+  active: { color: 'var(--accent)', label: 'running' },
+  blocked: { color: 'var(--warn, #b8860b)', label: 'blocked' },
+  failed: { color: 'var(--bad)', label: 'failed' },
+  pending: { color: 'var(--text-faint)', label: 'pending' },
+};
+
+function LocalLiveTurn({ turn, agents, onApproveTurn, turnActions, showPreview }) {
   const completed = turn.result?.dispatchStatus === 'completed';
   const failed = turn.result?.dispatchStatus === 'failed';
+  const running = turn.result?.dispatchStatus === 'running';
+  const stopping = turn.result?.dispatchStage === 'interrupting' || turn.interrupting;
+  const interrupted = failed && turn.result?.dispatchError === 'interrupted_by_user';
   const artifacts = turn.result?.artifacts || [];
   const previewArtifact = artifacts.find((artifact) => artifact.kind === 'preview');
   return (
@@ -381,23 +393,305 @@ function LocalLiveTurn({ turn, agents, onApproveTurn, showPreview }) {
                 approving={turn.approving}
                 approvalError={turn.approvalError}
                 onApprove={() => onApproveTurn && onApproveTurn(turn.id)}
+                dispatch={turn.result.dispatch}
+                dispatchStatus={turn.result.dispatchStatus}
               />
-              {(completed || failed || artifacts.length > 0) && (
+              {running && turnActions && (
+                <LocalStopBar
+                  stopping={stopping}
+                  interruptError={turn.interruptError}
+                  onStop={() => turnActions.interrupt(turn.id)}
+                />
+              )}
+              {interrupted && !turn.discarded && (
+                <LocalInterruptedCard
+                  turn={turn}
+                  agents={agents}
+                  artifacts={artifacts}
+                  onResume={turnActions ? () => turnActions.redispatch(turn.id) : null}
+                  onDiscard={turnActions ? () => turnActions.discard(turn.id) : null}
+                  onHandoff={turnActions
+                    ? () => turnActions.redispatch(
+                        turn.id,
+                        (turn.result.dispatchAdapter || 'local-dispatch') === 'claude-code' ? 'local-dispatch' : 'claude-code',
+                      )
+                    : null}
+                />
+              )}
+              {turn.result.workflow && turn.result.workflowRun ? (
+                <StageCards
+                  workflow={turn.result.workflow}
+                  workflowRun={turn.result.workflowRun}
+                  artifacts={artifacts}
+                  agents={agents}
+                  dispatchStatus={turn.result.dispatchStatus}
+                />
+              ) : ((completed || failed || artifacts.length > 0) && !(interrupted && turn.discarded) && (
                 <LocalResultCard
                   artifacts={artifacts}
                   dispatchStatus={turn.result.dispatchStatus}
                   dispatchAdapter={turn.result.dispatchAdapter}
                   dispatchStage={turn.result.dispatchStage}
                   workspacePath={turn.result.dispatchWorkspacePath || turn.result.workspacePath}
-                  previewArtifact={showPreview ? previewArtifact : null}
+                  previewArtifact={showPreview && !interrupted ? previewArtifact : null}
                   agents={agents}
                 />
-              )}
+              ))}
             </div>
           )}
         </div>
       </div>
     </>
+  );
+}
+
+function agentForSeat(agents, agentId, role) {
+  return (
+    agents[agentId] ||
+    Object.values(agents).find((a) => a.role === role) ||
+    agents.orchestrator
+  );
+}
+
+// Per-stage card: as the workflow advances, each stage that starts gets its own
+// card showing who's on it, live status, and the artifacts they produced. This
+// is the "new stage → new card" timeline (not a tab/strip).
+function StageCard({ stage, stageRun, artifacts, agents }) {
+  const status = stageRun?.status || 'pending';
+  const sty = STAGE_STATUS_STYLE[status] || STAGE_STATUS_STYLE.pending;
+  const roles = new Set(
+    stage.seats.filter((s) => s.ref.kind === 'role').map((s) => s.ref.role),
+  );
+  const stageArtifacts = artifacts.filter((a) => roles.has(a.ownerAgentId));
+  return (
+    <div className="rt-rise" style={{ marginTop: 10, border: `1px solid ${alpha(sty.color, 35)}`,
+      borderRadius: 'var(--r-card)', background: 'var(--surface)', boxShadow: 'var(--shadow-card)', overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '10px 13px',
+        borderBottom: '1px solid var(--border)', background: alpha(sty.color, 6) }}>
+        <span style={{ display: 'grid', placeItems: 'center', width: 22, height: 22, borderRadius: 6,
+          background: alpha(sty.color, 16), color: sty.color }}>
+          {status === 'active' ? <Spinner size={12} color={sty.color} />
+            : status === 'done' ? <Icon name="check" size={13} />
+            : <Icon name={stage.icon || 'layers'} size={13} />}
+        </span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--text)' }}>{stage.name}</div>
+          {stage.desc && <div style={{ fontSize: 11, color: 'var(--text-faint)', overflow: 'hidden',
+            textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{stage.desc}</div>}
+        </div>
+        <span style={{ fontSize: 10.5, fontWeight: 700, color: sty.color, padding: '2px 8px', borderRadius: 999,
+          background: alpha(sty.color, 14) }}>{sty.label}</span>
+      </div>
+      <div style={{ padding: '10px 13px', display: 'grid', gap: 8 }}>
+        {(stageRun?.seatRuns || []).map((seatRun, i) => {
+          const role = stage.seats[i]?.ref?.kind === 'role' ? stage.seats[i].ref.role : 'user';
+          const ag = agentForSeat(agents, seatRun.agentId, role);
+          const ss = STAGE_STATUS_STYLE[seatRun.status] || STAGE_STATUS_STYLE.pending;
+          return (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Avatar agent={ag} size={22} ring={false} />
+              <span style={{ fontSize: 12.5, fontWeight: 600, color: ag.color }}>{ag.displayName}</span>
+              <span className="mono" style={{ fontSize: 10.5, color: 'var(--text-faint)' }}>@{ag.role || role}</span>
+              <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 5,
+                fontSize: 11, color: ss.color, fontWeight: 600 }}>
+                {seatRun.status === 'active' ? <Spinner size={10} color={ss.color} />
+                  : seatRun.status === 'done' ? <Icon name="check" size={11} /> : null}
+                {ss.label}
+              </span>
+            </div>
+          );
+        })}
+        {stageArtifacts.length > 0 && (
+          <div style={{ display: 'grid', gap: 6, marginTop: 2 }}>
+            {stageArtifacts.map((a) => (
+              <ExpandableArtifact key={`${a.id}-${a.version}`} artifact={a} owner={agentForArtifact(a, agents)} />
+            ))}
+          </div>
+        )}
+        {status === 'active' && stageArtifacts.length === 0 && (
+          <div style={{ fontSize: 12, color: 'var(--text-faint)', fontStyle: 'italic' }}>Working…</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function LocalStopBar({ stopping, interruptError, onStop }) {
+  return (
+    <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
+      border: '1px solid var(--border)', borderRadius: 'var(--r-card)', background: 'var(--surface)',
+      boxShadow: 'var(--shadow-card)' }}>
+      <Spinner size={14} color="var(--run)" />
+      <div style={{ flex: 1, minWidth: 0, fontSize: 13, color: 'var(--text-muted)' }}>
+        {stopping ? 'Stopping — interrupting every active agent session…' : 'Agents are working on this run.'}
+        {interruptError && (
+          <span style={{ color: 'var(--bad)', marginLeft: 8 }}>{interruptError}</span>
+        )}
+      </div>
+      <button onClick={onStop} disabled={stopping} title="Stop the run — interrupts every active agent session"
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px',
+          borderRadius: 'var(--r-sm)', border: 'none', cursor: stopping ? 'default' : 'pointer',
+          background: stopping ? 'var(--surface-3)' : 'var(--bad)', color: stopping ? 'var(--text-faint)' : '#fff',
+          font: 'inherit', fontSize: 12.5, fontWeight: 750, minHeight: 30, flexShrink: 0 }}>
+        <span style={{ width: 9, height: 9, borderRadius: 2, background: 'currentColor', display: 'inline-block' }} />
+        {stopping ? 'Stopping…' : 'Stop'}
+      </button>
+    </div>
+  );
+}
+
+function LocalInterruptedCard({ turn, agents, artifacts, onResume, onDiscard, onHandoff }) {
+  const plan = turn.result?.plan;
+  const records = turn.result?.dispatch || [];
+  const taskById = new Map((plan?.tasks || []).map((task) => [task.id, task]));
+  const ownerFor = (assignee) => {
+    const role = (assignee || '').replace(/^@/, '');
+    return Object.values(agents).find((a) => a.role === role && !a.pm) || agents.orchestrator;
+  };
+  const ranTasks = records.map((record) => {
+    const task = taskById.get(record.taskId);
+    return {
+      taskId: record.taskId,
+      title: task?.title || record.taskId,
+      owner: ownerFor(task?.assignee),
+      status: record.status,
+    };
+  });
+  const notStarted = (plan?.tasks || []).filter((task) => !records.some((r) => r.taskId === task.id));
+  const quickAction = (label, icon, onClick, primary) => onClick && (
+    <button onClick={onClick} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 11px',
+      borderRadius: 'var(--r-sm)', border: primary ? 'none' : '1px solid var(--border)', cursor: 'pointer',
+      background: primary ? 'var(--accent)' : 'var(--surface)', color: primary ? '#fff' : 'var(--text)',
+      font: 'inherit', fontSize: 12.5, fontWeight: 700, minHeight: 30 }}>
+      <Icon name={icon} size={13} />{label}
+    </button>
+  );
+  return (
+    <div style={{ marginTop: 12, border: '1px solid var(--border)', borderLeft: '3px solid var(--warn)',
+      borderRadius: 'var(--r-card)', background: 'var(--surface)', boxShadow: 'var(--shadow-card)', overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderBottom: '1px solid var(--border)' }}>
+        <Icon name="pause" size={15} style={{ color: 'var(--warn)' }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 750, fontSize: 14, color: 'var(--text)' }}>Run interrupted</div>
+          <div className="mono" style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 2 }}>
+            {ranTasks.length} task{ranTasks.length === 1 ? '' : 's'} ran · {notStarted.length} not started · {artifacts.length} partial artifact{artifacts.length === 1 ? '' : 's'}
+          </div>
+        </div>
+        <span style={{ fontSize: 11.5, color: 'var(--warn)', padding: '3px 8px', borderRadius: 999,
+          background: alpha('var(--warn)', 14), fontWeight: 750 }}>stopped by you</span>
+      </div>
+      <div style={{ padding: '10px 14px', display: 'grid', gap: 7 }}>
+        {ranTasks.map((entry) => (
+          <div key={entry.taskId} style={{ display: 'flex', gap: 9, alignItems: 'center' }}>
+            <Avatar agent={entry.owner} size={22} />
+            <span className="mono" style={{ fontSize: 11, color: 'var(--text-faint)' }}>{entry.taskId}</span>
+            <span style={{ flex: 1, fontSize: 13, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {entry.title}
+            </span>
+            <span className="mono" style={{ fontSize: 10.5, color: entry.status === 'completed' ? 'var(--ok)' : 'var(--warn)' }}>
+              {entry.status === 'completed' ? 'finished' : 'stopped mid-task'}
+            </span>
+          </div>
+        ))}
+        {notStarted.length > 0 && (
+          <div className="mono" style={{ fontSize: 11, color: 'var(--text-faint)' }}>
+            never started: {notStarted.map((task) => task.id).join(', ')}
+          </div>
+        )}
+      </div>
+      <div style={{ display: 'flex', gap: 8, padding: '10px 14px 13px', flexWrap: 'wrap', borderTop: '1px solid var(--border)' }}>
+        {quickAction('Resume', 'play', onResume, true)}
+        {quickAction('Discard partial', 'x', onDiscard, false)}
+        {quickAction('Hand off to different agent', 'send', onHandoff, false)}
+      </div>
+    </div>
+  );
+}
+
+// The stage timeline for one workflow-driven turn — renders a card per stage
+// that has started, in workflow order. While the dispatch is still running the
+// store only holds the initial all-pending projection, so we synthesize an
+// "active" marker on the first unfinished stage to keep the run from looking
+// frozen until completion.
+function StageCards({ workflow, workflowRun, artifacts, agents, dispatchStatus }) {
+  if (!workflow || !workflowRun) return null;
+  const stages = workflow.stages.filter(
+    (s) => s.kind !== 'intake' && (s.seats?.length ?? 0) > 0,
+  );
+  const running = dispatchStatus === 'running';
+  const firstUnfinishedId = stages.find(
+    (s) => (workflowRun.stageStates?.[s.id]?.status || 'pending') !== 'done',
+  )?.id;
+
+  const visible = stages.filter((s) => {
+    const status = workflowRun.stageStates?.[s.id]?.status || 'pending';
+    if (status !== 'pending') return true;
+    return running && s.id === firstUnfinishedId;
+  });
+  if (visible.length === 0) return null;
+
+  return (
+    <div style={{ marginTop: 4 }}>
+      {visible.map((stage) => {
+        let stageRun = workflowRun.stageStates?.[stage.id];
+        const status = stageRun?.status || 'pending';
+        if (running && status === 'pending' && stage.id === firstUnfinishedId) {
+          stageRun = {
+            ...(stageRun || {}),
+            status: 'active',
+            seatRuns: (stageRun?.seatRuns || stage.seats.map((seat) => ({
+              agentId: seat.ref.kind === 'role' ? seat.ref.agentId ?? seat.ref.role : 'user',
+              status: 'pending',
+              artifactIds: [],
+            }))).map((sr) => ({ ...sr, status: sr.status === 'done' ? 'done' : 'active' })),
+          };
+        }
+        return (
+          <StageCard
+            key={stage.id}
+            stage={stage}
+            stageRun={stageRun}
+            artifacts={artifacts}
+            agents={agents}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+// One agent's deliverable, click to expand and read what they actually produced
+// — turns the result list from a black box into reviewable output.
+function ExpandableArtifact({ artifact, owner }) {
+  const [open, setOpen] = useState(false);
+  const content = artifact.preview || '';
+  const isHtml = artifact.kind === 'html' || artifact.kind === 'preview';
+  return (
+    <div style={{ borderRadius: 'var(--r-sm)', background: tint(owner.color, 7),
+      border: `1px solid ${alpha(owner.color, 22)}`, overflow: 'hidden' }}>
+      <button onClick={() => setOpen((v) => !v)} style={{ width: '100%', display: 'grid',
+        gridTemplateColumns: 'auto auto auto 1fr auto', gap: 9, alignItems: 'center', padding: '8px 10px',
+        background: 'transparent', border: 'none', cursor: 'pointer', font: 'inherit', textAlign: 'left' }}>
+        <Icon name={open ? 'chevdown' : 'chevron'} size={12} style={{ color: owner.color }} />
+        <Avatar agent={owner} size={20} ring={false} />
+        <Icon name={artifact.kind === 'preview' ? 'eye' : artifact.kind === 'markdown' ? 'clip' : 'code'} size={14}
+          style={{ color: owner.color }} />
+        <span className="mono" style={{ fontSize: 12, color: 'var(--text)', overflow: 'hidden',
+          textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{artifact.title}</span>
+        <span style={{ fontSize: 11, color: owner.color, fontWeight: 700 }}>@{owner.role || artifact.ownerAgentId}</span>
+      </button>
+      {open && (
+        <div style={{ borderTop: `1px solid ${alpha(owner.color, 22)}`, background: 'var(--bg)', padding: '10px 12px',
+          maxHeight: 320, overflowY: 'auto' }}>
+          {!content
+            ? <div style={{ fontSize: 12, color: 'var(--text-faint)', fontStyle: 'italic' }}>No content captured for this artifact.</div>
+            : isHtml
+            ? <iframe title={artifact.title} srcDoc={content} sandbox="allow-scripts"
+                style={{ width: '100%', height: 280, border: 'none', background: '#fff', borderRadius: 6 }} />
+            : <div style={{ fontSize: 12.5, lineHeight: 1.5, color: 'var(--text)' }}><Md text={content} /></div>}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -444,20 +738,13 @@ function LocalResultCard({ artifacts, dispatchStatus, dispatchAdapter, dispatchS
         </div>
       )}
       <div style={{ padding: '11px 14px', display: 'grid', gap: 8 }}>
-        {artifacts.slice(0, 8).map((artifact) => {
-          const owner = agentForArtifact(artifact, agents);
-          return (
-            <div key={`${artifact.id}-${artifact.version}`} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto',
-              gap: 9, alignItems: 'center', padding: '8px 10px', borderRadius: 'var(--r-sm)',
-              background: tint(owner.color, 7), border: `1px solid ${alpha(owner.color, 22)}` }}>
-              <Icon name={artifact.kind === 'preview' ? 'eye' : artifact.kind === 'markdown' ? 'clip' : 'code'} size={14}
-                style={{ color: owner.color }} />
-              <span className="mono" style={{ fontSize: 12, color: 'var(--text)', overflow: 'hidden',
-                textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{artifact.title}</span>
-              <span style={{ fontSize: 11, color: owner.color, fontWeight: 700 }}>@{owner.role || artifact.ownerAgentId}</span>
-            </div>
-          );
-        })}
+        {artifacts.slice(0, 8).map((artifact) => (
+          <ExpandableArtifact
+            key={`${artifact.id}-${artifact.version}`}
+            artifact={artifact}
+            owner={agentForArtifact(artifact, agents)}
+          />
+        ))}
         {workspacePath && (
           <div className="mono" style={{ fontSize: 10.5, color: 'var(--text-faint)', overflow: 'hidden',
             textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>workspace: {workspacePath}</div>
@@ -467,19 +754,98 @@ function LocalResultCard({ artifacts, dispatchStatus, dispatchAdapter, dispatchS
   );
 }
 
-function LocalPlanCard({ plan, intake, agents, approvalStatus, approving, approvalError, onApprove }) {
+// #12: live TodoList — per-task status derived from approval + dispatch records,
+// so one card transitions pending → running → done/failed in place as the run polls.
+const TODO_STATUS_STYLE = {
+  pending: { color: 'var(--text-faint)', label: 'pending', icon: null },
+  running: { color: 'var(--run, var(--accent))', label: 'running', icon: 'spinner' },
+  completed: { color: 'var(--ok)', label: 'done', icon: 'check' },
+  failed: { color: 'var(--bad)', label: 'failed', icon: 'x' },
+};
+
+function todoStatusFor(task, record, approved, dispatchStatus) {
+  if (record?.status === 'completed' || record?.status === 'failed') return record.status;
+  if (record?.status === 'running') return 'running';
+  if (approved && dispatchStatus === 'running') return 'running';
+  return 'pending';
+}
+
+function TodoRow({ task, owner, record, status, last }) {
+  const [open, setOpen] = useState(false);
+  const sty = TODO_STATUS_STYLE[status];
+  const events = (record?.events || []).filter((e) => e.type === 'thinking_delta' || e.type === 'tool_use');
+  return (
+    <div style={{ borderBottom: last ? 'none' : '1px solid var(--border)' }}>
+      <button onClick={() => setOpen((v) => !v)} title="Expand task activity"
+        style={{ width: '100%', display: 'flex', gap: 10, alignItems: 'flex-start', padding: '9px 0',
+          background: 'none', border: 'none', font: 'inherit', cursor: 'pointer', textAlign: 'left' }}>
+        <span style={{ display: 'grid', placeItems: 'center', width: 18, height: 18, marginTop: 3,
+          borderRadius: 5, flexShrink: 0, background: alpha(sty.color, status === 'pending' ? 8 : 16), color: sty.color }}>
+          {sty.icon === 'spinner' ? <Spinner size={11} color={sty.color} />
+            : sty.icon ? <Icon name={sty.icon} size={11} />
+            : <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'currentColor', opacity: .6 }} />}
+        </span>
+        <Avatar agent={owner} size={24} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span className="mono" style={{ fontSize: 11, color: 'var(--text-faint)' }}>{task.id}</span>
+            <span style={{ fontSize: 13.5, fontWeight: 600,
+              color: status === 'completed' ? 'var(--text-muted)' : 'var(--text)',
+              textDecoration: status === 'completed' ? 'line-through' : 'none',
+              textDecorationColor: alpha('var(--ok)', 50) }}>{task.title}</span>
+          </div>
+          <div className="mono" style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 3 }}>
+            {task.assignee}{task.parallel ? ' · parallel' : ''}{task.deps.length ? ` · waits on ${task.deps.join(', ')}` : ''}
+          </div>
+        </div>
+        <span style={{ fontSize: 10.5, fontWeight: 700, color: sty.color, padding: '2px 8px', borderRadius: 999,
+          background: alpha(sty.color, 13), flexShrink: 0, marginTop: 3 }}>{sty.label}</span>
+        <Icon name={open ? 'chevdown' : 'chevron'} size={11} style={{ color: 'var(--text-faint)', marginTop: 6, flexShrink: 0 }} />
+      </button>
+      {open && (
+        <div style={{ margin: '0 0 9px 28px', padding: '8px 11px', borderRadius: 'var(--r-sm)',
+          background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
+          {events.length === 0
+            ? <div style={{ fontSize: 12, color: 'var(--text-faint)', fontStyle: 'italic' }}>
+                {status === 'pending' ? 'Not started yet.' : 'No activity captured.'}</div>
+            : events.slice(0, 6).map((e, i) => (
+                <div key={i} style={{ display: 'flex', gap: 7, alignItems: 'flex-start', fontSize: 12,
+                  color: 'var(--text-muted)', padding: '2px 0' }}>
+                  <Icon name={e.type === 'tool_use' ? 'wrench' : 'sparkle'} size={11}
+                    style={{ color: 'var(--text-faint)', marginTop: 2, flexShrink: 0 }} />
+                  <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {e.type === 'tool_use' ? `${e.name}(${(e.input?.path || e.input?.title || '')})` : e.delta}
+                  </span>
+                </div>
+              ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LocalPlanCard({ plan, intake, agents, approvalStatus, approving, approvalError, onApprove, dispatch, dispatchStatus }) {
+  const [showPlan, setShowPlan] = useState(false);
   const ownerFor = (assignee) => {
     const role = assignee.replace(/^@/, '');
     return Object.values(agents).find((a) => a.role === role && !a.pm) || agents.orchestrator;
   };
   const approved = approvalStatus === 'approved';
+  const recordFor = (taskId) => (dispatch || []).find((r) => r.taskId === taskId);
+  const doneCount = plan.tasks.filter((t) =>
+    todoStatusFor(t, recordFor(t.id), approved, dispatchStatus) === 'completed').length;
   return (
     <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--r-card)', background: 'var(--surface)',
       boxShadow: 'var(--shadow-card)', overflow: 'hidden' }}>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '12px 14px', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
         <Icon name="layers" size={15} style={{ color: 'var(--accent)' }} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 700, fontSize: 14 }}>Plan drafted</div>
+          <div style={{ fontWeight: 700, fontSize: 14 }}>
+            Plan
+            <span className="mono tnum" style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-faint)', marginLeft: 8 }}>
+              {doneCount}/{plan.tasks.length} done
+            </span>
+          </div>
           <div className="mono" style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 2 }}>
             intent={intake.intentType} · risk={intake.risk} · clarity={intake.clarity}
           </div>
@@ -506,26 +872,34 @@ function LocalPlanCard({ plan, intake, agents, approvalStatus, approving, approv
           {approvalError}
         </div>
       )}
-      <div style={{ padding: '10px 14px 13px' }}>
-        {plan.tasks.map((task) => {
-          const owner = ownerFor(task.assignee);
+      <div style={{ padding: '4px 14px 6px' }}>
+        {plan.tasks.map((task, i) => {
+          const record = recordFor(task.id);
           return (
-            <div key={task.id} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '9px 0',
-              borderBottom: task.id === plan.tasks[plan.tasks.length - 1].id ? 'none' : '1px solid var(--border)' }}>
-              <Avatar agent={owner} size={24} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <span className="mono" style={{ fontSize: 11, color: 'var(--text-faint)' }}>{task.id}</span>
-                  <span style={{ fontSize: 13.5, color: 'var(--text)', fontWeight: 600 }}>{task.title}</span>
-                </div>
-                <div className="mono" style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 3 }}>
-                  {task.assignee}{task.parallel ? ' · parallel' : ''}{task.deps.length ? ` · waits on ${task.deps.join(', ')}` : ''}
-                </div>
-              </div>
-            </div>
+            <TodoRow
+              key={task.id}
+              task={task}
+              owner={ownerFor(task.assignee)}
+              record={record}
+              status={todoStatusFor(task, record, approved, dispatchStatus)}
+              last={i === plan.tasks.length - 1}
+            />
           );
         })}
       </div>
+      <button onClick={() => setShowPlan((v) => !v)} style={{ width: '100%', display: 'flex', alignItems: 'center',
+        gap: 6, padding: '8px 14px', background: 'var(--surface-2)', border: 'none', borderTop: '1px solid var(--border)',
+        font: 'inherit', fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', cursor: 'pointer' }}>
+        <Icon name={showPlan ? 'chevdown' : 'chevron'} size={11} />
+        {showPlan ? 'Hide plan' : 'Show plan'}
+      </button>
+      {showPlan && (
+        <pre className="mono" style={{ margin: 0, padding: '10px 14px', fontSize: 11, lineHeight: 1.55,
+          color: 'var(--text-muted)', background: 'var(--bg)', borderTop: '1px solid var(--border)',
+          overflowX: 'auto', maxHeight: 260, overflowY: 'auto' }}>
+          {JSON.stringify(plan, null, 2)}
+        </pre>
+      )}
     </div>
   );
 }
@@ -784,7 +1158,7 @@ function recommendWorkflow(task, workflows, currentId) {
   return { id: wf.id, name: wf.name, reason };
 }
 
-function Dock({ st, agents, scene, onAction, onOpenChat, onOpenWorkflow, onSend, liveStatus, rec, onUseWorkflow, onDismissRec }) {
+function Dock({ st, agents, scene, onAction, onOpenChat, onOpenWorkflow, onSend, liveStatus, rec, onUseWorkflow, onDismissRec, workflow, workflowRun }) {
   let dotColor = 'var(--text-faint)', body;
   if (st.decision) {
     const ag = agents[st.decision.agentId];
@@ -852,7 +1226,7 @@ function Dock({ st, agents, scene, onAction, onOpenChat, onOpenWorkflow, onSend,
   return (
     <div style={{ borderTop: '1px solid var(--border)', background: 'var(--surface)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 22px 0' }}>
-        <WorkflowStrip clock={scene.clock} onOpen={onOpenWorkflow} />
+        <WorkflowStrip clock={scene.clock} onOpen={onOpenWorkflow} workflow={workflow} workflowRun={workflowRun} />
         <span style={{ flex: 1 }} />
       </div>
       {rec && (
@@ -881,7 +1255,22 @@ function Dock({ st, agents, scene, onAction, onOpenChat, onOpenWorkflow, onSend,
 
 /* ---- Inspector : tabbed Files / Notes (right, collapsible) --------------- */
 // P3.2: live message thread for the selected chat (messages.list + handoffs count).
-function LiveThread({ messages, handoffs, agents }) {
+function LiveThread({ messages, handoffs, agents, onRewrite }) {
+  const polish = trpc.ai.polish.useMutation();
+  const [polishingId, setPolishingId] = React.useState(null);
+  const [suggestions, setSuggestions] = React.useState({});
+
+  const handleRewrite = async (m) => {
+    setPolishingId(m.id);
+    try {
+      const result = await polish.mutateAsync({ text: m.content });
+      setSuggestions(s => ({ ...s, [m.id]: result.text }));
+    } finally {
+      setPolishingId(null);
+    }
+  };
+  const dismissSuggestion = (id) => setSuggestions(s => { const n = { ...s }; delete n[id]; return n; });
+
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: '16px 22px' }}>
       <div style={{ maxWidth: 720, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -898,14 +1287,46 @@ function LiveThread({ messages, handoffs, agents }) {
         )}
         {messages.map((m) => {
           const mine = m.authorType === 'user';
+          const suggestion = suggestions[m.id];
           return (
-            <div key={m.id} style={{ display: 'flex', justifyContent: mine ? 'flex-end' : 'flex-start' }}>
-              <div style={{ maxWidth: '80%', padding: '9px 12px', borderRadius: 12, fontSize: 13.5, lineHeight: 1.5,
-                background: mine ? 'var(--accent)' : 'var(--surface-2)', color: mine ? '#fff' : 'var(--text)',
-                border: mine ? 'none' : '1px solid var(--border)' }}>
-                {!mine && <div style={{ fontSize: 11, color: 'var(--text-faint)', marginBottom: 2 }}>{m.authorId || m.authorType}</div>}
-                {m.content}
+            <div key={m.id}>
+              <div style={{ display: 'flex', justifyContent: mine ? 'flex-end' : 'flex-start' }}>
+                <div style={{ maxWidth: '80%', padding: '9px 12px', borderRadius: 12, fontSize: 13.5, lineHeight: 1.5,
+                  background: mine ? 'var(--accent)' : 'var(--surface-2)', color: mine ? '#fff' : 'var(--text)',
+                  border: mine ? 'none' : '1px solid var(--border)' }}>
+                  {!mine && <div style={{ fontSize: 11, color: 'var(--text-faint)', marginBottom: 2 }}>{m.authorId || m.authorType}</div>}
+                  {m.content}
+                </div>
               </div>
+              {mine && !suggestion && (
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 3 }}>
+                  <button onClick={() => handleRewrite(m)} disabled={polishingId === m.id} title="Rewrite with AI"
+                    style={{ display: 'grid', placeItems: 'center', width: 22, height: 22, borderRadius: 6,
+                      border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text-faint)',
+                      opacity: 0.6 }}
+                    onMouseEnter={e => { e.currentTarget.style.opacity = 1; e.currentTarget.style.background = 'var(--surface-2)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.opacity = 0.6; e.currentTarget.style.background = 'transparent'; }}>
+                    {polishingId === m.id ? <Spinner size={11} /> : <Icon name="sparkle" size={12} />}
+                  </button>
+                </div>
+              )}
+              {mine && suggestion && (
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 6 }}>
+                  <div style={{ maxWidth: '80%', padding: '8px 11px', borderRadius: 10, fontSize: 13,
+                    background: 'var(--surface-2)', border: '1px solid var(--accent)', color: 'var(--text)', lineHeight: 1.5 }}>
+                    <div style={{ fontSize: 10.5, color: 'var(--accent)', fontWeight: 600, marginBottom: 4 }}>✦ AI rewrite</div>
+                    <div style={{ marginBottom: 8 }}>{suggestion}</div>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button onClick={() => { onRewrite && onRewrite(suggestion); dismissSuggestion(m.id); }}
+                        style={{ fontSize: 11.5, fontWeight: 600, padding: '3px 9px', borderRadius: 5, border: 'none',
+                          background: 'var(--accent)', color: '#fff', cursor: 'pointer' }}>Resend</button>
+                      <button onClick={() => dismissSuggestion(m.id)}
+                        style={{ fontSize: 11.5, padding: '3px 9px', borderRadius: 5, border: '1px solid var(--border)',
+                          background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer' }}>Dismiss</button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           );
         })}
@@ -944,9 +1365,9 @@ function FileRow({ art, agents, onOpen, activeChatId }) {
     </button>
   );
 }
-function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifact, onAction, onClose, live, liveArtifacts, liveMessages, liveHandoffs, activeChatId, memory, localTurns, localStatus, onApproveLocalTurn }) {
+function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifact, onAction, onClose, live, liveArtifacts, liveMessages, liveHandoffs, activeChatId, memory, localTurns, localStatus, onApproveLocalTurn, localTurnActions, onRewrite }) {
   const placed = sceneAt(clock).placed;
-  const hasLocalTurns = !live && localTurns && localTurns.length > 0;
+  const hasLocalTurns = localTurns && localTurns.length > 0;
   const localArtifacts = hasLocalTurns ? liveArtifactsFromTurns(localTurns, agents, localStatus) : [];
   // P3.2: in live mode show the real chat's artifacts (empty until the orchestrator runs) —
   // never fall back to scripted fixtures, which would contradict the live center stage.
@@ -979,9 +1400,9 @@ function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifa
       {tab === 'chat' ? (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg)' }}>
           {hasLocalTurns
-            ? <LocalLiveThread turns={localTurns} agents={agents} onApproveTurn={onApproveLocalTurn} />
+            ? <LocalLiveThread turns={localTurns} agents={agents} onApproveTurn={onApproveLocalTurn} turnActions={localTurnActions} />
             : live
-            ? <LiveThread messages={liveMessages ?? []} handoffs={liveHandoffs} agents={agents} />
+            ? <LiveThread messages={liveMessages ?? []} handoffs={liveHandoffs} agents={agents} onRewrite={onRewrite} />
             : <Thread agents={agents} scene={scene} onOpenArtifact={onOpenArtifact} onAction={onAction} narrow />}
         </div>
       ) : tab === 'files' ? (
@@ -1133,6 +1554,8 @@ function storedTurnToLiveTurn(turn) {
             artifacts: turn.artifacts,
             intake: turn.intake,
             plan: turn.plan,
+            workflow: turn.workflow,
+            workflowRun: turn.workflowRun,
           },
         }
       : { error: turn.error || 'orchestrator_turn_failed' }),
@@ -1155,6 +1578,27 @@ function preferredAgentAdapterRequest() {
   if (typeof window === 'undefined') return {};
   const value = window.localStorage.getItem('roundtableAgentAdapter');
   return value ? { agentAdapter: value } : {};
+}
+
+// #15 AC: agent color persistence across sessions. Custom agents (id `a-…`)
+// live in RT.AGENTS at runtime; mirror them to localStorage and rehydrate on boot.
+function persistCustomAgents() {
+  if (typeof window === 'undefined') return;
+  const custom = Object.values(RT.AGENTS).filter((a) => a.agentId.startsWith('a-'));
+  window.localStorage.setItem('roundtableCustomAgents', JSON.stringify(custom));
+}
+
+function restoreCustomAgents() {
+  if (typeof window === 'undefined') return [];
+  try {
+    const saved = JSON.parse(window.localStorage.getItem('roundtableCustomAgents') || '[]');
+    for (const a of saved) {
+      if (a?.agentId && !RT.AGENTS[a.agentId]) RT.AGENTS[a.agentId] = a;
+    }
+    return saved.map((a) => a.agentId).filter(Boolean);
+  } catch {
+    return [];
+  }
 }
 
 function livePlanArtifact(liveTurns, liveStatus) {
@@ -1539,9 +1983,26 @@ function App() {
   const [inspectorW, setInspectorW] = useState(392);
   const [zoomWB, setZoomWB] = useState(false);
   const [memberIds, setMemberIds] = useState(RT.WORKBENCH.members);
+  useEffect(() => {
+    const restored = restoreCustomAgents();
+    if (restored.length) setMemberIds((m) => [...m, ...restored.filter((id) => !m.includes(id))]);
+  }, []);
   const [localTurns, setLocalTurns] = useState([]);
   const [localStatus, setLocalStatus] = useState('idle');
-  const [localChatId] = useState(() => crypto.randomUUID());
+  // Persisted so a page refresh restores this chat's live turns from history
+  // instead of starting an empty session (the history API filters by chatId).
+  const [localChatId] = useState(() => {
+    const key = 'roundtable.localChatId';
+    try {
+      const existing = window.localStorage.getItem(key);
+      if (existing) return existing;
+      const id = crypto.randomUUID();
+      window.localStorage.setItem(key, id);
+      return id;
+    } catch {
+      return crypto.randomUUID();
+    }
+  });
   // P3.2: live chats when signed in; fall back to fixtures for the logged-out demo.
   const { status: authStatus } = useSession();
   const authed = authStatus === 'authenticated';
@@ -1558,6 +2019,18 @@ function App() {
       trpcUtils.chats.list.invalidate();
       setSelectedChatId(chat.id);
       setSelectedWorkbenchId(chat.workbenchId);
+    },
+  });
+  const createMessage = trpc.messages.create.useMutation({
+    onSuccess: () => trpcUtils.messages.list.invalidate(),
+  });
+  const polishPrompt = trpc.ai.polish.useMutation();
+  const createWorkflowMut = trpc.workflows.create.useMutation();
+  const updateWorkflowMut = trpc.workflows.update.useMutation();
+  const bindWorkflowMut = trpc.workflows.bindToWorkbench.useMutation();
+  const deleteChat = trpc.chats.delete.useMutation({
+    onSuccess: () => {
+      trpcUtils.chats.list.invalidate();
     },
   });
   const updateProfile = trpc.userProfile.update.useMutation({
@@ -1663,33 +2136,42 @@ function App() {
     r.dataset.density = t.density;
   }, [t.aesthetic, t.theme, t.density]);
 
+  // Turns are saved in the turn store under whatever chatId was sent to
+  // /api/orchestrator/turn: the real chat id when signed in, else the local
+  // fallback id. Poll history under the *same* id, or we'd query an empty chat.
+  const turnChatId = authed ? activeChatId : localChatId;
   const loadLocalHistory = useCallback(async () => {
+    if (!turnChatId) return;
     try {
-      const res = await fetch(`/api/orchestrator/history?chatId=${localChatId}`, { cache: 'no-store' });
+      const res = await fetch(`/api/orchestrator/history?chatId=${turnChatId}`, { cache: 'no-store' });
       const data = await res.json();
       if (!res.ok || !data.ok) return;
       setLocalTurns((data.turns || []).map(storedTurnToLiveTurn));
     } catch {
       // Local history is a dev convenience; a fresh turn should still work.
     }
-  }, [localChatId]);
+  }, [turnChatId]);
 
   useEffect(() => {
-    if (authStatus === 'loading' || authed) return;
+    if (authStatus === 'loading') return;
     loadLocalHistory();
-  }, [authStatus, authed, loadLocalHistory]);
+  }, [authStatus, loadLocalHistory]);
 
   // Dispatch runs in the background on the server (fire-and-forget), so while a
   // turn's dispatch is 'running' we poll history to fill in artifacts as they
   // land — instead of holding a multi-minute request open and timing out.
-  const localInFlight = !authed && localTurns.some(
+  const localInFlight = localTurns.some(
     (turn) => turn.result?.dispatchStatus === 'running',
   );
+  // Drive the homepage workflow strip from the most recent run's stage states.
+  const latestTurnResult = latestLiveTurn(localTurns)?.result;
+  const liveWorkflow = latestTurnResult?.workflow;
+  const liveWorkflowRun = latestTurnResult?.workflowRun;
   useEffect(() => {
-    if (authed || !localInFlight) return;
+    if (!localInFlight) return;
     const iv = setInterval(() => { loadLocalHistory(); }, 2500);
     return () => clearInterval(iv);
-  }, [authed, localInFlight, loadLocalHistory]);
+  }, [localInFlight, loadLocalHistory]);
 
   const onAction = (id) => {
     if (id === 'preview') setDrawerArt(RT.ARTIFACTS.preview);
@@ -1709,6 +2191,10 @@ function App() {
   };
   const ensureWorkbench = async () => {
     if (activeWorkbench?.id) return activeWorkbench;
+    if (liveWorkbenches.length > 0) {
+      setSelectedWorkbenchId(liveWorkbenches[0].id);
+      return liveWorkbenches[0];
+    }
     const created = await createWorkbench.mutateAsync({
       name: 'Product Squad',
       workspacePath: `workspaces/${Date.now()}`,
@@ -1717,7 +2203,45 @@ function App() {
     setSelectedWorkbenchId(created.id);
     return created;
   };
-  const sendLocalTurn = async (message, turnId) => {
+  // Publish an editor workflow to the server and bind it as the workbench's
+  // active workflow, so the next live run actually follows the edited stages
+  // (resolveChatWorkflow reads workbench.activeWorkflowId; builtin is only the
+  // fallback). Editor-local workflows can carry shapes the server schema
+  // rejects (no top-level desc, origin.kind 'new') — normalize first. Failures
+  // are swallowed: the run still works on the builtin fallback.
+  const publishWorkflow = async (wf) => {
+    if (!authed || !wf || wf.builtin) return;
+    try {
+      const workbench = await ensureWorkbench();
+      const definition = {
+        ...wf,
+        desc: wf.desc || wf.name || 'Custom workflow',
+        builtin: false,
+        origin: ['builtin', 'user', 'fork'].includes(wf.origin?.kind) ? wf.origin : { kind: 'user' },
+      };
+      const map = JSON.parse(window.localStorage.getItem('rt.workflowServerIds') || '{}');
+      let serverId = map[wf.id];
+      if (serverId) {
+        try {
+          await updateWorkflowMut.mutateAsync({ id: serverId, name: definition.name, definition });
+        } catch {
+          serverId = null;
+        }
+      }
+      if (!serverId) {
+        const row = await createWorkflowMut.mutateAsync({
+          name: definition.name, definition, workbenchId: workbench.id,
+        });
+        serverId = row.id;
+        map[wf.id] = serverId;
+        window.localStorage.setItem('rt.workflowServerIds', JSON.stringify(map));
+      }
+      await bindWorkflowMut.mutateAsync({ workflowId: serverId, workbenchId: workbench.id });
+    } catch {
+      // Builtin fallback keeps the run functional; binding is best-effort.
+    }
+  };
+  const sendLocalTurn = async (message, turnId, chatIdOverride) => {
     const id = turnId || 'live-' + Date.now();
     const createdAt = new Date().toISOString();
     setInspectorTab('chat');
@@ -1728,7 +2252,7 @@ function App() {
       const res = await fetch('/api/orchestrator/turn', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, turnId: id, chatId: localChatId }),
+        body: JSON.stringify({ message, turnId: id, chatId: chatIdOverride ?? localChatId }),
       });
       const data = await res.json();
       if (!res.ok || !data.ok) {
@@ -1784,6 +2308,7 @@ function App() {
                 dispatchWorkspacePath: data.workspacePath,
                 dispatch: data.records,
                 artifacts: data.artifacts,
+                ...(data.workflowRun ? { workflowRun: data.workflowRun } : {}),
               },
             }
           : turn
@@ -1795,6 +2320,70 @@ function App() {
       )));
     }
   };
+  const interruptLocalTurn = async (turnId) => {
+    setLocalTurns((turns) => turns.map((turn) => (
+      turn.id === turnId ? { ...turn, interrupting: true, interruptError: null } : turn
+    )));
+    try {
+      const res = await fetch('/api/orchestrator/interrupt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ turnId }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || 'interrupt_failed');
+      }
+      setLocalTurns((turns) => turns.map((turn) => (
+        turn.id === turnId
+          ? {
+              ...turn,
+              interrupting: false,
+              result: { ...turn.result, dispatchStage: 'interrupting' },
+            }
+          : turn
+      )));
+    } catch (error) {
+      const errorText = error instanceof Error ? error.message : 'interrupt_failed';
+      setLocalTurns((turns) => turns.map((turn) => (
+        turn.id === turnId ? { ...turn, interrupting: false, interruptError: errorText } : turn
+      )));
+    }
+  };
+  const redispatchLocalTurn = async (turnId, agentAdapter) => {
+    setLocalTurns((turns) => turns.map((turn) => (
+      turn.id === turnId
+        ? {
+            ...turn,
+            discarded: false,
+            interruptError: null,
+            result: { ...turn.result, dispatchStatus: 'running', dispatchStage: 'dispatch', dispatchError: undefined },
+          }
+        : turn
+    )));
+    try {
+      const res = await fetch('/api/orchestrator/dispatch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ turnId, ...(agentAdapter ? { agentAdapter } : {}) }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || 'dispatch_failed');
+      }
+    } catch (error) {
+      const errorText = error instanceof Error ? error.message : 'dispatch_failed';
+      setLocalTurns((turns) => turns.map((turn) => (
+        turn.id === turnId ? { ...turn, interruptError: errorText } : turn
+      )));
+      loadLocalHistory();
+    }
+  };
+  const discardLocalTurn = (turnId) => {
+    setLocalTurns((turns) => turns.map((turn) => (
+      turn.id === turnId ? { ...turn, discarded: true } : turn
+    )));
+  };
   const createLocalTask = (goal) => {
     setModal(null);
     setView('roundtable');
@@ -1804,8 +2393,17 @@ function App() {
   };
   const sendComposerMessage = async (message) => {
     if (authed) {
-      const workbench = await ensureWorkbench();
-      createChat.mutate({ title: message.slice(0, 160), workbenchId: workbench.id });
+      if (activeChatId) {
+        createMessage.mutate({ chatId: activeChatId, content: message });
+        sendLocalTurn(message, undefined, activeChatId);
+      } else {
+        const workbench = await ensureWorkbench();
+        const chat = await createChat.mutateAsync({ title: message.slice(0, 160), workbenchId: workbench.id });
+        if (chat) {
+          await createMessage.mutateAsync({ chatId: chat.id, content: message });
+          sendLocalTurn(message, undefined, chat.id);
+        }
+      }
       return;
     }
     sendLocalTurn(message);
@@ -1839,7 +2437,8 @@ function App() {
           tasks={tasks} agents={agents} activeId={authed ? activeChatId : tasks[0]?.id} onPick={authed ? pickChat : undefined}
           memberIds={memberIds} onRemoveMember={(id) => setMemberIds((m) => m.filter((x) => x !== id))}
           onAddMember={() => setModal('agent')} onNewTask={() => setModal('task')} onNewWorkbench={() => setModal('table')}
-          onPickWorkbench={pickWorkbench} onCollapse={() => setRailOpen(false)} />}
+          onPickWorkbench={pickWorkbench} onCollapse={() => setRailOpen(false)}
+          onDelete={authed ? (id) => { deleteChat.mutate({ id }); if (id === selectedChatId) setSelectedChatId(null); } : undefined} />}
         {railOpen && compact && (
           <div style={{ position: 'fixed', inset: 0, zIndex: 110, background: alpha('#000', 30), display: 'flex' }}
             onClick={() => setRailOpen(false)}>
@@ -1848,7 +2447,8 @@ function App() {
                 tasks={tasks} agents={agents} activeId={authed ? activeChatId : tasks[0]?.id} onPick={authed ? pickChat : undefined}
                 memberIds={memberIds} onRemoveMember={(id) => setMemberIds((m) => m.filter((x) => x !== id))}
                 onAddMember={() => setModal('agent')} onNewTask={() => setModal('task')} onNewWorkbench={() => setModal('table')}
-                onPickWorkbench={pickWorkbench} onCollapse={() => setRailOpen(false)} />
+                onPickWorkbench={pickWorkbench} onCollapse={() => setRailOpen(false)}
+                onDelete={authed ? (id) => { deleteChat.mutate({ id }); if (id === selectedChatId) setSelectedChatId(null); } : undefined} />
             </div>
           </div>
         )}
@@ -1870,16 +2470,6 @@ function App() {
                       onAction={onAction} onOpenBreakouts={() => setHubOpen(true)} onSeatClick={(id) => setDmAgent(id)}
                       onOpenFiles={() => { setInspectorTab('files'); setNotesOpen(true); }}
                       onZoomWhiteboard={() => setZoomWB(true)} wide={!railOpen && !notesOpen} memberIds={memberIds} />
-                    {authed && activeChatId && !localLive && (
-                      <div style={{ position: 'absolute', top: 14, left: '50%', transform: 'translateX(-50%)', zIndex: 40,
-                        display: 'inline-flex', alignItems: 'center', gap: 7, padding: '5px 13px', borderRadius: 'var(--r-chip)',
-                        border: '1px solid var(--border)', background: 'color-mix(in oklab, var(--surface) 90%, transparent)',
-                        backdropFilter: 'blur(6px)', boxShadow: 'var(--shadow-card)', maxWidth: '60%' }}>
-                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--run)', flexShrink: 0 }} />
-                        <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {localLive ? tasks[0]?.title : tasks.find((tk) => tk.id === activeChatId)?.title ?? 'Untitled task'}</span>
-                      </div>
-                    )}
                     {!notesOpen && (
                       <button onClick={() => setNotesOpen(true)} style={{ position: 'absolute', top: 14, right: 14, zIndex: 50,
                         display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 13px', borderRadius: 'var(--r-chip)',
@@ -1920,15 +2510,20 @@ function App() {
                   agents={agents} scene={scene} live={authed && !!activeChatId} liveArtifacts={liveArtifacts} liveMessages={liveMessages}
                   liveHandoffs={liveHandoffs} activeChatId={activeChatId} memory={memory}
                   localTurns={localTurns} localStatus={localStatus} onApproveLocalTurn={approveLocalTurn}
-                  onOpenArtifact={setDrawerArt} onAction={onAction} onClose={() => setNotesOpen(false)} />}
+                  localTurnActions={{ interrupt: interruptLocalTurn, redispatch: redispatchLocalTurn, discard: discardLocalTurn }}
+                  onOpenArtifact={setDrawerArt} onAction={onAction} onClose={() => setNotesOpen(false)}
+                  onRewrite={sendComposerMessage} />}
               </div>
               <Dock st={st} agents={agents} scene={scene} onAction={onAction}
                 onOpenChat={() => { setInspectorTab('chat'); setNotesOpen(true); }}
-                onOpenWorkflow={() => setView('workflow')} onSend={sendComposerMessage} liveStatus={localStatus}
-                rec={effectiveRec} onUseWorkflow={applyWorkflow} onDismissRec={() => setRecDismissed(workflowRec?.id)} />
+                onOpenWorkflow={() => setView('workflow')}
+                onSend={sendComposerMessage}
+                liveStatus={localStatus}
+                rec={effectiveRec} onUseWorkflow={applyWorkflow} onDismissRec={() => setRecDismissed(workflowRec?.id)}
+                workflow={liveWorkflow} workflowRun={liveWorkflowRun} />
             </>
           )}
-          {view === 'workflow' && <WorkflowView agents={agents} onAddAgent={() => setModal('agent')} onOpenTemplates={() => setModal('table')} />}
+          {view === 'workflow' && <WorkflowView agents={agents} onAddAgent={() => setModal('agent')} onOpenTemplates={() => setModal('table')} onPublish={publishWorkflow} />}
         </div>
       </div>
 
@@ -1944,13 +2539,17 @@ function App() {
         onClose={() => setDmAgent(null)} />}
       {modal === 'task' && <NewTaskModal workbench={railWorkbench} members={memberIds} agents={agents}
         onClose={() => setModal(null)} onCreate={async (goal) => {
+          setModal(null);
           if (authed) {
             const workbench = await ensureWorkbench();
-            createChat.mutate({ title: goal.slice(0, 160), workbenchId: workbench.id });
+            const chat = await createChat.mutateAsync({ title: goal.slice(0, 160), workbenchId: workbench.id });
+            if (chat) {
+              await createMessage.mutateAsync({ chatId: chat.id, content: goal });
+              sendLocalTurn(goal, undefined, chat.id);
+            }
           } else {
             createLocalTask(goal);
           }
-          setModal(null);
         }} />}
       {modal === 'table' && <NewWorkbenchModal agents={agents} onClose={() => setModal(null)} onCreate={(input) => {
         if (authed) {
@@ -1972,6 +2571,7 @@ function App() {
         const id = 'a-' + Date.now();
         RT.AGENTS[id] = { agentId: id, role, displayName: name, color };
         setMemberIds((m) => [...m, id]);
+        persistCustomAgents();
         setModal(null);
       }} />}
       {/* dev tweaks panel removed in port */}

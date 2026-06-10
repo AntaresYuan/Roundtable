@@ -17,18 +17,24 @@ describe.sequential('local backend workflow', () => {
   let rootDir: string;
   let previousRoot: string | undefined;
   let previousStore: string | undefined;
+  let previousHandoffLog: string | undefined;
 
   beforeEach(async () => {
     rootDir = await mkdtemp(join(tmpdir(), 'roundtable-local-workflow-'));
     previousRoot = process.env['ROUNDTABLE_LOCAL_ROOT'];
     previousStore = process.env['ROUNDTABLE_LOCAL_TURN_STORE'];
+    previousHandoffLog = process.env['ROUNDTABLE_HANDOFF_LOG'];
     process.env['ROUNDTABLE_LOCAL_ROOT'] = join(rootDir, '.roundtable');
     process.env['ROUNDTABLE_LOCAL_TURN_STORE'] = join(rootDir, 'local-turns.json');
+    // Isolate the hand-off audit log so dispatch in tests does not append to the
+    // repo-tracked ai-logs/handoffs.jsonl (the default since issue #135).
+    process.env['ROUNDTABLE_HANDOFF_LOG'] = join(rootDir, 'handoffs.jsonl');
   });
 
   afterEach(async () => {
     restoreEnv('ROUNDTABLE_LOCAL_ROOT', previousRoot);
     restoreEnv('ROUNDTABLE_LOCAL_TURN_STORE', previousStore);
+    restoreEnv('ROUNDTABLE_HANDOFF_LOG', previousHandoffLog);
     await rm(rootDir, { recursive: true, force: true });
   });
 

@@ -8,9 +8,10 @@ if (!existsSync('drizzle.config.ts') && !existsSync('drizzle.config.mjs')) {
   process.exit(0);
 }
 
+// shell: true so Windows resolves `corepack.cmd` (PATHEXT); shell:false only finds bare executables.
 const result = spawnSync('corepack', ['pnpm', 'drizzle-kit', 'migrate'], {
   stdio: 'inherit',
-  shell: false,
+  shell: true,
 });
 
 process.exit(result.status ?? 1);

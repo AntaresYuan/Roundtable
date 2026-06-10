@@ -432,6 +432,11 @@ export const liveTurns = pgTable(
     dispatchWorkspacePath: text('dispatch_workspace_path'),
     intake: jsonb('intake').$type<unknown>(),
     plan: jsonb('plan').$type<unknown>(),
+    // The workbench's active workflow definition this turn ran under, plus the
+    // projected stage-by-stage run state (workflowRunFromState). Null when the
+    // turn fell back to the role/LLM planner (no workflow bound).
+    workflow: jsonb('workflow').$type<unknown>(),
+    workflowRun: jsonb('workflow_run').$type<unknown>(),
     error: text('error'),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()

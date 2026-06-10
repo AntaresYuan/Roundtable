@@ -4,8 +4,10 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   getDbTurn,
+  handoffLogPath,
   listLocalTurns,
   listDbTurns,
+  mergeDbAndLocalTurns,
   saveDbTurn,
   saveLocalTurn,
 } from '../../src/server/local-turn-store.js';
@@ -76,6 +78,32 @@ describe('listLocalTurns', () => {
   });
 });
 
+describe('handoffLogPath', () => {
+  let previous: string | undefined;
+
+  beforeEach(() => {
+    previous = process.env['ROUNDTABLE_HANDOFF_LOG'];
+  });
+
+  afterEach(() => {
+    if (previous === undefined) {
+      delete process.env['ROUNDTABLE_HANDOFF_LOG'];
+    } else {
+      process.env['ROUNDTABLE_HANDOFF_LOG'] = previous;
+    }
+  });
+
+  it('defaults to the repo-tracked ai-logs/handoffs.jsonl (issue #135)', () => {
+    delete process.env['ROUNDTABLE_HANDOFF_LOG'];
+    expect(handoffLogPath()).toBe(join(process.cwd(), 'ai-logs', 'handoffs.jsonl'));
+  });
+
+  it('honors the ROUNDTABLE_HANDOFF_LOG override', () => {
+    process.env['ROUNDTABLE_HANDOFF_LOG'] = '/tmp/custom-handoffs.jsonl';
+    expect(handoffLogPath()).toBe('/tmp/custom-handoffs.jsonl');
+  });
+});
+
 describe('DB-backed live turns', () => {
   let client: PGlite;
   let db: ReturnType<typeof drizzle<typeof schema>>;
@@ -121,6 +149,38 @@ describe('DB-backed live turns', () => {
     expect(turn?.approvedAt).toBe('2026-06-07T12:00:00.000Z');
   });
 });
+
+describe('mergeDbAndLocalTurns', () => {
+  it('keeps local-fallback turns visible when the DB list is empty (issue #134 demo regression)', () => {
+    const localOnly = turnAt('turn-local', '2026-06-10T10:00:00Z', 'chat-1');
+    expect(mergeDbAndLocalTurns([], [localOnly])).toEqual([localOnly]);
+  });
+
+  it('prefers the DB row when the same turn exists in both stores', () => {
+    const dbRow = { ...turnAt('turn-1', '2026-06-10T10:00:00Z', 'chat-1'), approvalStatus: 'approved' as const };
+    const localRow = { ...turnAt('turn-1', '2026-06-10T10:00:00Z', 'chat-1'), approvalStatus: 'pending' as const };
+    const merged = mergeDbAndLocalTurns([dbRow], [localRow]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.approvalStatus).toBe('approved');
+  });
+
+  it('sorts the merged list newest-first across both stores', () => {
+    const older = turnAt('turn-old', '2026-06-10T09:00:00Z', 'chat-1');
+    const newer = turnAt('turn-new', '2026-06-10T11:00:00Z', 'chat-1');
+    const merged = mergeDbAndLocalTurns([older], [newer]);
+    expect(merged.map((t) => t.id)).toEqual(['turn-new', 'turn-old']);
+  });
+});
+
+function turnAt(id: string, createdAt: string, localChatId?: string): LocalTurn {
+  return {
+    id,
+    localChatId,
+    message: `Message for ${id}`,
+    status: 'done',
+    createdAt,
+  };
+}
 
 function turn(id: string, localChatId?: string): LocalTurn {
   return {

@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
@@ -7,7 +8,10 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@': new URL('./src/', import.meta.url).pathname,
+      // fileURLToPath (not URL.pathname) so the alias resolves correctly on
+      // Windows and on repo paths containing non-ASCII characters, which
+      // URL.pathname would percent-encode into a non-existent directory.
+      '@': fileURLToPath(new URL('./src/', import.meta.url)),
     },
   },
 });

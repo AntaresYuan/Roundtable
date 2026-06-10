@@ -1,6 +1,7 @@
 import type {
   AgentEvent,
   AgentRoleId,
+  AgentSession,
   Artifact,
   ArtifactId,
   AutonomyDecision,
@@ -45,6 +46,17 @@ export interface WorkspaceResolver {
   resolve(chatId: string): string | Promise<string>;
 }
 
+/**
+ * Hook for user-initiated interrupts (spec 010 monitoring rules). The host
+ * registers live sessions so a stop request can reach them, and dispatch
+ * checks isInterrupted() to avoid starting new work after a stop.
+ */
+export interface DispatchControlHooks {
+  trackSession(session: AgentSession): void;
+  untrackSession(session: AgentSession): void;
+  isInterrupted(): boolean;
+}
+
 export interface DispatchDeps {
   registry: AdapterRegistry;
   workspaces: WorkspaceResolver;
@@ -54,6 +66,7 @@ export interface DispatchDeps {
   dependencyStore?: DependencyStore;
   artifactDb?: ArtifactWatcherContext['db'];
   pinnedDb?: Db;
+  control?: DispatchControlHooks;
 }
 
 interface PreparedDispatchTask {
@@ -116,6 +129,10 @@ export async function runDispatch(
   const remaining = new Map(state.plan.tasks.map((task) => [task.id, task]));
 
   while (remaining.size > 0) {
+    // Spec 010: after a user stop, summarize what already ran but never start
+    // a new wave. Tasks left in `remaining` simply have no dispatch record.
+    if (deps.control?.isInterrupted()) break;
+
     const batch = state.plan.tasks.filter(
       (task) =>
         remaining.has(task.id) &&
@@ -287,6 +304,8 @@ async function runPreparedTask(
     attempts.push(latest);
 
     while (latest.status === 'failed') {
+      // A user stop is not an agent failure — never auto-retry past it.
+      if (deps.control?.isInterrupted()) break;
       const failedEvent = lastErrorEvent(latest.events);
       const retryDecision = evaluateRetry({
         policy: state.autonomyPolicy,
@@ -380,6 +399,7 @@ async function runTaskAttempt(input: {
     systemPrompt: buildHandoffSystemPrompt(card),
     ...(allowedTools ? { allowedTools } : {}),
   });
+  deps.control?.trackSession(session);
   const events: AgentEvent[] = [];
   const artifacts: Artifact[] = [];
   const cards: HandoffCard[] = [];
@@ -431,6 +451,7 @@ async function runTaskAttempt(input: {
       if (status === 'failed') break;
     }
   } finally {
+    deps.control?.untrackSession(session);
     await session.close();
   }
   if (status === 'completed' && sawRecoverableError && !sawDone) {

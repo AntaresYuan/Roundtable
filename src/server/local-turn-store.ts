@@ -8,6 +8,8 @@ import {
   IntakeResultSchema,
   PlanSchema,
   PlanTaskStatusSchema,
+  WorkflowSchema,
+  WorkflowRunSchema,
 } from '../contracts/index.js';
 import { createDbClient, type Db } from '../db/index.js';
 import { liveTurns } from '../db/schema.js';
@@ -18,6 +20,15 @@ export function localRuntimeRoot(): string {
 
 export function localTurnStorePath(): string {
   return process.env['ROUNDTABLE_LOCAL_TURN_STORE'] ?? join(localRuntimeRoot(), 'local-turns.json');
+}
+
+/**
+ * Where live dispatch appends one hand-off record per line. Defaults to the
+ * repo-tracked `ai-logs/handoffs.jsonl` so the audit trail is visible during the
+ * demo (the evaluator opens this file live). Override with ROUNDTABLE_HANDOFF_LOG.
+ */
+export function handoffLogPath(): string {
+  return process.env['ROUNDTABLE_HANDOFF_LOG'] ?? join(process.cwd(), 'ai-logs', 'handoffs.jsonl');
 }
 
 const LocalDispatchRecordSchema = z.object({
@@ -52,6 +63,8 @@ export const LocalTurnSchema = z.object({
   dispatchWorkspacePath: z.string().optional(),
   intake: IntakeResultSchema.optional(),
   plan: PlanSchema.optional(),
+  workflow: WorkflowSchema.optional(),
+  workflowRun: WorkflowRunSchema.optional(),
   error: z.string().optional(),
 });
 export type LocalTurn = z.infer<typeof LocalTurnSchema>;
@@ -70,9 +83,26 @@ export async function listLiveTurns(chatId?: string): Promise<LocalTurn[]> {
       (db) => listDbTurns(db, chatId),
       'list',
     );
-    if (fromDb) return fromDb;
+    if (fromDb) {
+      if (process.env['ROUNDTABLE_TURN_STORE'] === 'database') return fromDb;
+      // Saves can fall back to the local JSON store (e.g. the chat row does not
+      // exist in the DB yet), so a successful-but-partial DB read must not hide
+      // those turns — otherwise the UI drops an in-flight run mid-poll.
+      return mergeDbAndLocalTurns(fromDb, await listLocalTurns(chatId));
+    }
   }
   return listLocalTurns(chatId);
+}
+
+export function mergeDbAndLocalTurns(
+  dbTurns: LocalTurn[],
+  localTurns: LocalTurn[],
+): LocalTurn[] {
+  const dbIds = new Set(dbTurns.map((turn) => turn.id));
+  return sortLocalTurns([
+    ...dbTurns,
+    ...localTurns.filter((turn) => !dbIds.has(turn.id)),
+  ]);
 }
 
 export async function saveLiveTurn(turn: LocalTurn): Promise<void> {
@@ -234,6 +264,8 @@ export async function saveDbTurn(db: Db, chatId: string, turn: LocalTurn): Promi
       dispatchWorkspacePath: turn.dispatchWorkspacePath ?? null,
       intake: turn.intake ?? null,
       plan: turn.plan ?? null,
+      workflow: turn.workflow ?? null,
+      workflowRun: turn.workflowRun ?? null,
       error: turn.error ?? null,
       createdAt: new Date(turn.createdAt),
       updatedAt: new Date(),
@@ -260,6 +292,8 @@ export async function saveDbTurn(db: Db, chatId: string, turn: LocalTurn): Promi
         dispatchWorkspacePath: turn.dispatchWorkspacePath ?? null,
         intake: turn.intake ?? null,
         plan: turn.plan ?? null,
+        workflow: turn.workflow ?? null,
+        workflowRun: turn.workflowRun ?? null,
         error: turn.error ?? null,
         updatedAt: new Date(),
       },
@@ -288,9 +322,20 @@ function dbTurnToLocalTurn(row: typeof liveTurns.$inferSelect): LocalTurn {
     dispatchWorkspacePath: row.dispatchWorkspacePath ?? undefined,
     intake: row.intake ?? undefined,
     plan: row.plan ?? undefined,
+    workflow: row.workflow ?? undefined,
+    workflowRun: row.workflowRun ?? undefined,
     error: row.error ?? undefined,
     createdAt: row.createdAt.toISOString(),
   });
+}
+
+function describeDbError(error: unknown): string {
+  if (!(error instanceof Error)) return 'unknown';
+  // Drizzle's message embeds the full SQL + params; the actionable part
+  // (FK violation, missing role, bad connection) lives on `cause`.
+  const summary = error.message.length > 200 ? `${error.message.slice(0, 200)}…` : error.message;
+  const cause = error.cause instanceof Error ? ` — cause: ${error.cause.message}` : '';
+  return `${summary}${cause}`;
 }
 
 async function withDbFallback<T>(
@@ -304,7 +349,7 @@ async function withDbFallback<T>(
   } catch (error) {
     if (process.env['ROUNDTABLE_TURN_STORE'] === 'database') throw error;
     if (process.env.NODE_ENV !== 'test') {
-      process.stderr.write(`live_turn_store_${operation}_fallback: ${error instanceof Error ? error.message : 'unknown'}\n`);
+      process.stderr.write(`live_turn_store_${operation}_fallback: ${describeDbError(error)}\n`);
     }
     return null;
   } finally {

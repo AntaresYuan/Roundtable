@@ -283,6 +283,65 @@ function LogoMark({ size = 26 }) {
   );
 }
 
+/* Pin/archive flags live in localStorage — chat metadata the server doesn't
+   model yet; survives reloads, scoped per browser. */
+function useTaskFlags(key) {
+  const [flags, setFlags] = useState({});
+  useEffect(() => {
+    try { setFlags(JSON.parse(window.localStorage.getItem(key) || '{}')); } catch { /* private mode */ }
+  }, [key]);
+  const toggle = (id, flag) => setFlags((prev) => {
+    const cur = { ...(prev[id] || {}) };
+    cur[flag] = !cur[flag];
+    const next = { ...prev, [id]: cur };
+    try { window.localStorage.setItem(key, JSON.stringify(next)); } catch { /* private mode */ }
+    return next;
+  });
+  return [flags, toggle];
+}
+
+function TaskRow({ c, active, dot, taskMeta, flags, onPick, onDelete, onToggleFlag, dim }) {
+  const [hover, setHover] = useState(false);
+  const pinned = !!flags?.pinned;
+  const archived = !!flags?.archived;
+  const actBtn = { display: 'grid', placeItems: 'center', width: 20, height: 20, borderRadius: 4,
+    border: 'none', cursor: 'pointer', background: 'var(--surface-3)', color: 'var(--text-faint)', padding: 0 };
+  return (
+    <div className="rt-task-row" style={{ position: 'relative', marginBottom: 1, opacity: dim ? 0.65 : 1 }}
+      onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+      <button className="rt-task-btn" onClick={() => onPick && onPick(c.id)} style={{ width: '100%', textAlign: 'left',
+        display: 'flex', alignItems: 'center', gap: 8, padding: hover ? '6px 72px 6px 8px' : '6px 28px 6px 8px',
+        borderRadius: 'var(--r-sm)', border: 'none', cursor: 'pointer', font: 'inherit',
+        background: active ? 'var(--surface-3)' : hover ? 'var(--surface-2)' : 'transparent', color: 'var(--text)' }}>
+        <span style={{ width: 7, height: 7, borderRadius: '50%', marginTop: 6, flexShrink: 0,
+          background: dot[c.status] || 'var(--text-faint)',
+          boxShadow: c.status === 'live' ? `0 0 0 3px ${alpha('var(--run)', 22)}` : 'none' }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+            {pinned && <Icon name="pin" size={10} style={{ color: 'var(--accent)', flexShrink: 0 }} />}
+            <span style={{ fontSize: 13, fontWeight: active ? 600 : 500, overflow: 'hidden',
+              textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.title}</span>
+          </div>
+          <div title={c.meta} style={{ fontSize: 11.5, color: 'var(--text-faint)', overflow: 'hidden',
+            textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{taskMeta(c.meta)}</div>
+        </div>
+      </button>
+      {hover && (
+        <div style={{ position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)', display: 'flex', gap: 3 }}>
+          <button onClick={(e) => { e.stopPropagation(); onToggleFlag(c.id, 'pinned'); }}
+            title={pinned ? 'Unpin' : 'Pin to top'} style={{ ...actBtn, color: pinned ? 'var(--accent)' : 'var(--text-faint)' }}>
+            <Icon name="pin" size={11} /></button>
+          <button onClick={(e) => { e.stopPropagation(); onToggleFlag(c.id, 'archived'); }}
+            title={archived ? 'Unarchive' : 'Archive'} style={actBtn}>
+            <Icon name="layers" size={11} /></button>
+          <button onClick={(e) => { e.stopPropagation(); onDelete && onDelete(c.id); }} title="Delete task" style={actBtn}>
+            <Icon name="x" size={11} /></button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ConversationRail({ workbench, workbenches, tasks, agents, activeId, onPick, onDelete, memberIds, onRemoveMember, onAddMember, onNewTask, onNewWorkbench, onPickWorkbench, onCollapse }) {
   const dot = { live: 'var(--run)', done: 'var(--ok)', queued: 'var(--warn)', idle: 'var(--text-faint)' };
   const taskMeta = (meta) => {
@@ -292,12 +351,20 @@ function ConversationRail({ workbench, workbenches, tasks, agents, activeId, onP
   };
   const [wbMenu, setWbMenu] = useState(false);
   const [query, setQuery] = useState('');
+  const [flags, toggleFlag] = useTaskFlags('rt-task-flags');
+  const [showArchived, setShowArchived] = useState(false);
   const members = (memberIds || workbench?.members || []).map((id) => agents[id]).filter(Boolean);
   const q = query.trim().toLowerCase();
-  const visibleTasks = q
+  const matched = q
     ? (tasks || []).filter((c) =>
         `${c.title || ''} ${c.meta || ''}`.toLowerCase().includes(q))
     : (tasks || []);
+  const archived = matched.filter((c) => flags[c.id]?.archived);
+  const active = matched.filter((c) => !flags[c.id]?.archived);
+  const visibleTasks = [
+    ...active.filter((c) => flags[c.id]?.pinned),
+    ...active.filter((c) => !flags[c.id]?.pinned),
+  ];
   return (
     <div style={{ width: 256, flexShrink: 0, background: 'var(--surface)', borderRight: '1px solid var(--border)',
       display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -390,35 +457,23 @@ function ConversationRail({ workbench, workbenches, tasks, agents, activeId, onP
         {q && visibleTasks.length === 0 && (
           <div style={{ padding: '10px 8px', fontSize: 12, color: 'var(--text-faint)' }}>No tasks match “{query.trim()}”.</div>
         )}
-        {visibleTasks.map((c) => {
-          const active = c.id === activeId;
-          return (
-            <div key={c.id} className="rt-task-row" style={{ position: 'relative', marginBottom: 1 }}
-              onMouseEnter={(e) => { e.currentTarget.querySelector('.rt-task-del').style.display = 'grid'; if (!active) e.currentTarget.querySelector('.rt-task-btn').style.background = 'var(--surface-2)'; }}
-              onMouseLeave={(e) => { e.currentTarget.querySelector('.rt-task-del').style.display = 'none'; if (!active) e.currentTarget.querySelector('.rt-task-btn').style.background = 'transparent'; }}>
-              <button className="rt-task-btn" onClick={() => onPick && onPick(c.id)} style={{ width: '100%', textAlign: 'left',
-                display: 'flex', alignItems: 'center', gap: 8, padding: '6px 28px 6px 8px', borderRadius: 'var(--r-sm)',
-                border: 'none', cursor: 'pointer', font: 'inherit',
-                background: active ? 'var(--surface-3)' : 'transparent', color: 'var(--text)' }}>
-                <span style={{ width: 7, height: 7, borderRadius: '50%', marginTop: 6, flexShrink: 0,
-                  background: dot[c.status] || 'var(--text-faint)',
-                  boxShadow: c.status === 'live' ? `0 0 0 3px ${alpha('var(--run)', 22)}` : 'none' }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: active ? 600 : 500, overflow: 'hidden',
-                    textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.title}</div>
-                  <div title={c.meta} style={{ fontSize: 11.5, color: 'var(--text-faint)', overflow: 'hidden',
-                    textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{taskMeta(c.meta)}</div>
-                </div>
-              </button>
-              <button className="rt-task-del" onClick={(e) => { e.stopPropagation(); onDelete && onDelete(c.id); }}
-                title="Delete task" style={{ display: 'none', position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)',
-                  width: 20, height: 20, borderRadius: 4, border: 'none', cursor: 'pointer', placeItems: 'center',
-                  background: 'var(--surface-3)', color: 'var(--text-faint)' }}>
-                <Icon name="x" size={11} />
-              </button>
-            </div>
-          );
-        })}
+        {visibleTasks.map((c) => (
+          <TaskRow key={c.id} c={c} active={c.id === activeId} dot={dot} taskMeta={taskMeta}
+            flags={flags[c.id]} onPick={onPick} onDelete={onDelete} onToggleFlag={toggleFlag} />
+        ))}
+        {archived.length > 0 && (
+          <div style={{ marginTop: 6 }}>
+            <button onClick={() => setShowArchived((o) => !o)} style={{ width: '100%', display: 'flex', alignItems: 'center',
+              gap: 6, padding: '5px 8px', border: 'none', background: 'transparent', cursor: 'pointer', font: 'inherit',
+              fontSize: 10.5, fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-faint)' }}>
+              <Icon name={showArchived ? 'chevdown' : 'chevron'} size={11} /> Archived · {archived.length}
+            </button>
+            {showArchived && archived.map((c) => (
+              <TaskRow key={c.id} c={c} active={c.id === activeId} dot={dot} taskMeta={taskMeta}
+                flags={flags[c.id]} onPick={onPick} onDelete={onDelete} onToggleFlag={toggleFlag} dim />
+            ))}
+          </div>
+        )}
       </div>
 
       <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)', display: 'flex',

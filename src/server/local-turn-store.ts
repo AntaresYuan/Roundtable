@@ -79,9 +79,26 @@ export async function listLiveTurns(chatId?: string): Promise<LocalTurn[]> {
       (db) => listDbTurns(db, chatId),
       'list',
     );
-    if (fromDb) return fromDb;
+    if (fromDb) {
+      if (process.env['ROUNDTABLE_TURN_STORE'] === 'database') return fromDb;
+      // Saves can fall back to the local JSON store (e.g. the chat row does not
+      // exist in the DB yet), so a successful-but-partial DB read must not hide
+      // those turns — otherwise the UI drops an in-flight run mid-poll.
+      return mergeDbAndLocalTurns(fromDb, await listLocalTurns(chatId));
+    }
   }
   return listLocalTurns(chatId);
+}
+
+export function mergeDbAndLocalTurns(
+  dbTurns: LocalTurn[],
+  localTurns: LocalTurn[],
+): LocalTurn[] {
+  const dbIds = new Set(dbTurns.map((turn) => turn.id));
+  return sortLocalTurns([
+    ...dbTurns,
+    ...localTurns.filter((turn) => !dbIds.has(turn.id)),
+  ]);
 }
 
 export async function saveLiveTurn(turn: LocalTurn): Promise<void> {
@@ -302,6 +319,15 @@ function dbTurnToLocalTurn(row: typeof liveTurns.$inferSelect): LocalTurn {
   });
 }
 
+function describeDbError(error: unknown): string {
+  if (!(error instanceof Error)) return 'unknown';
+  // Drizzle's message embeds the full SQL + params; the actionable part
+  // (FK violation, missing role, bad connection) lives on `cause`.
+  const summary = error.message.length > 200 ? `${error.message.slice(0, 200)}…` : error.message;
+  const cause = error.cause instanceof Error ? ` — cause: ${error.cause.message}` : '';
+  return `${summary}${cause}`;
+}
+
 async function withDbFallback<T>(
   run: (db: Db) => Promise<T>,
   operation: string,
@@ -313,7 +339,7 @@ async function withDbFallback<T>(
   } catch (error) {
     if (process.env['ROUNDTABLE_TURN_STORE'] === 'database') throw error;
     if (process.env.NODE_ENV !== 'test') {
-      process.stderr.write(`live_turn_store_${operation}_fallback: ${error instanceof Error ? error.message : 'unknown'}\n`);
+      process.stderr.write(`live_turn_store_${operation}_fallback: ${describeDbError(error)}\n`);
     }
     return null;
   } finally {

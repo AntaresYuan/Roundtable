@@ -258,7 +258,7 @@ function WfRow({ w, active, onPick }) {
   );
 }
 
-function WorkflowView({ agents, onOpenTemplates }) {
+function WorkflowView({ agents, onOpenTemplates, onPublish }) {
   const allWf = () => RT.BUILTIN_WORKFLOWS.concat(RT.workflows || []);
   const [wfId, setWfId] = useStateW(RT.WORKBENCH.workflowId);
   const [picker, setPicker] = useStateW(false);
@@ -271,6 +271,9 @@ function WorkflowView({ agents, onOpenTemplates }) {
   const switchWorkflow = (id) => {
     const w = allWf().find((x) => x.id === id) || base;
     setWfId(id); RT.WORKBENCH.workflowId = id; setWfName(w.name); setStages(clone(w.stages)); setDrawer(null); setPicker(false);
+    // Bind the picked workflow to the workbench so the next live run follows it
+    // (builtins resolve server-side as the fallback, no publish needed).
+    if (!w.builtin && onPublish) onPublish(w);
   };
   const newWorkflow = () => {
     const id = 'wf-user-' + Date.now();
@@ -308,6 +311,7 @@ function WorkflowView({ agents, onOpenTemplates }) {
       updatedAt: new Date().toISOString(), stages: clone(stages) };
     RT.workflows = [...(RT.workflows || []).filter((w) => w.id !== id), wf];
     RT.WORKBENCH.workflowId = id; setWfId(id); persist();
+    if (onPublish) onPublish(wf);
     setSaved(true); setTimeout(() => setSaved(false), 2600);
   };
 

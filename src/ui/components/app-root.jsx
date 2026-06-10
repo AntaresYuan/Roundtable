@@ -1894,6 +1894,9 @@ function App() {
     onSuccess: () => trpcUtils.messages.list.invalidate(),
   });
   const polishPrompt = trpc.ai.polish.useMutation();
+  const createWorkflowMut = trpc.workflows.create.useMutation();
+  const updateWorkflowMut = trpc.workflows.update.useMutation();
+  const bindWorkflowMut = trpc.workflows.bindToWorkbench.useMutation();
   const deleteChat = trpc.chats.delete.useMutation({
     onSuccess: () => {
       trpcUtils.chats.list.invalidate();
@@ -2068,6 +2071,44 @@ function App() {
     });
     setSelectedWorkbenchId(created.id);
     return created;
+  };
+  // Publish an editor workflow to the server and bind it as the workbench's
+  // active workflow, so the next live run actually follows the edited stages
+  // (resolveChatWorkflow reads workbench.activeWorkflowId; builtin is only the
+  // fallback). Editor-local workflows can carry shapes the server schema
+  // rejects (no top-level desc, origin.kind 'new') — normalize first. Failures
+  // are swallowed: the run still works on the builtin fallback.
+  const publishWorkflow = async (wf) => {
+    if (!authed || !wf || wf.builtin) return;
+    try {
+      const workbench = await ensureWorkbench();
+      const definition = {
+        ...wf,
+        desc: wf.desc || wf.name || 'Custom workflow',
+        builtin: false,
+        origin: ['builtin', 'user', 'fork'].includes(wf.origin?.kind) ? wf.origin : { kind: 'user' },
+      };
+      const map = JSON.parse(window.localStorage.getItem('rt.workflowServerIds') || '{}');
+      let serverId = map[wf.id];
+      if (serverId) {
+        try {
+          await updateWorkflowMut.mutateAsync({ id: serverId, name: definition.name, definition });
+        } catch {
+          serverId = null;
+        }
+      }
+      if (!serverId) {
+        const row = await createWorkflowMut.mutateAsync({
+          name: definition.name, definition, workbenchId: workbench.id,
+        });
+        serverId = row.id;
+        map[wf.id] = serverId;
+        window.localStorage.setItem('rt.workflowServerIds', JSON.stringify(map));
+      }
+      await bindWorkflowMut.mutateAsync({ workflowId: serverId, workbenchId: workbench.id });
+    } catch {
+      // Builtin fallback keeps the run functional; binding is best-effort.
+    }
   };
   const sendLocalTurn = async (message, turnId, chatIdOverride) => {
     const id = turnId || 'live-' + Date.now();
@@ -2286,7 +2327,7 @@ function App() {
                 workflow={liveWorkflow} workflowRun={liveWorkflowRun} />
             </>
           )}
-          {view === 'workflow' && <WorkflowView agents={agents} onAddAgent={() => setModal('agent')} onOpenTemplates={() => setModal('table')} />}
+          {view === 'workflow' && <WorkflowView agents={agents} onAddAgent={() => setModal('agent')} onOpenTemplates={() => setModal('table')} onPublish={publishWorkflow} />}
         </div>
       </div>
 

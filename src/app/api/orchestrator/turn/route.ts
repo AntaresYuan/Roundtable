@@ -20,6 +20,7 @@ import { rolePlanner, workflowPlanner } from '@/orchestrator/nodes/plan';
 import { workflowRunFromState } from '@/orchestrator/workflow-run';
 import { categorizeProviderError } from '@/orchestrator/llm/provider';
 import { saveLiveTurn } from '@/server/local-turn-store';
+import { buildTurnContextBlock } from '@/server/turn-context';
 import { resolveChatWorkflow } from '@/server/workflows-query';
 
 export const dynamic = 'force-dynamic';
@@ -28,6 +29,15 @@ const BodySchema = z.object({
   message: z.string().trim().min(1).max(4000),
   turnId: z.string().trim().min(1).optional(),
   chatId: z.string().optional(),
+  history: z
+    .array(
+      z.object({
+        speaker: z.enum(['user', 'pm']),
+        text: z.string().trim().min(1).max(1500),
+      }),
+    )
+    .max(12)
+    .optional(),
 });
 
 const TurnResponseSchema = z.object({
@@ -74,6 +84,14 @@ export async function POST(req: Request) {
     const hasKey = orchestratorKeyPresent();
     let heuristicUsed = !hasKey;
 
+    // Chat context (pins + recent history) rides along for the LLM intake and
+    // planner only. The stored turn keeps the clean `message`, so the UI
+    // bubble, artifacts, and HandoffCards never show the context block.
+    const contextBlock = hasKey ? await buildTurnContextBlock(chatId, body.data.history) : null;
+    const promptMessage = contextBlock
+      ? `${contextBlock}\n\n[Current request]\n${message}`
+      : message;
+
     const intake = hasKey
       ? await llmIntake({
           fallback: {
@@ -82,7 +100,7 @@ export async function POST(req: Request) {
               return heuristicIntake().classify(text);
             },
           },
-        }).classify(message)
+        }).classify(promptMessage)
       : await heuristicIntake().classify(message);
 
     // Workflow-driven planning: if this chat's workbench has an active workflow,
@@ -95,7 +113,7 @@ export async function POST(req: Request) {
     }
 
     const state = {
-      ...initialState(chatId ?? `local-${turnId}`, message, workflow),
+      ...initialState(chatId ?? `local-${turnId}`, promptMessage, workflow),
       intake,
       stage: 'plan' as const,
     };

@@ -2301,12 +2301,23 @@ function App() {
     setInspectorTab('chat');
     setNotesOpen(true);
     setLocalStatus('pending');
+    // Recent thread (localTurns is newest-first) → chronological history so
+    // the PM model sees the conversation, not just this one message.
+    const history = localTurns
+      .slice(0, 4)
+      .reverse()
+      .flatMap((turn) => [
+        ...(turn.message ? [{ speaker: 'user', text: String(turn.message).slice(0, 1500) }] : []),
+        ...(turn.result?.pmMessage ? [{ speaker: 'pm', text: String(turn.result.pmMessage).slice(0, 1500) }] : []),
+      ])
+      .slice(-8);
     setLocalTurns((turns) => [{ id, message, createdAt, status: 'pending' }, ...turns]);
     try {
       const res = await fetch('/api/orchestrator/turn', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, turnId: id, chatId: chatIdOverride ?? localChatId }),
+        body: JSON.stringify({ message, turnId: id, chatId: chatIdOverride ?? localChatId,
+          ...(history.length > 0 ? { history } : {}) }),
       });
       const data = await res.json();
       if (!res.ok || !data.ok) {

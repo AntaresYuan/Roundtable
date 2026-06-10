@@ -141,7 +141,7 @@ describe('createClaudeCodeAdapter', () => {
     expect(spawned[0]?.args).toContain('--resume');
     expect(spawned[0]?.args).toContain('sess-existing');
     expect(spawned[0]?.env?.['CLAUDE_CONFIG_DIR']).toBe(
-      '/tmp/x/.roundtable/sessions/claude-code',
+      join('/tmp/x', '.roundtable', 'sessions', 'claude-code'),
     );
     await session.close();
   });

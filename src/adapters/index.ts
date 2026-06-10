@@ -3,5 +3,8 @@ export type { MockAdapterConfig } from './mock/mock-adapter.js';
 export { createClaudeCodeAdapter } from './claude-code/index.js';
 export type { ClaudeCodeAdapterConfig } from './claude-code/index.js';
 export { normalizeStreamJsonLine } from './claude-code/normalize.js';
+export { createCodexAdapter } from './codex/index.js';
+export type { CodexAdapterConfig } from './codex/index.js';
+export { normalizeCodexLine } from './codex/normalize.js';
 export { AdapterRegistry } from './registry.js';
 export type { RoleBinding } from './registry.js';

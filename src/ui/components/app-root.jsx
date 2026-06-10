@@ -300,9 +300,18 @@ function Thread({ agents, scene, onOpenArtifact, onAction }) {
     </div>
   );
 }
-function UserMsg({ text }) {
+function UserMsg({ text, onQuote }) {
+  const [hover, setHover] = useState(false);
   return (
-    <div className="rt-rise" style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+    <div className="rt-rise" style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', alignItems: 'center' }}
+      onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+      {hover && onQuote && (
+        <button onClick={() => onQuote(text)} title="Quote in reply" style={{ display: 'grid', placeItems: 'center',
+          width: 24, height: 24, borderRadius: 'var(--r-sm)', border: '1px solid var(--border)',
+          background: 'var(--surface)', color: 'var(--text-faint)', cursor: 'pointer', flexShrink: 0 }}>
+          <Icon name="chevron" size={12} style={{ transform: 'rotate(180deg)' }} />
+        </button>
+      )}
       <div style={{ maxWidth: '78%', padding: '11px 15px', borderRadius: '14px 14px 4px 14px',
         background: 'var(--accent)', color: '#fff', fontSize: 14, lineHeight: 1.5,
         boxShadow: 'var(--shadow-card)' }}>{text}</div>
@@ -311,7 +320,7 @@ function UserMsg({ text }) {
   );
 }
 
-function LocalLiveThread({ turns, agents, onApproveTurn, turnActions }) {
+function LocalLiveThread({ turns, agents, onApproveTurn, turnActions, onQuote }) {
   if (!turns || turns.length === 0) {
     return (
       <div style={{ minHeight: 220, display: 'grid', placeItems: 'center', textAlign: 'center', color: 'var(--text-faint)' }}>
@@ -333,6 +342,7 @@ function LocalLiveThread({ turns, agents, onApproveTurn, turnActions }) {
             onApproveTurn={onApproveTurn}
             turnActions={turnActions}
             showPreview={index === 0}
+            onQuote={onQuote}
           />
         ))}
       </div>
@@ -348,7 +358,7 @@ const STAGE_STATUS_STYLE = {
   pending: { color: 'var(--text-faint)', label: 'pending' },
 };
 
-function LocalLiveTurn({ turn, agents, onApproveTurn, turnActions, showPreview }) {
+function LocalLiveTurn({ turn, agents, onApproveTurn, turnActions, showPreview, onQuote }) {
   const completed = turn.result?.dispatchStatus === 'completed';
   const failed = turn.result?.dispatchStatus === 'failed';
   const running = turn.result?.dispatchStatus === 'running';
@@ -358,7 +368,7 @@ function LocalLiveTurn({ turn, agents, onApproveTurn, turnActions, showPreview }
   const previewArtifact = artifacts.find((artifact) => artifact.kind === 'preview');
   return (
     <>
-      <UserMsg text={turn.message} />
+      <UserMsg text={turn.message} onQuote={onQuote} />
       <div className="rt-rise" style={{ display: 'flex', gap: 11, alignItems: 'flex-start' }}>
         <Avatar agent={agents.orchestrator} size={28} ring={false} />
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -438,6 +448,16 @@ function LocalLiveTurn({ turn, agents, onApproveTurn, turnActions, showPreview }
                   agents={agents}
                 />
               ))}
+              {(completed || (failed && !interrupted)) && turnActions && (
+                <div style={{ marginTop: 8 }}>
+                  <button onClick={() => turnActions.redispatch(turn.id)} title="Run this turn's plan again"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 11px',
+                      borderRadius: 'var(--r-sm)', border: '1px solid var(--border)', background: 'var(--surface-2)',
+                      color: 'var(--text-muted)', font: 'inherit', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>
+                    <Icon name="replay" size={12} /> Regenerate
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -1188,7 +1208,7 @@ function recommendWorkflow(task, workflows, currentId) {
   return { id: wf.id, name: wf.name, reason };
 }
 
-function Dock({ st, agents, scene, onAction, onOpenChat, onOpenWorkflow, onSend, liveStatus, rec, onUseWorkflow, onDismissRec, workflow, workflowRun }) {
+function Dock({ st, agents, scene, onAction, onOpenChat, onOpenWorkflow, onSend, composerSeed, liveStatus, rec, onUseWorkflow, onDismissRec, workflow, workflowRun }) {
   let dotColor = 'var(--text-faint)', body;
   if (st.decision) {
     const ag = agents[st.decision.agentId];
@@ -1278,7 +1298,7 @@ function Dock({ st, agents, scene, onAction, onOpenChat, onOpenWorkflow, onSend,
           boxShadow: st.speech ? `0 0 0 4px ${alpha(dotColor, 22)}` : 'none' }} />
         {body}
       </div>
-      <Composer agents={agents} onSend={onSend || (() => scene.replay())} />
+      <Composer agents={agents} onSend={onSend || (() => scene.replay())} seed={composerSeed} />
     </div>
   );
 }
@@ -1395,7 +1415,7 @@ function FileRow({ art, agents, onOpen, activeChatId }) {
     </button>
   );
 }
-function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifact, onAction, onClose, live, liveArtifacts, liveMessages, liveHandoffs, activeChatId, memory, localTurns, localStatus, onApproveLocalTurn, localTurnActions, onRewrite }) {
+function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifact, onAction, onClose, live, liveArtifacts, liveMessages, liveHandoffs, activeChatId, memory, localTurns, localStatus, onApproveLocalTurn, localTurnActions, onRewrite, onQuote }) {
   const placed = sceneAt(clock).placed;
   const hasLocalTurns = localTurns && localTurns.length > 0;
   const localArtifacts = hasLocalTurns ? liveArtifactsFromTurns(localTurns, agents, localStatus) : [];
@@ -1430,7 +1450,7 @@ function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifa
       {tab === 'chat' ? (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg)' }}>
           {hasLocalTurns
-            ? <LocalLiveThread turns={localTurns} agents={agents} onApproveTurn={onApproveLocalTurn} turnActions={localTurnActions} />
+            ? <LocalLiveThread turns={localTurns} agents={agents} onApproveTurn={onApproveLocalTurn} turnActions={localTurnActions} onQuote={onQuote} />
             : live
             ? <LiveThread messages={liveMessages ?? []} handoffs={liveHandoffs} agents={agents} onRewrite={onRewrite} />
             : <Thread agents={agents} scene={scene} onOpenArtifact={onOpenArtifact} onAction={onAction} narrow />}
@@ -2010,6 +2030,9 @@ function App() {
   const [inspectorTab, setInspectorTab] = useState('chat');
   const [modal, setModal] = useState(null);
   const [railOpen, setRailOpen] = useState(true);
+  // Quote-reply: seed flows into the Composer; ts makes repeat quotes re-trigger.
+  const [composerSeed, setComposerSeed] = useState(null);
+  const quoteToComposer = (text) => setComposerSeed({ text, ts: Date.now() });
   const [inspectorW, setInspectorW] = useState(392);
   const [zoomWB, setZoomWB] = useState(false);
   const [memberIds, setMemberIds] = useState(RT.WORKBENCH.members);
@@ -2542,12 +2565,13 @@ function App() {
                   localTurns={localTurns} localStatus={localStatus} onApproveLocalTurn={approveLocalTurn}
                   localTurnActions={{ interrupt: interruptLocalTurn, redispatch: redispatchLocalTurn, discard: discardLocalTurn }}
                   onOpenArtifact={setDrawerArt} onAction={onAction} onClose={() => setNotesOpen(false)}
-                  onRewrite={sendComposerMessage} />}
+                  onRewrite={sendComposerMessage} onQuote={quoteToComposer} />}
               </div>
               <Dock st={st} agents={agents} scene={scene} onAction={onAction}
                 onOpenChat={() => { setInspectorTab('chat'); setNotesOpen(true); }}
                 onOpenWorkflow={() => setView('workflow')}
                 onSend={sendComposerMessage}
+                composerSeed={composerSeed}
                 liveStatus={localStatus}
                 rec={effectiveRec} onUseWorkflow={applyWorkflow} onDismissRec={() => setRecDismissed(workflowRec?.id)}
                 workflow={liveWorkflow} workflowRun={liveWorkflowRun} />

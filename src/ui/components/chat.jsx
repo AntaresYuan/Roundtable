@@ -196,11 +196,17 @@ function artifactFromEvent(event, beat, agents) {
 }
 
 /* ---- Composer with @mention ---------------------------------------------- */
-function Composer({ agents, onSend }) {
+function Composer({ agents, onSend, seed }) {
   const [val, setVal] = useState('');
   const [menu, setMenu] = useState(false);
   const [sent, setSent] = useState(false);
   const taRef = useRef(null);
+  useEffect(() => {
+    if (!seed || !seed.text) return;
+    const quoted = seed.text.split('\n').map((l) => `> ${l}`).join('\n');
+    setVal((v) => (v ? `${v}\n` : '') + `${quoted}\n`);
+    taRef.current && taRef.current.focus();
+  }, [seed]);
   const mentionable = Object.values(agents);
   const polish = trpc.ai.polish.useMutation({ onSuccess: (r) => { setVal(r.text); taRef.current && taRef.current.focus(); } });
 

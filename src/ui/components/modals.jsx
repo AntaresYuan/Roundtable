@@ -185,13 +185,30 @@ const ROLE_INFO = {
   implementer: 'Writes the code and builds', reviewer: 'Checks quality and correctness', fixer: 'Resolves failures and bugs',
 };
 const NAME_POOL = { architect: 'Nova', planner: 'Piper', implementer: 'Quill', reviewer: 'Vesper', fixer: 'Mendez' };
+/* Capability flags mirror AgentCapabilitiesSchema (src/contracts/session.ts). */
+const CAPABILITY_LABELS = {
+  streaming: 'Streaming', toolUse: 'Tool use', fileEdits: 'File edits',
+  persistentSessions: 'Sessions', mcp: 'MCP', multimodal: 'Multimodal',
+};
+const DEFAULT_CAPABILITIES = {
+  streaming: true, toolUse: true, fileEdits: true,
+  persistentSessions: false, mcp: false, multimodal: false,
+};
+
 function AddAgentModal({ onClose, onAdd }) {
   const roleColors = RT.ROLE_COLORS;
   const [role, setRole] = useStateM('implementer');
   const [name, setName] = useStateM('Quill');
+  const [systemPrompt, setSystemPrompt] = useStateM('');
+  const [caps, setCaps] = useStateM(DEFAULT_CAPABILITIES);
+  const submit = () => onAdd({
+    role, name: name.trim(), color: roleColors[role],
+    systemPrompt: systemPrompt.trim() || `You are ${name.trim()}, a ${role} on a Roundtable workbench. ${ROLE_INFO[role]}.`,
+    capabilities: caps,
+  });
   return (
     <Modal title="Add an agent" sub="Compose the team for this workbench" icon="plus" onClose={onClose} width={500}
-      footer={<><Btn onClick={onClose}>Cancel</Btn><Btn primary disabled={!name.trim()} onClick={() => onAdd({ role, name: name.trim(), color: roleColors[role] })}>Add to workbench</Btn></>}>
+      footer={<><Btn onClick={onClose}>Cancel</Btn><Btn primary disabled={!name.trim()} onClick={submit}>Add to workbench</Btn></>}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 13, marginBottom: 18, padding: '14px', borderRadius: 'var(--r-card)',
         background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
         <Avatar agent={{ id: name || role, displayName: name, color: roleColors[role] }} size={44} />
@@ -213,7 +230,24 @@ function AddAgentModal({ onClose, onAdd }) {
         ))}
       </div>
       <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>Name</div>
-      <input value={name} onChange={(e) => setName(e.target.value)} style={fieldStyle} />
+      <input value={name} onChange={(e) => setName(e.target.value)} style={{ ...fieldStyle, marginBottom: 16 }} />
+      <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>System prompt</div>
+      <textarea value={systemPrompt} onChange={(e) => setSystemPrompt(e.target.value)} rows={3}
+        placeholder={`Defaults to: "You are ${name.trim() || 'the agent'}, a ${role} on a Roundtable workbench…"`}
+        style={{ ...fieldStyle, resize: 'vertical', lineHeight: 1.5, marginBottom: 16 }} />
+      <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>Capabilities</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
+        {Object.keys(CAPABILITY_LABELS).map((k) => (
+          <button key={k} onClick={() => setCaps((c) => ({ ...c, [k]: !c[k] }))} style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 11px', borderRadius: 'var(--r-chip)',
+            cursor: 'pointer', font: 'inherit', fontSize: 12, fontWeight: 500,
+            border: `1.5px solid ${caps[k] ? roleColors[role] : 'var(--border)'}`,
+            background: caps[k] ? tint(roleColors[role], 8) : 'var(--surface-2)',
+            color: caps[k] ? roleColors[role] : 'var(--text-muted)' }}>
+            {CAPABILITY_LABELS[k]}
+          </button>
+        ))}
+      </div>
     </Modal>
   );
 }

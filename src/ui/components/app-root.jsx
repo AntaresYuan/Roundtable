@@ -2067,6 +2067,7 @@ function App() {
   const createWorkbench = trpc.workbenches.create.useMutation({
     onSuccess: () => trpcUtils.workbenches.list.invalidate(),
   });
+  const createAgent = trpc.agents.create.useMutation();
   const createChat = trpc.chats.create.useMutation({
     onSuccess: (chat) => {
       trpcUtils.chats.list.invalidate();
@@ -2621,11 +2622,16 @@ function App() {
         setView('workflow');
         setModal(null);
       }} />}
-      {modal === 'agent' && <AddAgentModal onClose={() => setModal(null)} onAdd={({ role, name, color }) => {
+      {modal === 'agent' && <AddAgentModal onClose={() => setModal(null)} onAdd={({ role, name, color, systemPrompt, capabilities }) => {
         const id = 'a-' + Date.now();
-        RT.AGENTS[id] = { agentId: id, role, displayName: name, color };
+        RT.AGENTS[id] = { agentId: id, role, displayName: name, color, systemPrompt, capabilities };
         setMemberIds((m) => [...m, id]);
         persistCustomAgents();
+        // Signed in → also persist as a real custom agent (agents.create, ADR-007
+        // contract: systemPrompt + capabilities). Local add never blocks on it.
+        if (authed && systemPrompt) {
+          createAgent.mutate({ displayName: name, role, systemPrompt, capabilities });
+        }
         setModal(null);
       }} />}
       {/* dev tweaks panel removed in port */}

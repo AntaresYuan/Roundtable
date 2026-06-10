@@ -2,21 +2,30 @@ import { z } from 'zod';
 import {
   ArtifactIdSchema,
   ArtifactSchema,
+  ChatIdSchema,
   IntakeResultSchema,
   PlanSchema,
   WorkflowSchema,
   WorkflowRunSchema,
 } from '@/contracts';
-import type { Workflow } from '@/contracts';
+import type { Plan, Workflow } from '@/contracts';
 import {
   llmIntake,
   llmPlanner,
+  llmSelector,
   orchestratorModelConfig,
   requireOrchestratorKey,
 } from '@/orchestrator/llm';
 import { initialState } from '@/orchestrator/state';
 import { heuristicIntake } from '@/orchestrator/nodes/intake';
 import { rolePlanner, workflowPlanner } from '@/orchestrator/nodes/plan';
+import { heuristicSelector } from '@/orchestrator/nodes/selector';
+import {
+  buildDirectPlan,
+  defaultRoomRoster,
+  resolveSpeakerRouting,
+  type SpeakerRouting,
+} from '@/orchestrator/nodes/route-speaker';
 import { workflowRunFromState } from '@/orchestrator/workflow-run';
 import { categorizeProviderError } from '@/orchestrator/llm/provider';
 import { saveLiveTurn } from '@/server/local-turn-store';
@@ -118,18 +127,41 @@ export async function POST(req: Request) {
       stage: 'plan' as const,
     };
 
-    const plan = workflow
-      ? await workflowPlanner().buildPlan(state)
-      : hasKey
-        ? await llmPlanner({
-            fallback: {
-              async buildPlan(planState) {
-                heuristicUsed = true;
-                return rolePlanner().buildPlan(planState);
+    // @mention / speaker routing (spec 050 §(a)) — wires the existing selector
+    // into the live path. Explicit @mentions route directly; un-mentioned
+    // messages consult the selector only when the request is single-agent
+    // (multi_agent requests fall to PM planning so the golden path still splits
+    // into parallel tasks). A workflow-bound chat always follows its stages.
+    // Routing reads the clean user `message`, not the context-augmented prompt.
+    const routing: SpeakerRouting = workflow
+      ? { kind: 'plan' }
+      : await resolveSpeakerRouting(
+          message,
+          defaultRoomRoster(),
+          {
+            chatId: ChatIdSchema.parse(responseChatId(chatId, turnId)),
+            ...(hasKey ? { selector: llmSelector({ fallback: heuristicSelector() }) } : {}),
+          },
+          intake.complexity === 'single_agent',
+        );
+
+    let plan: Plan;
+    if (routing.kind === 'direct') {
+      plan = buildDirectPlan(routing.speakers, message);
+    } else {
+      plan = workflow
+        ? await workflowPlanner().buildPlan(state)
+        : hasKey
+          ? await llmPlanner({
+              fallback: {
+                async buildPlan(planState) {
+                  heuristicUsed = true;
+                  return rolePlanner().buildPlan(planState);
+                },
               },
-            },
-          }).buildPlan(state)
-        : await rolePlanner().buildPlan(state);
+            }).buildPlan(state)
+          : await rolePlanner().buildPlan(state);
+    }
 
     // Project the not-yet-dispatched plan onto stage states so the workflow
     // strip shows every stage as pending the moment the plan is drafted.
@@ -145,7 +177,7 @@ export async function POST(req: Request) {
       id: turnId,
       provider: config.provider,
       model: displayModel(config.provider, config.model),
-      pmMessage: buildPmMessage(plan.tasks.length, intake.risk, degraded),
+      pmMessage: buildPmMessage(plan.tasks.length, intake.risk, degraded, routing),
       needsApproval: true,
       approvalStatus: 'pending',
       ...(degraded ? { degraded: true } : {}),
@@ -191,7 +223,12 @@ export async function POST(req: Request) {
   }
 }
 
-function buildPmMessage(taskCount: number, risk: string, degraded = false): string {
+function buildPmMessage(
+  taskCount: number,
+  risk: string,
+  degraded = false,
+  routing?: SpeakerRouting,
+): string {
   const suffix =
     risk === 'high'
       ? ' This looks high-risk, so I will not start work without your explicit approval.'
@@ -199,7 +236,19 @@ function buildPmMessage(taskCount: number, risk: string, degraded = false): stri
   const note = degraded
     ? ' (Drafted with the built-in heuristic planner — the live model was unavailable, so double-check the plan before approving.)'
     : '';
-  return `I drafted a ${taskCount}-task plan.${suffix}${note}`;
+
+  if (routing?.kind === 'direct') {
+    const who = routing.speakers.map((a) => `@${a.role}`).join(' · ');
+    const parallel = routing.speakers.length > 1 ? ' in parallel' : '';
+    return `Routing this straight to ${who}${parallel}.${suffix}${note}`;
+  }
+  // ≥4-agent low-confidence selector fallback (spec 050 guard): the PM asks
+  // which agent, but still drafts a plan so the user is never blocked.
+  const clarify =
+    routing?.kind === 'clarify'
+      ? `${routing.question.prompt} (${routing.question.options.map((o) => o.label).join(' or ')}) — for now, `
+      : '';
+  return `${clarify}I drafted a ${taskCount}-task plan.${suffix}${note}`;
 }
 
 // Never surface an account-specific inference endpoint id (e.g. Volcano's

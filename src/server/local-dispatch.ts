@@ -29,6 +29,13 @@ import {
   updateLiveTurn,
   type LocalTurn,
 } from '@/server/local-turn-store';
+import {
+  clearDispatchControl,
+  registerDispatchControl,
+  wasDispatchInterrupted,
+} from '@/server/dispatch-control';
+
+export const INTERRUPTED_BY_USER = 'interrupted_by_user';
 
 const CAPABILITIES: AgentCapabilities = {
   streaming: true,
@@ -112,6 +119,7 @@ async function executeDispatchWork(
   options: LocalDispatchOptions,
 ): Promise<ReturnType<typeof toLocalDispatchResponse>> {
   if (!turn.plan || !turn.intake) throw new LocalDispatchError('turn_has_no_plan', 409);
+  const control = registerDispatchControl(turn.id);
   try {
     const agentAdapter = resolveLocalAgentAdapterMode(options.agentAdapter);
     const registry = createLocalDispatchRegistry(agentAdapter);
@@ -127,7 +135,9 @@ async function executeDispatchWork(
       registry,
       workspaces: { resolve: () => workspace },
       handoffLog: fileHandoffLog(handoffLogPath()),
+      control,
     });
+    const interrupted = wasDispatchInterrupted(turn.id);
     const failed = result.dispatch.some((record) => record.status === 'failed');
     const artifacts = await collectDispatchArtifacts(
       result.artifacts,
@@ -143,14 +153,18 @@ async function executeDispatchWork(
     const nextTurn = await updateLiveTurn(turn.id, (current) => ({
       ...current,
       dispatchAdapter: agentAdapter,
-      dispatchStatus: failed ? 'failed' : 'completed',
+      dispatchStatus: interrupted || failed ? 'failed' : 'completed',
       dispatchedAt: new Date().toISOString(),
       dispatch: result.dispatch,
       artifacts,
-      dispatchStage: result.stage,
+      dispatchStage: interrupted ? 'interrupted' : result.stage,
       dispatchWorkspacePath: workspace,
       ...(workflowRun ? { workflowRun } : {}),
-      ...(failed ? { dispatchError: 'one_or_more_tasks_failed' } : {}),
+      ...(interrupted
+        ? { dispatchError: INTERRUPTED_BY_USER }
+        : failed
+          ? { dispatchError: 'one_or_more_tasks_failed' }
+          : {}),
     }));
     if (!nextTurn) throw new LocalDispatchError('turn_not_found', 404);
     return toLocalDispatchResponse(nextTurn);
@@ -169,6 +183,8 @@ async function executeDispatchWork(
     }));
     if (!failedTurn) throw new LocalDispatchError('turn_not_found', 404);
     return toLocalDispatchResponse(failedTurn);
+  } finally {
+    clearDispatchControl(turn.id);
   }
 }
 

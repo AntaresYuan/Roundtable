@@ -1,5 +1,13 @@
 import { z } from 'zod';
-import { ArtifactIdSchema, ArtifactSchema, IntakeResultSchema, PlanSchema } from '@/contracts';
+import {
+  ArtifactIdSchema,
+  ArtifactSchema,
+  IntakeResultSchema,
+  PlanSchema,
+  WorkflowSchema,
+  WorkflowRunSchema,
+} from '@/contracts';
+import type { Workflow } from '@/contracts';
 import {
   llmIntake,
   llmPlanner,
@@ -8,9 +16,11 @@ import {
 } from '@/orchestrator/llm';
 import { initialState } from '@/orchestrator/state';
 import { heuristicIntake } from '@/orchestrator/nodes/intake';
-import { rolePlanner } from '@/orchestrator/nodes/plan';
+import { rolePlanner, workflowPlanner } from '@/orchestrator/nodes/plan';
+import { workflowRunFromState } from '@/orchestrator/workflow-run';
 import { categorizeProviderError } from '@/orchestrator/llm/provider';
 import { saveLiveTurn } from '@/server/local-turn-store';
+import { resolveChatWorkflow } from '@/server/workflows-query';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,6 +42,8 @@ const TurnResponseSchema = z.object({
   intake: IntakeResultSchema,
   plan: PlanSchema,
   artifacts: z.array(ArtifactSchema),
+  workflow: WorkflowSchema.optional(),
+  workflowRun: WorkflowRunSchema.optional(),
 });
 
 type TurnResponse = z.infer<typeof TurnResponseSchema>;
@@ -73,22 +85,39 @@ export async function POST(req: Request) {
         }).classify(message)
       : await heuristicIntake().classify(message);
 
+    // Workflow-driven planning: if this chat's workbench has an active workflow,
+    // the plan follows its stages 1:1 (workflowPlanner) instead of the generic
+    // role planner. Resolution never throws — an unbound/unknown chat falls back
+    // to the LLM/role planner so the logged-out demo still works.
+    let workflow: Workflow | undefined;
+    if (chatId) {
+      workflow = (await resolveChatWorkflow(chatId)) ?? undefined;
+    }
+
     const state = {
-      ...initialState(chatId ?? `local-${turnId}`, message),
+      ...initialState(chatId ?? `local-${turnId}`, message, workflow),
       intake,
       stage: 'plan' as const,
     };
 
-    const plan = hasKey
-      ? await llmPlanner({
-          fallback: {
-            async buildPlan(planState) {
-              heuristicUsed = true;
-              return rolePlanner().buildPlan(planState);
+    const plan = workflow
+      ? await workflowPlanner().buildPlan(state)
+      : hasKey
+        ? await llmPlanner({
+            fallback: {
+              async buildPlan(planState) {
+                heuristicUsed = true;
+                return rolePlanner().buildPlan(planState);
+              },
             },
-          },
-        }).buildPlan(state)
-      : await rolePlanner().buildPlan(state);
+          }).buildPlan(state)
+        : await rolePlanner().buildPlan(state);
+
+    // Project the not-yet-dispatched plan onto stage states so the workflow
+    // strip shows every stage as pending the moment the plan is drafted.
+    const workflowRun = workflow
+      ? workflowRunFromState({ ...state, plan })
+      : undefined;
 
     const degraded = heuristicUsed;
     const config = orchestratorModelConfig();
@@ -105,6 +134,8 @@ export async function POST(req: Request) {
       intake,
       plan,
       artifacts,
+      ...(workflow ? { workflow } : {}),
+      ...(workflowRun ? { workflowRun } : {}),
     };
 
     await saveLiveTurn({
@@ -121,6 +152,8 @@ export async function POST(req: Request) {
       intake: response.intake,
       plan: response.plan,
       artifacts,
+      ...(workflow ? { workflow } : {}),
+      ...(workflowRun ? { workflowRun } : {}),
     });
 
     return Response.json(TurnResponseSchema.parse(response));

@@ -17,6 +17,7 @@ import type { ArtifactKind } from '@/contracts';
 import { ArtifactIdSchema } from '@/contracts';
 import { fileHandoffLog, initialState, workspaceResolver } from '@/orchestrator';
 import { runDispatch } from '@/orchestrator/nodes/dispatch';
+import { workflowRunFromState } from '@/orchestrator/workflow-run';
 import {
   defaultOrchestratorModel,
   requireOrchestratorKey,
@@ -114,7 +115,7 @@ async function executeDispatchWork(
     const agentAdapter = resolveLocalAgentAdapterMode(options.agentAdapter);
     const registry = createLocalDispatchRegistry(agentAdapter);
     const state = {
-      ...initialState(`local-${turn.id}`, turn.message),
+      ...initialState(`local-${turn.id}`, turn.message, turn.workflow),
       stage: 'dispatch' as const,
       intake: turn.intake,
       plan: turn.plan,
@@ -133,6 +134,11 @@ async function executeDispatchWork(
       workspace,
       turn.plan.tasks,
     );
+    // Re-project stage states from the post-dispatch orchestrator state so the
+    // workflow strip advances (done/active/blocked) as seats complete.
+    const workflowRun = turn.workflow
+      ? workflowRunFromState({ ...result })
+      : undefined;
     const nextTurn = await updateLiveTurn(turn.id, (current) => ({
       ...current,
       dispatchAdapter: agentAdapter,
@@ -142,6 +148,7 @@ async function executeDispatchWork(
       artifacts,
       dispatchStage: result.stage,
       dispatchWorkspacePath: workspace,
+      ...(workflowRun ? { workflowRun } : {}),
       ...(failed ? { dispatchError: 'one_or_more_tasks_failed' } : {}),
     }));
     if (!nextTurn) throw new LocalDispatchError('turn_not_found', 404);
@@ -176,6 +183,7 @@ export function toLocalDispatchResponse(turn: LocalTurn) {
     ...(turn.dispatchStage ? { dispatchStage: turn.dispatchStage } : {}),
     ...(turn.dispatchError ? { dispatchError: turn.dispatchError } : {}),
     ...(turn.dispatchWorkspacePath ? { workspacePath: turn.dispatchWorkspacePath } : {}),
+    ...(turn.workflowRun ? { workflowRun: turn.workflowRun } : {}),
   };
 }
 

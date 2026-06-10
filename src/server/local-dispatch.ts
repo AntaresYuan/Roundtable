@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { generateText } from 'ai';
-import { AdapterRegistry, createClaudeCodeAdapter } from '@/adapters';
+import { AdapterRegistry, createClaudeCodeAdapter, createCodexAdapter } from '@/adapters';
 import type {
   AgentAdapter,
   AgentCapabilities,
@@ -367,16 +367,46 @@ function textArtifactPath(role: AgentRoleId, title: string): string {
   return `work/${slug}.md`;
 }
 
+const DISPATCH_ROLES: AgentRoleId[] = ['architect', 'planner', 'implementer', 'reviewer', 'fixer'];
+
 function createLocalDispatchRegistry(agentAdapter: LocalAgentAdapterMode): AdapterRegistry {
   const registry = new AdapterRegistry();
-  const adapter = agentAdapter === 'claude-code'
+  const primary = agentAdapter === 'claude-code'
     ? createConfiguredClaudeCodeAdapter()
     : createLocalDispatchAdapter();
-  registry.register(adapter);
-  for (const role of ['architect', 'planner', 'implementer', 'reviewer', 'fixer'] as AgentRoleId[]) {
-    registry.bindRole(role, adapter.id);
+  registry.register(primary);
+
+  // Second Coding Agent platform (spec 020 / skill add-agent-adapter): Codex is
+  // always registered so it can be bound per-role and reached by @-routing. It
+  // only spawns the real CLI when a role is actually dispatched to it.
+  const codex = createConfiguredCodexAdapter();
+  registry.register(codex);
+
+  const byId = new Map<string, string>([
+    ['local-dispatch', primary.id],
+    ['claude-code', primary.id === 'claude-code' ? primary.id : codex.id],
+    ['claude', primary.id === 'claude-code' ? primary.id : codex.id],
+    ['codex', codex.id],
+  ]);
+  for (const role of DISPATCH_ROLES) {
+    // Per-role override, e.g. ROUNDTABLE_ADAPTER_REVIEWER=codex. Defaults to the
+    // primary adapter so existing behavior is unchanged.
+    const override = process.env[`ROUNDTABLE_ADAPTER_${role.toUpperCase()}`]?.trim().toLowerCase();
+    const adapterId = (override && byId.get(override)) || primary.id;
+    registry.bindRole(role, adapterId);
   }
   return registry;
+}
+
+function createConfiguredCodexAdapter(): AgentAdapter {
+  const config: Parameters<typeof createCodexAdapter>[0] = {};
+  const command = process.env['ROUNDTABLE_CODEX_COMMAND'];
+  if (command) config.command = command;
+  const model = process.env['ROUNDTABLE_CODEX_MODEL'];
+  if (model) config.model = model;
+  const sandbox = process.env['ROUNDTABLE_CODEX_SANDBOX'];
+  if (sandbox) config.sandbox = sandbox;
+  return createCodexAdapter(config);
 }
 
 function resolveLocalAgentAdapterMode(valueOverride?: string): LocalAgentAdapterMode {

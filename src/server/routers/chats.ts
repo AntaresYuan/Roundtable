@@ -61,4 +61,14 @@ export const chatsRouter = createTRPCRouter({
       ctx.logger.event('chat.created', { chatId: chat?.id, workbenchId: input.workbenchId });
       return chat;
     }),
+
+  delete: protectedProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.db
+        .delete(chats)
+        .where(and(eq(chats.id, input.id), eq(chats.ownerUserId, ctx.user.id)));
+      ctx.logger.event('chat.deleted', { chatId: input.id });
+      return { ok: true };
+    }),
 });

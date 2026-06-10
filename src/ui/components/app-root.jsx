@@ -311,7 +311,7 @@ function UserMsg({ text }) {
   );
 }
 
-function LocalLiveThread({ turns, agents, onApproveTurn }) {
+function LocalLiveThread({ turns, agents, onApproveTurn, turnActions }) {
   if (!turns || turns.length === 0) {
     return (
       <div style={{ minHeight: 220, display: 'grid', placeItems: 'center', textAlign: 'center', color: 'var(--text-faint)' }}>
@@ -331,6 +331,7 @@ function LocalLiveThread({ turns, agents, onApproveTurn }) {
             turn={turn}
             agents={agents}
             onApproveTurn={onApproveTurn}
+            turnActions={turnActions}
             showPreview={index === 0}
           />
         ))}
@@ -347,9 +348,12 @@ const STAGE_STATUS_STYLE = {
   pending: { color: 'var(--text-faint)', label: 'pending' },
 };
 
-function LocalLiveTurn({ turn, agents, onApproveTurn, showPreview }) {
+function LocalLiveTurn({ turn, agents, onApproveTurn, turnActions, showPreview }) {
   const completed = turn.result?.dispatchStatus === 'completed';
   const failed = turn.result?.dispatchStatus === 'failed';
+  const running = turn.result?.dispatchStatus === 'running';
+  const stopping = turn.result?.dispatchStage === 'interrupting' || turn.interrupting;
+  const interrupted = failed && turn.result?.dispatchError === 'interrupted_by_user';
   const artifacts = turn.result?.artifacts || [];
   const previewArtifact = artifacts.find((artifact) => artifact.kind === 'preview');
   return (
@@ -392,6 +396,28 @@ function LocalLiveTurn({ turn, agents, onApproveTurn, showPreview }) {
                 dispatch={turn.result.dispatch}
                 dispatchStatus={turn.result.dispatchStatus}
               />
+              {running && turnActions && (
+                <LocalStopBar
+                  stopping={stopping}
+                  interruptError={turn.interruptError}
+                  onStop={() => turnActions.interrupt(turn.id)}
+                />
+              )}
+              {interrupted && !turn.discarded && (
+                <LocalInterruptedCard
+                  turn={turn}
+                  agents={agents}
+                  artifacts={artifacts}
+                  onResume={turnActions ? () => turnActions.redispatch(turn.id) : null}
+                  onDiscard={turnActions ? () => turnActions.discard(turn.id) : null}
+                  onHandoff={turnActions
+                    ? () => turnActions.redispatch(
+                        turn.id,
+                        (turn.result.dispatchAdapter || 'local-dispatch') === 'claude-code' ? 'local-dispatch' : 'claude-code',
+                      )
+                    : null}
+                />
+              )}
               {turn.result.workflow && turn.result.workflowRun ? (
                 <StageCards
                   workflow={turn.result.workflow}
@@ -400,17 +426,17 @@ function LocalLiveTurn({ turn, agents, onApproveTurn, showPreview }) {
                   agents={agents}
                   dispatchStatus={turn.result.dispatchStatus}
                 />
-              ) : (completed || failed || artifacts.length > 0) && (
+              ) : ((completed || failed || artifacts.length > 0) && !(interrupted && turn.discarded) && (
                 <LocalResultCard
                   artifacts={artifacts}
                   dispatchStatus={turn.result.dispatchStatus}
                   dispatchAdapter={turn.result.dispatchAdapter}
                   dispatchStage={turn.result.dispatchStage}
                   workspacePath={turn.result.dispatchWorkspacePath || turn.result.workspacePath}
-                  previewArtifact={showPreview ? previewArtifact : null}
+                  previewArtifact={showPreview && !interrupted ? previewArtifact : null}
                   agents={agents}
                 />
-              )}
+              ))}
             </div>
           )}
         </div>
@@ -485,6 +511,98 @@ function StageCard({ stage, stageRun, artifacts, agents }) {
         {status === 'active' && stageArtifacts.length === 0 && (
           <div style={{ fontSize: 12, color: 'var(--text-faint)', fontStyle: 'italic' }}>Working…</div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function LocalStopBar({ stopping, interruptError, onStop }) {
+  return (
+    <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
+      border: '1px solid var(--border)', borderRadius: 'var(--r-card)', background: 'var(--surface)',
+      boxShadow: 'var(--shadow-card)' }}>
+      <Spinner size={14} color="var(--run)" />
+      <div style={{ flex: 1, minWidth: 0, fontSize: 13, color: 'var(--text-muted)' }}>
+        {stopping ? 'Stopping — interrupting every active agent session…' : 'Agents are working on this run.'}
+        {interruptError && (
+          <span style={{ color: 'var(--bad)', marginLeft: 8 }}>{interruptError}</span>
+        )}
+      </div>
+      <button onClick={onStop} disabled={stopping} title="Stop the run — interrupts every active agent session"
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px',
+          borderRadius: 'var(--r-sm)', border: 'none', cursor: stopping ? 'default' : 'pointer',
+          background: stopping ? 'var(--surface-3)' : 'var(--bad)', color: stopping ? 'var(--text-faint)' : '#fff',
+          font: 'inherit', fontSize: 12.5, fontWeight: 750, minHeight: 30, flexShrink: 0 }}>
+        <span style={{ width: 9, height: 9, borderRadius: 2, background: 'currentColor', display: 'inline-block' }} />
+        {stopping ? 'Stopping…' : 'Stop'}
+      </button>
+    </div>
+  );
+}
+
+function LocalInterruptedCard({ turn, agents, artifacts, onResume, onDiscard, onHandoff }) {
+  const plan = turn.result?.plan;
+  const records = turn.result?.dispatch || [];
+  const taskById = new Map((plan?.tasks || []).map((task) => [task.id, task]));
+  const ownerFor = (assignee) => {
+    const role = (assignee || '').replace(/^@/, '');
+    return Object.values(agents).find((a) => a.role === role && !a.pm) || agents.orchestrator;
+  };
+  const ranTasks = records.map((record) => {
+    const task = taskById.get(record.taskId);
+    return {
+      taskId: record.taskId,
+      title: task?.title || record.taskId,
+      owner: ownerFor(task?.assignee),
+      status: record.status,
+    };
+  });
+  const notStarted = (plan?.tasks || []).filter((task) => !records.some((r) => r.taskId === task.id));
+  const quickAction = (label, icon, onClick, primary) => onClick && (
+    <button onClick={onClick} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 11px',
+      borderRadius: 'var(--r-sm)', border: primary ? 'none' : '1px solid var(--border)', cursor: 'pointer',
+      background: primary ? 'var(--accent)' : 'var(--surface)', color: primary ? '#fff' : 'var(--text)',
+      font: 'inherit', fontSize: 12.5, fontWeight: 700, minHeight: 30 }}>
+      <Icon name={icon} size={13} />{label}
+    </button>
+  );
+  return (
+    <div style={{ marginTop: 12, border: '1px solid var(--border)', borderLeft: '3px solid var(--warn)',
+      borderRadius: 'var(--r-card)', background: 'var(--surface)', boxShadow: 'var(--shadow-card)', overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderBottom: '1px solid var(--border)' }}>
+        <Icon name="pause" size={15} style={{ color: 'var(--warn)' }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 750, fontSize: 14, color: 'var(--text)' }}>Run interrupted</div>
+          <div className="mono" style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 2 }}>
+            {ranTasks.length} task{ranTasks.length === 1 ? '' : 's'} ran · {notStarted.length} not started · {artifacts.length} partial artifact{artifacts.length === 1 ? '' : 's'}
+          </div>
+        </div>
+        <span style={{ fontSize: 11.5, color: 'var(--warn)', padding: '3px 8px', borderRadius: 999,
+          background: alpha('var(--warn)', 14), fontWeight: 750 }}>stopped by you</span>
+      </div>
+      <div style={{ padding: '10px 14px', display: 'grid', gap: 7 }}>
+        {ranTasks.map((entry) => (
+          <div key={entry.taskId} style={{ display: 'flex', gap: 9, alignItems: 'center' }}>
+            <Avatar agent={entry.owner} size={22} />
+            <span className="mono" style={{ fontSize: 11, color: 'var(--text-faint)' }}>{entry.taskId}</span>
+            <span style={{ flex: 1, fontSize: 13, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {entry.title}
+            </span>
+            <span className="mono" style={{ fontSize: 10.5, color: entry.status === 'completed' ? 'var(--ok)' : 'var(--warn)' }}>
+              {entry.status === 'completed' ? 'finished' : 'stopped mid-task'}
+            </span>
+          </div>
+        ))}
+        {notStarted.length > 0 && (
+          <div className="mono" style={{ fontSize: 11, color: 'var(--text-faint)' }}>
+            never started: {notStarted.map((task) => task.id).join(', ')}
+          </div>
+        )}
+      </div>
+      <div style={{ display: 'flex', gap: 8, padding: '10px 14px 13px', flexWrap: 'wrap', borderTop: '1px solid var(--border)' }}>
+        {quickAction('Resume', 'play', onResume, true)}
+        {quickAction('Discard partial', 'x', onDiscard, false)}
+        {quickAction('Hand off to different agent', 'send', onHandoff, false)}
       </div>
     </div>
   );
@@ -1247,7 +1365,7 @@ function FileRow({ art, agents, onOpen, activeChatId }) {
     </button>
   );
 }
-function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifact, onAction, onClose, live, liveArtifacts, liveMessages, liveHandoffs, activeChatId, memory, localTurns, localStatus, onApproveLocalTurn, onRewrite }) {
+function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifact, onAction, onClose, live, liveArtifacts, liveMessages, liveHandoffs, activeChatId, memory, localTurns, localStatus, onApproveLocalTurn, localTurnActions, onRewrite }) {
   const placed = sceneAt(clock).placed;
   const hasLocalTurns = localTurns && localTurns.length > 0;
   const localArtifacts = hasLocalTurns ? liveArtifactsFromTurns(localTurns, agents, localStatus) : [];
@@ -1282,7 +1400,7 @@ function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifa
       {tab === 'chat' ? (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg)' }}>
           {hasLocalTurns
-            ? <LocalLiveThread turns={localTurns} agents={agents} onApproveTurn={onApproveLocalTurn} />
+            ? <LocalLiveThread turns={localTurns} agents={agents} onApproveTurn={onApproveLocalTurn} turnActions={localTurnActions} />
             : live
             ? <LiveThread messages={liveMessages ?? []} handoffs={liveHandoffs} agents={agents} onRewrite={onRewrite} />
             : <Thread agents={agents} scene={scene} onOpenArtifact={onOpenArtifact} onAction={onAction} narrow />}
@@ -2161,6 +2279,70 @@ function App() {
       )));
     }
   };
+  const interruptLocalTurn = async (turnId) => {
+    setLocalTurns((turns) => turns.map((turn) => (
+      turn.id === turnId ? { ...turn, interrupting: true, interruptError: null } : turn
+    )));
+    try {
+      const res = await fetch('/api/orchestrator/interrupt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ turnId }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || 'interrupt_failed');
+      }
+      setLocalTurns((turns) => turns.map((turn) => (
+        turn.id === turnId
+          ? {
+              ...turn,
+              interrupting: false,
+              result: { ...turn.result, dispatchStage: 'interrupting' },
+            }
+          : turn
+      )));
+    } catch (error) {
+      const errorText = error instanceof Error ? error.message : 'interrupt_failed';
+      setLocalTurns((turns) => turns.map((turn) => (
+        turn.id === turnId ? { ...turn, interrupting: false, interruptError: errorText } : turn
+      )));
+    }
+  };
+  const redispatchLocalTurn = async (turnId, agentAdapter) => {
+    setLocalTurns((turns) => turns.map((turn) => (
+      turn.id === turnId
+        ? {
+            ...turn,
+            discarded: false,
+            interruptError: null,
+            result: { ...turn.result, dispatchStatus: 'running', dispatchStage: 'dispatch', dispatchError: undefined },
+          }
+        : turn
+    )));
+    try {
+      const res = await fetch('/api/orchestrator/dispatch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ turnId, ...(agentAdapter ? { agentAdapter } : {}) }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || 'dispatch_failed');
+      }
+    } catch (error) {
+      const errorText = error instanceof Error ? error.message : 'dispatch_failed';
+      setLocalTurns((turns) => turns.map((turn) => (
+        turn.id === turnId ? { ...turn, interruptError: errorText } : turn
+      )));
+      loadLocalHistory();
+    }
+  };
+  const discardLocalTurn = (turnId) => {
+    setLocalTurns((turns) => turns.map((turn) => (
+      turn.id === turnId ? { ...turn, discarded: true } : turn
+    )));
+  };
   const createLocalTask = (goal) => {
     setModal(null);
     setView('roundtable');
@@ -2287,6 +2469,7 @@ function App() {
                   agents={agents} scene={scene} live={authed && !!activeChatId} liveArtifacts={liveArtifacts} liveMessages={liveMessages}
                   liveHandoffs={liveHandoffs} activeChatId={activeChatId} memory={memory}
                   localTurns={localTurns} localStatus={localStatus} onApproveLocalTurn={approveLocalTurn}
+                  localTurnActions={{ interrupt: interruptLocalTurn, redispatch: redispatchLocalTurn, discard: discardLocalTurn }}
                   onOpenArtifact={setDrawerArt} onAction={onAction} onClose={() => setNotesOpen(false)}
                   onRewrite={sendComposerMessage} />}
               </div>

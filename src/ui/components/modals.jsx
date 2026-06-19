@@ -131,8 +131,21 @@ function NewWorkbenchModal({ agents, onClose, onCreate }) {
 /* ---- New Task ------------------------------------------------------------ */
 function NewTaskModal({ workbench, members, agents, onClose, onCreate }) {
   const [goal, setGoal] = useStateM('');
+  const [extra, setExtra] = useStateM({});
   const [templateId, setTemplateId] = useStateM(flagshipWorkflowTemplate().templateId);
   const template = BUILTIN_WORKFLOW_TEMPLATES.find((t) => t.templateId === templateId) || flagshipWorkflowTemplate();
+  // The template's first required input is the headline goal (keeps Polish +
+  // suggestions); the rest (context / constraints / desired output) render as
+  // optional fields and fold into the message the facilitator sees.
+  const goalInput = template.requiredInputs.find((i) => i.required) || template.requiredInputs[0] || { id: 'goal', label: 'What should the team build?', placeholder: '' };
+  const extraInputs = template.requiredInputs.filter((i) => i.id !== goalInput.id);
+  const composeMessage = () => [
+    goal.trim(),
+    ...extraInputs.map((i) => {
+      const value = (extra[i.id] || '').trim();
+      return value ? `${i.label}: ${value}` : null;
+    }),
+  ].filter(Boolean).join('\n');
   const polish = trpc.ai.polish.useMutation({ onSuccess: (r) => setGoal(r.text) });
   const { status: authStatus } = useSession();
   const suggestQ = trpc.ai.suggestTasks.useQuery(undefined, {
@@ -144,7 +157,7 @@ function NewTaskModal({ workbench, members, agents, onClose, onCreate }) {
   const examples = suggestQ.data ?? ['A pricing page with monthly/annual toggle', 'A REST endpoint for CSV export', 'Dark mode across the app'];
   return (
     <Modal title="Start a mission" sub="Pick an expert workflow and say what you want — the table runs it for you" icon="plus" onClose={onClose} width={560}
-      footer={<><Btn onClick={onClose}>Cancel</Btn><Btn primary disabled={!goal.trim()} onClick={() => onCreate(goal, templateId)}>Start {template.name}</Btn></>}>
+      footer={<><Btn onClick={onClose}>Cancel</Btn><Btn primary disabled={!goal.trim()} onClick={() => onCreate(composeMessage(), templateId)}>Start {template.name}</Btn></>}>
       <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>Pick a workflow</div>
       <div style={{ display: 'grid', gap: 7, gridTemplateColumns: 'repeat(3, 1fr)', marginBottom: 8 }}>
         {BUILTIN_WORKFLOW_TEMPLATES.map((tpl) => {
@@ -162,10 +175,13 @@ function NewTaskModal({ workbench, members, agents, onClose, onCreate }) {
           );
         })}
       </div>
-      <div style={{ fontSize: 11, color: 'var(--text-faint)', marginBottom: 14 }}>You&apos;ll get: {template.expectedOutput}</div>
-      <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>What should the team build?</div>
+      <div style={{ display: 'grid', gap: 3, marginBottom: 14 }}>
+        <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>{template.bestFor}</div>
+        <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>You&apos;ll get: {template.expectedOutput}</div>
+      </div>
+      <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>{goalInput.label}</div>
       <textarea value={goal} onChange={(e) => setGoal(e.target.value)} rows={3} autoFocus
-        placeholder="Describe the outcome in plain language — the facilitator will plan it." style={{ ...fieldStyle, resize: 'vertical' }} />
+        placeholder={goalInput.placeholder || 'Describe the outcome in plain language — the facilitator will plan it.'} style={{ ...fieldStyle, resize: 'vertical' }} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
         <button onClick={() => goal.trim() && polish.mutate({ text: goal.trim() })} disabled={!goal.trim() || polish.isPending}
           style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 'var(--r-chip)',
@@ -180,6 +196,20 @@ function NewTaskModal({ workbench, members, agents, onClose, onCreate }) {
             border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-muted)', font: 'inherit', fontSize: 11.5 }}>{ex}</button>
         ))}
       </div>
+      {extraInputs.length > 0 && (
+        <div style={{ display: 'grid', gap: 12, marginTop: 16 }}>
+          {extraInputs.map((i) => (
+            <div key={i.id} style={{ display: 'grid', gap: 4 }}>
+              <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)' }}>
+                {i.label}{!i.required && <span style={{ color: 'var(--text-faint)', fontWeight: 400 }}> · optional</span>}
+              </span>
+              {i.help && <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>{i.help}</span>}
+              <textarea value={extra[i.id] || ''} onChange={(e) => setExtra((prev) => ({ ...prev, [i.id]: e.target.value }))} rows={2}
+                placeholder={i.placeholder || ''} style={{ ...fieldStyle, resize: 'vertical' }} />
+            </div>
+          ))}
+        </div>
+      )}
       <div style={{ marginTop: 18, padding: '12px 14px', borderRadius: 'var(--r-card)', background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 9, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)' }}>Members on the job</span>

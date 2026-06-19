@@ -9,6 +9,7 @@ export * from './adapter.js';
 export * from './workflow.js';
 export * from './workflow-template.js';
 export * from './workflow-run.js';
+export * from './gate-policy.js';
 export * from './mission.js';
 export * from './handoff-v2.js';
 export * from './portable-handoff.js';

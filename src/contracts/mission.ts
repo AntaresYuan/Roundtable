@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ArtifactIdSchema, ChatIdSchema, MissionIdSchema } from './ids.js';
+import { checkpointKindForGate, explainGate } from './gate-policy.js';
 import { PlanSchema, PlanTaskStatusSchema, type Plan } from './plan.js';
 import {
   StageKindSchema,
@@ -279,21 +280,44 @@ function missionCheckpointsFromWorkflowRun(
     const checkpointId = `${stage.id}:gate`;
     const active = run.pendingGate?.stageId === stage.id;
     const stageState = run.stageStates[stage.id];
+    const kind = checkpointKindForGate(stage.gate) ?? 'user_approval';
+    // The gate's runtime reason wins; otherwise fall back to the policy's
+    // plain-language explanation so a blocked Mission says what input it needs.
+    const reason = stageState?.gate?.reason ?? explainGate(stage.gate);
     return [
       MissionCheckpointSchema.parse({
         id: checkpointId,
-        kind: stage.gate.kind === 'reviewer_signoff' ? 'reviewer_signoff' : 'user_approval',
-        label: stage.gate.kind === 'reviewer_signoff'
-          ? `${stage.name} reviewer sign-off`
-          : `${stage.name} approval`,
+        kind,
+        label: `${stage.name} — ${checkpointLabel(kind)}`,
         status: active ? 'active' : checkpointStatusFromStage(stageState),
         stageId: stage.id,
         required: true,
         decisionIds: [],
-        ...(stageState?.gate?.reason ? { reason: stageState.gate.reason } : {}),
+        ...(reason ? { reason } : {}),
       }),
     ];
   });
+}
+
+function checkpointLabel(kind: MissionCheckpointKind): string {
+  switch (kind) {
+    case 'clarification':
+      return 'clarification';
+    case 'plan_approval':
+      return 'plan approval';
+    case 'user_approval':
+      return 'approval';
+    case 'handoff_acceptance':
+      return 'handoff acceptance';
+    case 'reviewer_signoff':
+      return 'reviewer sign-off';
+    case 'test_repair':
+      return 'test repair';
+    case 'final_acceptance':
+      return 'final acceptance';
+    case 'custom':
+      return 'checkpoint';
+  }
 }
 
 function checkpointStatusFromStage(

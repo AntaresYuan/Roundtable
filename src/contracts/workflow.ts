@@ -36,13 +36,22 @@ export const SeatSchema = z.object({
 export type Seat = z.infer<typeof SeatSchema>;
 
 // Discriminated union — replaces the decorative boolean; carries enforcement (§7).
+// The richer kinds (spec 140 / #150) let a stage declare exactly what human
+// intervention it requires; `prompt` overrides the default novice explanation.
 export const GateSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('none') }),
-  z.object({ kind: z.literal('user_approval') }), // pauses; user clicks continue
+  z.object({ kind: z.literal('user_approval'), prompt: z.string().optional() }), // pauses; user clicks continue
+  z.object({ kind: z.literal('clarification'), prompt: z.string().optional() }),
+  z.object({ kind: z.literal('plan_approval'), prompt: z.string().optional() }),
+  z.object({ kind: z.literal('api_contract_approval'), prompt: z.string().optional() }),
+  z.object({ kind: z.literal('handoff_acceptance'), prompt: z.string().optional() }),
+  z.object({ kind: z.literal('test_repair'), prompt: z.string().optional() }),
+  z.object({ kind: z.literal('final_acceptance'), prompt: z.string().optional() }),
   z.object({
     kind: z.literal('reviewer_signoff'),
     reviewer: SeatRefSchema,
     blockOn: z.literal('open_comments'),
+    prompt: z.string().optional(),
   }),
 ]);
 export type Gate = z.infer<typeof GateSchema>;

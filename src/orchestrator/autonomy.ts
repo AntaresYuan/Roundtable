@@ -66,9 +66,16 @@ export function evaluateRetry(input: {
   });
 }
 
+const HIGH_RISK_GATE_KINDS: ReadonlySet<Gate['kind']> = new Set([
+  'user_approval',
+  'plan_approval',
+  'api_contract_approval',
+  'final_acceptance',
+]);
+
 export function riskForGate(stage: Stage, gate: Gate): AutonomyRisk {
   if (stage.kind === 'ship') return 'high';
-  if (gate.kind === 'user_approval') return 'high';
+  if (HIGH_RISK_GATE_KINDS.has(gate.kind)) return 'high';
   if (gate.kind === 'reviewer_signoff') return 'low';
   return 'low';
 }

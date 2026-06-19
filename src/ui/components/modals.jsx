@@ -130,6 +130,7 @@ function NewWorkbenchModal({ agents, onClose, onCreate }) {
 
 /* ---- New Task ------------------------------------------------------------ */
 function NewTaskModal({ workbench, members, agents, onClose, onCreate }) {
+  const [step, setStep] = useStateM(1);
   const [goal, setGoal] = useStateM('');
   const [extra, setExtra] = useStateM({});
   const [templateId, setTemplateId] = useStateM(flagshipWorkflowTemplate().templateId);
@@ -156,76 +157,90 @@ function NewTaskModal({ workbench, members, agents, onClose, onCreate }) {
   // Personalized suggestions when signed in (+ LLM key); static fallback otherwise.
   const examples = suggestQ.data ?? ['A pricing page with monthly/annual toggle', 'A REST endpoint for CSV export', 'Dark mode across the app'];
   return (
-    <Modal title="Start a mission" sub="Pick an expert workflow and say what you want — the table runs it for you" icon="plus" onClose={onClose} width={560}
-      footer={<><Btn onClick={onClose}>Cancel</Btn><Btn primary disabled={!goal.trim()} onClick={() => onCreate(composeMessage(), templateId)}>Start {template.name}</Btn></>}>
-      <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>Pick a workflow</div>
-      <div style={{ display: 'grid', gap: 7, gridTemplateColumns: 'repeat(3, 1fr)', marginBottom: 8 }}>
-        {BUILTIN_WORKFLOW_TEMPLATES.map((tpl) => {
-          const on = tpl.templateId === templateId;
-          return (
-            <button key={tpl.templateId} onClick={() => setTemplateId(tpl.templateId)} style={{ textAlign: 'left', cursor: 'pointer', font: 'inherit',
-              padding: '9px 11px', borderRadius: 'var(--r-sm)', background: on ? 'var(--surface)' : 'var(--surface-2)',
-              border: `1.5px solid ${on ? 'var(--accent)' : 'var(--border)'}`, boxShadow: on ? 'var(--shadow-card)' : 'none' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 3 }}>
-                <span style={{ fontSize: 12.5, fontWeight: 600 }}>{tpl.name}</span>
-                {tpl.flagship && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--accent)' }}>Rec</span>}
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--text-faint)', lineHeight: 1.35 }}>{tpl.summary}</div>
-            </button>
-          );
-        })}
-      </div>
-      <div style={{ display: 'grid', gap: 3, marginBottom: 14 }}>
-        <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>{template.bestFor}</div>
-        <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>You&apos;ll get: {template.expectedOutput}</div>
-      </div>
-      <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>{goalInput.label}</div>
-      <textarea value={goal} onChange={(e) => setGoal(e.target.value)} rows={3} autoFocus
-        placeholder={goalInput.placeholder || 'Describe the outcome in plain language — the facilitator will plan it.'} style={{ ...fieldStyle, resize: 'vertical' }} />
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
-        <button onClick={() => goal.trim() && polish.mutate({ text: goal.trim() })} disabled={!goal.trim() || polish.isPending}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 'var(--r-chip)',
-            border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', font: 'inherit', fontSize: 12,
-            cursor: goal.trim() && !polish.isPending ? 'pointer' : 'default', opacity: goal.trim() ? 1 : 0.5 }}>
-          <Icon name="sparkle" size={13} style={{ color: 'var(--accent)' }} /> {polish.isPending ? 'Polishing…' : 'Polish with AI'}</button>
-        {polish.error && <span style={{ fontSize: 11, color: 'var(--bad)' }}>{polish.error.message}</span>}
-      </div>
-      <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginTop: 10 }}>
-        {examples.map((ex) => (
-          <button key={ex} onClick={() => setGoal(ex)} style={{ padding: '5px 10px', borderRadius: 'var(--r-chip)', cursor: 'pointer',
-            border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-muted)', font: 'inherit', fontSize: 11.5 }}>{ex}</button>
-        ))}
-      </div>
-      {extraInputs.length > 0 && (
-        <div style={{ display: 'grid', gap: 12, marginTop: 16 }}>
-          {extraInputs.map((i) => (
-            <div key={i.id} style={{ display: 'grid', gap: 4 }}>
-              <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)' }}>
-                {i.label}{!i.required && <span style={{ color: 'var(--text-faint)', fontWeight: 400 }}> · optional</span>}
-              </span>
-              {i.help && <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>{i.help}</span>}
-              <textarea value={extra[i.id] || ''} onChange={(e) => setExtra((prev) => ({ ...prev, [i.id]: e.target.value }))} rows={2}
-                placeholder={i.placeholder || ''} style={{ ...fieldStyle, resize: 'vertical' }} />
+    <Modal title="Start a mission"
+      sub={step === 1 ? 'Step 1 of 2 · Pick an expert workflow' : `Step 2 of 2 · Tell ${template.name} what you want`}
+      icon="plus" onClose={onClose} width={560}
+      footer={step === 1
+        ? <><Btn onClick={onClose}>Cancel</Btn><Btn primary onClick={() => setStep(2)}>Next: describe it</Btn></>
+        : <><Btn onClick={() => setStep(1)}>Back</Btn><Btn primary disabled={!goal.trim()} onClick={() => onCreate(composeMessage(), templateId)}>Start {template.name}</Btn></>}>
+      {step === 1 && (
+        <>
+          <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>Pick a workflow</div>
+          <div style={{ display: 'grid', gap: 7, gridTemplateColumns: 'repeat(3, 1fr)', marginBottom: 12 }}>
+            {BUILTIN_WORKFLOW_TEMPLATES.map((tpl) => {
+              const on = tpl.templateId === templateId;
+              return (
+                <button key={tpl.templateId} onClick={() => setTemplateId(tpl.templateId)} style={{ textAlign: 'left', cursor: 'pointer', font: 'inherit',
+                  padding: '9px 11px', borderRadius: 'var(--r-sm)', background: on ? 'var(--surface)' : 'var(--surface-2)',
+                  border: `1.5px solid ${on ? 'var(--accent)' : 'var(--border)'}`, boxShadow: on ? 'var(--shadow-card)' : 'none' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 3 }}>
+                    <span style={{ fontSize: 12.5, fontWeight: 600 }}>{tpl.name}</span>
+                    {tpl.flagship && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--accent)' }}>Rec</span>}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-faint)', lineHeight: 1.35 }}>{tpl.summary}</div>
+                </button>
+              );
+            })}
+          </div>
+          <div style={{ padding: '12px 14px', borderRadius: 'var(--r-card)', background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
+            <div style={{ fontSize: 12.5, color: 'var(--text)', marginBottom: 4 }}>{template.bestFor}</div>
+            <div style={{ fontSize: 11.5, color: 'var(--text-faint)', marginBottom: 11 }}>You&apos;ll get: {template.expectedOutput}</div>
+            <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--text-faint)', marginBottom: 7 }}>How it runs</div>
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
+              {template.workflow.stages.map((s, idx) => (
+                <React.Fragment key={s.id}>
+                  {idx > 0 && <Icon name="chevron" size={10} style={{ color: 'var(--text-faint)' }} />}
+                  <span style={{ fontSize: 11, padding: '3px 9px', borderRadius: 'var(--r-chip)', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text-muted)' }}>{s.name}</span>
+                </React.Fragment>
+              ))}
             </div>
-          ))}
-        </div>
+            <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--text-faint)', marginBottom: 7 }}>Members on the job</div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {(members || []).map((id) => agents[id] && (
+                <span key={id} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '4px 11px 4px 4px',
+                  borderRadius: 'var(--r-chip)', background: 'var(--surface)', border: `1px solid ${alpha(agents[id].color, 35)}` }}>
+                  <Avatar agent={agents[id]} size={20} ring={false} /><span style={{ fontSize: 12 }}>{agents[id].displayName}</span>
+                </span>
+              ))}
+            </div>
+          </div>
+        </>
       )}
-      <div style={{ marginTop: 18, padding: '12px 14px', borderRadius: 'var(--r-card)', background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 9, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)' }}>Members on the job</span>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: 'var(--text-faint)' }}>
-            <Icon name="eye" size={11} /> read-only · this workbench's fixed team — change members in the sidebar, or per stage in Workflow
-          </span>
-        </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {(members || []).map((id) => agents[id] && (
-            <span key={id} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '4px 11px 4px 4px',
-              borderRadius: 'var(--r-chip)', background: 'var(--surface)', border: `1px solid ${alpha(agents[id].color, 35)}` }}>
-              <Avatar agent={agents[id]} size={20} ring={false} /><span style={{ fontSize: 12 }}>{agents[id].displayName}</span>
-            </span>
-          ))}
-        </div>
-      </div>
+      {step === 2 && (
+        <>
+          <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>{goalInput.label}</div>
+          <textarea value={goal} onChange={(e) => setGoal(e.target.value)} rows={3} autoFocus
+            placeholder={goalInput.placeholder || 'Describe the outcome in plain language — the facilitator will plan it.'} style={{ ...fieldStyle, resize: 'vertical' }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+            <button onClick={() => goal.trim() && polish.mutate({ text: goal.trim() })} disabled={!goal.trim() || polish.isPending}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 'var(--r-chip)',
+                border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', font: 'inherit', fontSize: 12,
+                cursor: goal.trim() && !polish.isPending ? 'pointer' : 'default', opacity: goal.trim() ? 1 : 0.5 }}>
+              <Icon name="sparkle" size={13} style={{ color: 'var(--accent)' }} /> {polish.isPending ? 'Polishing…' : 'Polish with AI'}</button>
+            {polish.error && <span style={{ fontSize: 11, color: 'var(--bad)' }}>{polish.error.message}</span>}
+          </div>
+          <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginTop: 10 }}>
+            {examples.map((ex) => (
+              <button key={ex} onClick={() => setGoal(ex)} style={{ padding: '5px 10px', borderRadius: 'var(--r-chip)', cursor: 'pointer',
+                border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-muted)', font: 'inherit', fontSize: 11.5 }}>{ex}</button>
+            ))}
+          </div>
+          {extraInputs.length > 0 && (
+            <div style={{ display: 'grid', gap: 12, marginTop: 16 }}>
+              {extraInputs.map((i) => (
+                <div key={i.id} style={{ display: 'grid', gap: 4 }}>
+                  <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)' }}>
+                    {i.label}{!i.required && <span style={{ color: 'var(--text-faint)', fontWeight: 400 }}> · optional</span>}
+                  </span>
+                  {i.help && <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>{i.help}</span>}
+                  <textarea value={extra[i.id] || ''} onChange={(e) => setExtra((prev) => ({ ...prev, [i.id]: e.target.value }))} rows={2}
+                    placeholder={i.placeholder || ''} style={{ ...fieldStyle, resize: 'vertical' }} />
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
     </Modal>
   );
 }

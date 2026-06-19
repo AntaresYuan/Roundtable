@@ -1,9 +1,9 @@
-import MissionLaunch from '@/ui/components/mission-launch';
+import { redirect } from 'next/navigation';
 
-export const metadata = {
-  title: 'Start a mission · Roundtable',
-};
-
+// The standalone Mission launcher was a stepping stone (#151). The launch now
+// lives inside the roundtable room ("Start a mission" → NewTaskModal), so the
+// Mission flow is one continuous surface (#155 / spec 110 §7 step 4). Keep the
+// path as a redirect for any existing links.
 export default function MissionPage() {
-  return <MissionLaunch />;
+  redirect('/');
 }

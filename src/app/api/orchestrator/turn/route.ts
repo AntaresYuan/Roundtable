@@ -9,6 +9,7 @@ import {
   WorkflowRunSchema,
 } from '@/contracts';
 import type { Plan, Workflow } from '@/contracts';
+import { getWorkflowTemplate } from '@/contracts';
 import {
   llmIntake,
   llmPlanner,
@@ -38,6 +39,10 @@ const BodySchema = z.object({
   message: z.string().trim().min(1).max(4000),
   turnId: z.string().trim().min(1).optional(),
   chatId: z.string().optional(),
+  // Mission launch (#151): a novice starts from a preset template. When set,
+  // the turn is driven by the template's workflow directly — no workbench
+  // binding required — so the run projects into a Mission immediately.
+  workflowTemplateId: z.string().optional(),
   history: z
     .array(
       z.object({
@@ -117,7 +122,10 @@ export async function POST(req: Request) {
     // role planner. Resolution never throws — an unbound/unknown chat falls back
     // to the LLM/role planner so the logged-out demo still works.
     let workflow: Workflow | undefined;
-    if (chatId) {
+    if (body.data.workflowTemplateId) {
+      workflow = getWorkflowTemplate(body.data.workflowTemplateId)?.workflow;
+    }
+    if (!workflow && chatId) {
       workflow = (await resolveChatWorkflow(chatId)) ?? undefined;
     }
 

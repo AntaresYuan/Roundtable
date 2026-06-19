@@ -9,6 +9,7 @@ import { RT } from '../lib/rt';
 import { Icon, Avatar, tint, alpha } from './primitives';
 import { trpc } from '../lib/trpc';
 import { useSession } from 'next-auth/react';
+import { BUILTIN_WORKFLOW_TEMPLATES, flagshipWorkflowTemplate } from '@/contracts/workflow-template';
 const { useState: useStateM } = React;
 const iconBtn = { display: 'grid', placeItems: 'center', width: 30, height: 30, flexShrink: 0, borderRadius: 'var(--r-sm)',
   border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-muted)', cursor: 'pointer' };
@@ -130,6 +131,8 @@ function NewWorkbenchModal({ agents, onClose, onCreate }) {
 /* ---- New Task ------------------------------------------------------------ */
 function NewTaskModal({ workbench, members, agents, onClose, onCreate }) {
   const [goal, setGoal] = useStateM('');
+  const [templateId, setTemplateId] = useStateM(flagshipWorkflowTemplate().templateId);
+  const template = BUILTIN_WORKFLOW_TEMPLATES.find((t) => t.templateId === templateId) || flagshipWorkflowTemplate();
   const polish = trpc.ai.polish.useMutation({ onSuccess: (r) => setGoal(r.text) });
   const { status: authStatus } = useSession();
   const suggestQ = trpc.ai.suggestTasks.useQuery(undefined, {
@@ -140,8 +143,26 @@ function NewTaskModal({ workbench, members, agents, onClose, onCreate }) {
   // Personalized suggestions when signed in (+ LLM key); static fallback otherwise.
   const examples = suggestQ.data ?? ['A pricing page with monthly/annual toggle', 'A REST endpoint for CSV export', 'Dark mode across the app'];
   return (
-    <Modal title="New task" sub={`${workbench?.name} will pick it up and run its workflow`} icon="plus" onClose={onClose} width={560}
-      footer={<><Btn onClick={onClose}>Cancel</Btn><Btn primary disabled={!goal.trim()} onClick={() => onCreate(goal)}>Start task</Btn></>}>
+    <Modal title="Start a mission" sub="Pick an expert workflow and say what you want — the table runs it for you" icon="plus" onClose={onClose} width={560}
+      footer={<><Btn onClick={onClose}>Cancel</Btn><Btn primary disabled={!goal.trim()} onClick={() => onCreate(goal, templateId)}>Start {template.name}</Btn></>}>
+      <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>Pick a workflow</div>
+      <div style={{ display: 'grid', gap: 7, gridTemplateColumns: 'repeat(3, 1fr)', marginBottom: 8 }}>
+        {BUILTIN_WORKFLOW_TEMPLATES.map((tpl) => {
+          const on = tpl.templateId === templateId;
+          return (
+            <button key={tpl.templateId} onClick={() => setTemplateId(tpl.templateId)} style={{ textAlign: 'left', cursor: 'pointer', font: 'inherit',
+              padding: '9px 11px', borderRadius: 'var(--r-sm)', background: on ? 'var(--surface)' : 'var(--surface-2)',
+              border: `1.5px solid ${on ? 'var(--accent)' : 'var(--border)'}`, boxShadow: on ? 'var(--shadow-card)' : 'none' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 3 }}>
+                <span style={{ fontSize: 12.5, fontWeight: 600 }}>{tpl.name}</span>
+                {tpl.flagship && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--accent)' }}>Rec</span>}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-faint)', lineHeight: 1.35 }}>{tpl.summary}</div>
+            </button>
+          );
+        })}
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--text-faint)', marginBottom: 14 }}>You&apos;ll get: {template.expectedOutput}</div>
       <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>What should the team build?</div>
       <textarea value={goal} onChange={(e) => setGoal(e.target.value)} rows={3} autoFocus
         placeholder="Describe the outcome in plain language — the facilitator will plan it." style={{ ...fieldStyle, resize: 'vertical' }} />

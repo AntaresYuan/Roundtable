@@ -2330,7 +2330,7 @@ function App() {
       // Builtin fallback keeps the run functional; binding is best-effort.
     }
   };
-  const sendLocalTurn = async (message, turnId, chatIdOverride) => {
+  const sendLocalTurn = async (message, turnId, chatIdOverride, workflowTemplateId) => {
     const id = turnId || 'live-' + Date.now();
     const createdAt = new Date().toISOString();
     setInspectorTab('chat');
@@ -2352,6 +2352,7 @@ function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message, turnId: id, chatId: chatIdOverride ?? localChatId,
+          ...(workflowTemplateId ? { workflowTemplateId } : {}),
           ...(history.length > 0 ? { history } : {}) }),
       });
       const data = await res.json();
@@ -2484,12 +2485,12 @@ function App() {
       turn.id === turnId ? { ...turn, discarded: true } : turn
     )));
   };
-  const createLocalTask = (goal) => {
+  const createLocalTask = (goal, workflowTemplateId) => {
     setModal(null);
     setView('roundtable');
     setInspectorTab('chat');
     setNotesOpen(true);
-    sendLocalTurn(goal);
+    sendLocalTurn(goal, undefined, undefined, workflowTemplateId);
   };
   const sendComposerMessage = async (message) => {
     if (authed) {
@@ -2599,7 +2600,7 @@ function App() {
                           <div style={{ display: 'flex', gap: 9, justifyContent: 'center' }}>
                             <button onClick={() => setModal('task')} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '10px 16px',
                               borderRadius: 'var(--r-sm)', border: 'none', cursor: 'pointer', background: 'var(--accent)', color: '#fff',
-                              font: 'inherit', fontSize: 13, fontWeight: 500 }}><Icon name="plus" size={15} /> Start a task</button>
+                              font: 'inherit', fontSize: 13, fontWeight: 500 }}><Icon name="plus" size={15} /> Start a mission</button>
                           </div>
                         </div>
                       </div>
@@ -2642,17 +2643,17 @@ function App() {
         activeTask={(['working', 'speaking', 'thinking'].includes(st.status[dmAgent])) ? (RT.PLAN.tasks.find((tk) => tk.owner === dmAgent) || {}).id : null}
         onClose={() => setDmAgent(null)} />}
       {modal === 'task' && <NewTaskModal workbench={railWorkbench} members={memberIds} agents={agents}
-        onClose={() => setModal(null)} onCreate={async (goal) => {
+        onClose={() => setModal(null)} onCreate={async (goal, templateId) => {
           setModal(null);
           if (authed) {
             const workbench = await ensureWorkbench();
             const chat = await createChat.mutateAsync({ title: goal.slice(0, 160), workbenchId: workbench.id });
             if (chat) {
               await createMessage.mutateAsync({ chatId: chat.id, content: goal });
-              sendLocalTurn(goal, undefined, chat.id);
+              sendLocalTurn(goal, undefined, chat.id, templateId);
             }
           } else {
-            createLocalTask(goal);
+            createLocalTask(goal, templateId);
           }
         }} />}
       {modal === 'table' && <NewWorkbenchModal agents={agents} onClose={() => setModal(null)} onCreate={(input) => {

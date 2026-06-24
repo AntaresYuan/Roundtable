@@ -1855,7 +1855,7 @@ function liveArtifactsFromTurns(liveTurns, agents, liveStatus) {
   ];
 }
 
-function buildLocalScene(baseScene, liveTurns, agents) {
+function buildLocalScene(baseScene, liveTurns, agents, sceneClock = 0) {
   const latest = latestLiveTurn(liveTurns);
   if (!latest) return baseScene;
   const status = { ...baseScene.status };
@@ -1863,6 +1863,8 @@ function buildLocalScene(baseScene, liveTurns, agents) {
   const result = latest.result;
   const approved = result?.approvalStatus === 'approved';
   const completed = result?.dispatchStatus === 'completed';
+  const dispatchStatus = result?.dispatchStatus;
+  const dispatchRecords = result?.dispatch || [];
   status.orchestrator = latest.status === 'pending' ? 'working' : result ? 'done' : 'idle';
 
   const roleCursor = {};
@@ -1874,19 +1876,92 @@ function buildLocalScene(baseScene, liveTurns, agents) {
     roleCursor[role] = index + 1;
     return candidates[index % candidates.length];
   };
+
+  const ownerByTaskId = {};
   const liveTasks = result?.plan?.tasks?.map((task) => {
     const owner = ownerFor(task.assignee);
-    status[owner.agentId] = completed || approved ? 'done' : 'idle';
-    return { ...task, owner: owner.agentId, status: completed ? 'completed' : approved ? 'running' : 'pending' };
+    ownerByTaskId[task.id] = owner;
+    return { ...task, owner: owner.agentId, status: approved ? 'pending' : 'pending' };
   }) || [];
+  const taskById = Object.fromEntries(liveTasks.map((task) => [task.id, task]));
+  const recordByTaskId = Object.fromEntries(dispatchRecords.map((record) => [record.taskId, record]));
+
+  const runnableTasks = liveTasks.filter((task) =>
+    task.deps.every((dep) => taskById[dep]?.status === 'completed' || recordByTaskId[dep]?.status === 'completed'),
+  );
+  const syntheticIndex = runnableTasks.length > 0
+    ? Math.floor(Math.max(0, sceneClock - 800) / 2600) % runnableTasks.length
+    : 0;
+  const syntheticActiveTask = runnableTasks[syntheticIndex] || liveTasks[0];
+
+  liveTasks.forEach((task) => {
+    const record = recordByTaskId[task.id];
+    const owner = ownerByTaskId[task.id];
+    if (record?.status === 'completed') {
+      task.status = 'completed';
+      status[owner.agentId] = 'done';
+      return;
+    }
+    if (record?.status === 'failed') {
+      task.status = 'failed';
+      status[owner.agentId] = 'done';
+      return;
+    }
+    if (!approved) {
+      task.status = 'pending';
+      status[owner.agentId] = 'idle';
+      return;
+    }
+    if (dispatchStatus === 'running' && task.id === syntheticActiveTask?.id) {
+      task.status = 'running';
+      status[owner.agentId] = localAgentModeFromClock(sceneClock);
+      return;
+    }
+    task.status = dispatchStatus === 'completed' ? 'completed' : 'pending';
+    status[owner.agentId] = dispatchStatus === 'completed' ? 'done' : 'idle';
+  });
+
+  const activeRecord = dispatchRecords.find((record) => record.status === 'running')
+    || [...dispatchRecords].reverse().find((record) => record.events?.length > 0);
+  const activeTask = activeRecord ? taskById[activeRecord.taskId] : syntheticActiveTask;
+  const activeOwner = activeTask ? ownerByTaskId[activeTask.id] : null;
+  const speech = buildLocalSpeech({
+    owner: activeOwner,
+    record: activeRecord,
+    task: activeTask,
+    dispatchStatus,
+    sceneClock,
+  });
+  if (speech?.agentId && status[speech.agentId] !== 'done') {
+    status[speech.agentId] = speech.mode;
+  }
+
+  const activityByAgent = {};
+  dispatchRecords.forEach((record) => {
+    const owner = ownerByTaskId[record.taskId];
+    if (!owner) return;
+    const artifactCount = (record.events || []).filter((event) => event.type === 'artifact' || event.type === 'file_change').length;
+    activityByAgent[owner.agentId] = {
+      count: (activityByAgent[owner.agentId]?.count || 0) + Math.max(1, artifactCount),
+    };
+  });
+  (result?.artifacts || []).forEach((artifact) => {
+    const owner = Object.values(agents).find((agent) => agent.role === artifact.ownerAgentId || agent.agentId === artifact.ownerAgentId);
+    if (!owner) return;
+    activityByAgent[owner.agentId] = {
+      count: (activityByAgent[owner.agentId]?.count || 0) + 1,
+    };
+  });
 
   return {
     ...baseScene,
     live: true,
     started: true,
     planPosted: true,
+    speech: speech || baseScene.speech,
+    active: activeTask ? { agentId: activeOwner?.agentId, taskId: activeTask.id } : null,
     run: {
-      phase: latest.status === 'pending' ? 'planning' : completed ? 'completed' : approved ? 'approved' : 'approval',
+      phase: latest.status === 'pending' ? 'planning' : completed ? 'completed' : approved ? 'dispatching' : 'approval',
       message: latest.message,
       error: latest.error,
       provider: result?.provider,
@@ -1897,11 +1972,56 @@ function buildLocalScene(baseScene, liveTurns, agents) {
     },
     status,
     tasks: liveTasks,
+    activityByAgent,
     placed: result?.plan ? liveArtifactsFromTurns([latest], agents, 'idle').map((art) => ({
       art,
       ownerAgentId: art.ownerAgentId,
     })) : [],
   };
+}
+
+function localAgentModeFromClock(clock) {
+  const phase = Math.floor(Math.max(0, clock) / 900) % 3;
+  if (phase === 0) return 'thinking';
+  if (phase === 1) return 'working';
+  return 'speaking';
+}
+
+function buildLocalSpeech({ owner, record, task, dispatchStatus, sceneClock }) {
+  if (!owner || !task) return null;
+  const events = record?.events || [];
+  const lastTool = [...events].reverse().find((event) => event.type === 'tool_use');
+  const text = events
+    .filter((event) => event.type === 'text_delta')
+    .map((event) => event.delta)
+    .join('')
+    .trim();
+  const thinking = events
+    .filter((event) => event.type === 'thinking_delta')
+    .map((event) => event.delta)
+    .join(' ')
+    .trim();
+
+  if (record && lastTool && record.status !== 'completed') {
+    return { agentId: owner.agentId, mode: 'working', text: '', tool: lastTool };
+  }
+  if (record && text) {
+    return { agentId: owner.agentId, mode: 'speaking', text };
+  }
+  if (record && thinking) {
+    return { agentId: owner.agentId, mode: 'thinking', text: thinking };
+  }
+  if (dispatchStatus === 'running') {
+    const mode = localAgentModeFromClock(sceneClock);
+    const fallbackTool = { name: task.assignee?.replace(/^@/, '') || 'agent_step' };
+    return {
+      agentId: owner.agentId,
+      mode,
+      text: mode === 'speaking' ? `${owner.displayName} is working on ${task.title}.` : '',
+      tool: mode === 'working' ? fallbackTool : undefined,
+    };
+  }
+  return null;
 }
 
 /* ---- structured meeting notes (decisions / deliverables / review / next) - */
@@ -2305,7 +2425,7 @@ function App() {
   const st = useMemo(() => {
     const s = sceneAt(localLive ? 0 : scene.clock);
     if (decided) s.decision = null;
-    return localLive ? buildLocalScene(s, localTurns, agents) : s;
+    return localLive ? buildLocalScene(s, localTurns, agents, scene.clock) : s;
   }, [scene.clock, decided, localLive, localTurns, agents]);
   useEffect(() => { if (scene.clock < 200) setDecided(false); }, [scene.clock]);
   useEffect(() => {
@@ -2725,7 +2845,8 @@ function App() {
                     <RoundtableScene agents={agents} scene={st} onOpenArtifact={setDrawerArt}
                       onAction={onAction} onOpenBreakouts={() => setHubOpen(true)} onSeatClick={(id) => setDmAgent(id)}
                       onOpenFiles={() => { setInspectorTab('files'); setNotesOpen(true); }}
-                      onZoomWhiteboard={() => setZoomWB(true)} wide={!railOpen && !notesOpen} memberIds={memberIds} />
+                      onZoomWhiteboard={() => setZoomWB(true)} wide={!railOpen && !notesOpen} memberIds={memberIds}
+                      activityByAgent={st.activityByAgent} />
                     {!notesOpen && (
                       <button onClick={() => setNotesOpen(true)} style={{ position: 'absolute', top: 14, right: 14, zIndex: 50,
                         display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 13px', borderRadius: 'var(--r-chip)',

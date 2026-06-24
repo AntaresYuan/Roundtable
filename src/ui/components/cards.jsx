@@ -430,12 +430,6 @@ function PreviewArtifact({ art, owner, onOpen }) {
         <div style={{ background: 'var(--surface-3)', padding: 12 }}>
           <div style={{ borderRadius: 'var(--r-sm)', overflow: 'hidden', border: '1px solid var(--border)',
             boxShadow: 'var(--shadow-card)', background: '#fff' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 10px',
-              background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
-              {['#e5687a', 'var(--warn)', '#4cc38a'].map(c =>
-                <span key={c} style={{ width: 9, height: 9, borderRadius: '50%', background: c, opacity: .8 }} />)}
-              <span className="mono" style={{ fontSize: 11, color: 'var(--text-faint)', marginLeft: 6 }}>localhost:3000</span>
-            </div>
             <div style={{ height: 260, overflow: 'hidden', background: '#fff' }}>
               <iframe title={art.title} srcDoc={preview} sandbox="allow-scripts"
                 style={{ width: 960, height: 720, border: 'none', display: 'block', background: '#fff',
@@ -465,7 +459,10 @@ function normalizePreviewHtml(html) {
     .replace(
       /presets:\s*\[\s*\[\s*['"]typescript['"]\s*,\s*\{\s*allExtensions:\s*true,\s*isTSX:\s*true\s*\}\s*\]\s*,\s*\[\s*['"]react['"]\s*,\s*\{\s*runtime:\s*['"]classic['"]\s*\}\s*\]\s*,?\s*\]/g,
       "presets: ['typescript', ['react', { runtime: 'classic' }]]",
-    );
+    )
+    .replace(/export\s+default\s+function\s+/g, 'function ')
+    .replace(/export\s+default\s+(?!function\b)([A-Za-z_$][\w$]*)\s*;?/g, '')
+    .replace(/^export\s+(?=(function|const|let|var|class)\b)/gm, '');
 }
 function Seg({ active, onClick, icon, children }) {
   return (

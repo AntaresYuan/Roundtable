@@ -12,7 +12,6 @@ import { MessageGroup, Composer, ConversationRail, LogoMark } from './chat';
 import { RoundtableScene, WhiteboardZoom, sceneAt, meetingNotes } from './roundtable';
 import { WorkflowView, WorkflowStrip } from './workflow';
 import { Modal, NewTaskModal, NewWorkbenchModal, AddAgentModal, EditHandoffModal } from './modals';
-import { DependencyGraphSidebar } from './dep-graph';
 import { MemoryPanel } from './memory-panel';
 import { useSession } from 'next-auth/react';
 import { trpc } from '@/ui/lib/trpc';
@@ -136,7 +135,10 @@ function normalizePreviewHtml(html) {
     .replace(
       /presets:\s*\[\s*\[\s*['"]typescript['"]\s*,\s*\{\s*allExtensions:\s*true,\s*isTSX:\s*true\s*\}\s*\]\s*,\s*\[\s*['"]react['"]\s*,\s*\{\s*runtime:\s*['"]classic['"]\s*\}\s*\]\s*,?\s*\]/g,
       "presets: ['typescript', ['react', { runtime: 'classic' }]]",
-    );
+    )
+    .replace(/export\s+default\s+function\s+/g, 'function ')
+    .replace(/export\s+default\s+(?!function\b)([A-Za-z_$][\w$]*)\s*;?/g, '')
+    .replace(/^export\s+(?=(function|const|let|var|class)\b)/gm, '');
 }
 
 function ownerForDrawer(art, agents) {
@@ -848,15 +850,6 @@ function LocalResultCard({ artifacts, dispatchStatus, dispatchAdapter, dispatchS
         <div style={{ background: 'var(--surface-3)', padding: 12 }}>
           <div style={{ borderRadius: 'var(--r-sm)', overflow: 'hidden', border: '1px solid var(--border)',
             background: '#fff', boxShadow: 'var(--shadow-card)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 10px',
-              background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
-              {['#e5687a', '#e6a23c', '#4cc38a'].map((color) => (
-                <span key={color} style={{ width: 9, height: 9, borderRadius: '50%', background: color, opacity: .8 }} />
-              ))}
-              <span className="mono" style={{ fontSize: 11, color: 'var(--text-faint)', marginLeft: 6 }}>
-                {previewArtifact.title}
-              </span>
-            </div>
             <div style={{ height: 260, overflow: 'hidden', background: '#fff' }}>
               <iframe title={previewArtifact.title} srcDoc={normalizePreviewHtml(previewArtifact.preview)} sandbox="allow-scripts allow-forms allow-modals"
                 style={{ width: 960, height: 720, border: 'none', display: 'block', background: '#fff',
@@ -1572,7 +1565,6 @@ function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifa
         {tabBtn('chat', 'Chat')}
         {tabBtn('files', `Files · ${created.length + provided.length}`)}
         {tabBtn('memory', 'Memory')}
-        {tabBtn('deps', 'Deps')}
         {tabBtn('notes', 'Notes')}
         {hasLocalTurns && (
           <button onClick={onClearLocalTurns} title="Clear local conversation"
@@ -1613,23 +1605,6 @@ function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifa
         </div>
       ) : tab === 'memory' ? (
         <MemoryPanel memory={memory} />
-      ) : tab === 'deps' ? (
-        <div style={{ flex: 1, overflowY: 'auto', padding: '14px 14px 24px' }}>
-          {live || hasLocalTurns ? (
-            <div style={{ fontSize: 12.5, color: 'var(--text-faint)', fontStyle: 'italic', padding: '4px 2px' }}>
-              The dependency graph isn&rsquo;t wired to live data yet — it&rsquo;ll map artifacts as the team links them.</div>
-          ) : (
-            <DependencyGraphSidebar
-              graph={RT.DEPENDENCY_GRAPH}
-              agents={agents}
-              chatId={RT.WORKBENCH?.id || 'main'}
-              onNodeClick={(node) => {
-                const art = Object.values(RT.ARTIFACTS).find((a) => a.id === node.artifactId);
-                if (art && onOpenArtifact) onOpenArtifact(art);
-              }}
-            />
-          )}
-        </div>
       ) : live || hasLocalTurns ? (
         <LiveNotes agents={agents} artifacts={created} handoffs={liveHandoffs} />
       ) : (

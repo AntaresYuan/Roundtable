@@ -784,7 +784,10 @@ function BreakoutChip({ data, agents }) {
   const [peek, setPeek] = useState(false);
   const a = agents[data.a], b = agents[data.b];
   return (
-    <div style={{ position: 'relative', display: 'inline-block' }}>
+    // When the peek panel is open it must establish a high stacking context so
+    // it cleanly covers the messages that follow it in the thread (review bubble,
+    // diff card) instead of letting their higher z-index bleed through.
+    <div style={{ position: 'relative', display: 'inline-block', zIndex: peek ? 1700 : 'auto' }}>
       <button onClick={() => setPeek(p => !p)} className="rt-breakout" style={{
         display: 'inline-flex', alignItems: 'center', gap: 9, padding: '8px 14px 8px 11px',
         borderRadius: 'var(--r-chip)', cursor: 'pointer', font: 'inherit',
@@ -808,8 +811,8 @@ function BreakoutChip({ data, agents }) {
       </button>
 
       {peek && (
-        <div className="rt-rise" style={{ position: 'absolute', zIndex: 30, top: 'calc(100% + 8px)', left: 0,
-          width: 360, maxWidth: '78vw', background: 'var(--surface)', borderRadius: 'var(--r-card)',
+        <div className="rt-rise" style={{ position: 'absolute', zIndex: 1700, top: 'calc(100% + 8px)', left: 0,
+          width: 360, maxWidth: '78vw', background: 'var(--surface)', borderRadius: 'var(--r-card)', isolation: 'isolate',
           border: '1px solid var(--border)', boxShadow: 'var(--shadow-pop)', overflow: 'hidden' }}>
           <div style={{ padding: '11px 14px', borderBottom: '1px solid var(--border)', display: 'flex',
             alignItems: 'center', gap: 8 }}>

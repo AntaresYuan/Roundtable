@@ -409,18 +409,22 @@ function liveStageFlags(workflow, workflowRun) {
   if (!workflow || !workflowRun) return null;
   return workflow.stages.map((s) => {
     const status = workflowRun.stageStates?.[s.id]?.status || 'pending';
+    const seatRuns = workflowRun.stageStates?.[s.id]?.seatRuns || [];
+    const activeSeats = seatRuns.filter((seat) => ['active', 'running'].includes(seat.status));
     return {
       done: status === 'done',
       active: !s.fixed && workflowRun.activeStageId === s.id,
+      activeAgentIds: activeSeats.map((seat) => seat.agentId),
     };
   });
 }
 
-function WorkflowStrip({ clock, onOpen, workflow, workflowRun }) {
+function WorkflowStrip({ clock, onOpen, workflow, workflowRun, agents }) {
   const live = liveStageFlags(workflow, workflowRun);
   const wf = live ? workflow : activeWorkflow();
   const stages = wf.stages;
   const cur = currentStageIndex(clock);
+  const agentName = (agentId) => agents?.[agentId]?.displayName || agentId;
   return (
     <div className="rt-workflow-strip" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0, maxWidth: '100%',
       padding: '6px 8px 6px 12px', borderRadius: 999, overflow: 'hidden',
@@ -432,6 +436,12 @@ function WorkflowStrip({ clock, onOpen, workflow, workflowRun }) {
       {stages.map((s, i) => {
         const done = live ? live[i].done : i < cur;
         const active = live ? live[i].active : i === cur;
+        const activeAgentIds = live ? live[i].activeAgentIds : [];
+        const activeLabel = activeAgentIds.length > 1
+          ? `${activeAgentIds.length} agents / ${s.name}`
+          : activeAgentIds.length === 1
+            ? `${agentName(activeAgentIds[0])} / ${s.name}`
+            : s.name;
         return (
           <React.Fragment key={s.id}>
             {i > 0 && <span className="rt-workflow-connector" style={{ width: 12, height: 1.5, flexShrink: 0,
@@ -441,7 +451,7 @@ function WorkflowStrip({ clock, onOpen, workflow, workflowRun }) {
               background: active ? 'var(--accent)' : done ? tint('var(--accent)', 14) : 'transparent',
               color: active ? '#fff' : done ? 'var(--accent)' : 'var(--text-faint)', fontSize: 11.5, fontWeight: active ? 600 : 500 }}>
               {done ? <Icon name="check" size={12} /> : <Icon name={s.icon} size={12} />}
-              {(active || done) && <span className="rt-workflow-label">{s.name}</span>}
+              {(active || done) && <span className="rt-workflow-label">{active ? activeLabel : s.name}</span>}
             </span>
           </React.Fragment>
         );

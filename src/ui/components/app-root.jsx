@@ -1400,7 +1400,7 @@ function Dock({ st, agents, scene, onAction, onOpenChat, onOpenWorkflow, onSend,
   return (
     <div style={{ borderTop: '1px solid var(--border)', background: 'var(--surface)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 22px 0' }}>
-        <WorkflowStrip clock={scene.clock} onOpen={onOpenWorkflow} workflow={workflow} workflowRun={workflowRun} />
+        <WorkflowStrip clock={scene.clock} onOpen={onOpenWorkflow} workflow={workflow} workflowRun={workflowRun} agents={agents} />
         <span style={{ flex: 1 }} />
       </div>
       {rec && (
@@ -1610,12 +1610,6 @@ function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifa
       ) : (
         <NotesContent clock={clock} agents={agents} notes={notes} />
       )}
-
-      <div style={{ padding: '10px 14px', borderTop: '1px solid var(--border)', fontSize: 11, color: 'var(--text-faint)',
-        display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--run)', animation: 'rt-blink 1.4s infinite' }} />
-        live · kept by the facilitator
-      </div>
     </div>
   );
 }
@@ -1732,6 +1726,222 @@ function latestLiveTurn(liveTurns) {
   return [...turns].sort((a, b) => liveTurnTime(b) - liveTurnTime(a))[0];
 }
 
+function taskStageId(task, workflow) {
+  if (!task || !workflow) return null;
+  if (task.workflowStageId && workflow.stages.some((stage) => stage.id === task.workflowStageId)) {
+    return task.workflowStageId;
+  }
+  const prefixed = /^([^_]+)__/.exec(task.id || '')?.[1];
+  if (prefixed && workflow.stages.some((stage) => stage.id === prefixed)) return prefixed;
+  const role = String(task.assignee || '').replace(/^@/, '');
+  const roleMatch = workflow.stages.find((stage) =>
+    stage.seats?.some((seat) => seat.ref?.kind === 'role' && seat.ref.role === role),
+  );
+  if (roleMatch) return roleMatch.id;
+  if (role === 'planner') return workflow.stages.find((stage) => stage.kind === 'plan')?.id || null;
+  if (role === 'reviewer') return workflow.stages.find((stage) => stage.kind === 'review')?.id || null;
+  return workflow.stages.find((stage) => stage.kind === 'work' || stage.kind === 'custom')?.id || null;
+}
+
+function taskAgentId(task, stage) {
+  const role = String(task?.assignee || '').replace(/^@/, '');
+  const seat = stage?.seats?.find((s) => s.ref?.kind === 'role' && s.ref.role === role)
+    || stage?.seats?.find((s) => s.ref?.kind === 'role');
+  if (seat?.ref?.kind === 'role') return seat.ref.agentId || seat.ref.role;
+  return role || 'agent';
+}
+
+function projectLocalWorkflowRun(turn, sceneClock = 0) {
+  const result = turn?.result;
+  const workflow = result?.workflow;
+  if (!turn || !workflow) {
+    return { workflow: result?.workflow, workflowRun: result?.workflowRun };
+  }
+
+  const baseRun = result.workflowRun || {
+    specId: workflow.id,
+    specVersion: workflow.version || 0,
+    autonomyPolicy: 'supervised',
+    autonomyDecisions: [],
+    stageStates: {},
+    failureRecoveryCards: [],
+    depEdges: [],
+  };
+  const tasks = result.plan?.tasks || [];
+  const dispatchRecords = result.dispatch || [];
+  const recordByTaskId = Object.fromEntries(dispatchRecords.map((record) => [record.taskId, record]));
+  const taskById = Object.fromEntries(tasks.map((task) => [task.id, task]));
+  const approved = result.approvalStatus === 'approved' || result.needsApproval === false;
+  const dispatchStatus = result.dispatchStatus;
+  const completed = dispatchStatus === 'completed';
+  const failedRecord = dispatchRecords.find((record) => record.status === 'failed');
+  const runningRecord = dispatchRecords.find((record) => record.status === 'running');
+
+  const runnableTasks = tasks.filter((task) =>
+    (task.deps || []).every((dep) =>
+      taskById[dep]?.status === 'completed' || recordByTaskId[dep]?.status === 'completed',
+    ) && recordByTaskId[task.id]?.status !== 'completed',
+  );
+
+  // Local dispatch finishes server-side near-instantly (the mock adapter has no
+  // per-step delay), so the 'running' window the client could poll is a few ms.
+  // Without help, both the strip and the table jump straight from "planning" to
+  // "all done" — the workflow never visibly walks Plan→Build→Review→Ship.
+  // So once a run is approved we play the work stages out on the scene clock:
+  // a time cursor advances one stage every STAGE_MS, then settles on all-done.
+  // Real running/failed dispatch records always win over this synthetic walk.
+  const STAGE_MS = 7000;
+  const workStages = workflow.stages.filter((stage) => stage.kind !== 'intake' && stage.kind !== 'plan');
+  const walkActive = approved && (dispatchStatus === 'running' || completed) && workStages.length > 0;
+  // Stage index into workStages; clamped so it "finishes" past the last stage.
+  const walkCursor = Math.floor(Math.max(0, sceneClock - 800) / STAGE_MS);
+  const walkDone = walkCursor >= workStages.length;
+  const walkStage = walkActive && !walkDone ? workStages[walkCursor] : null;
+  const walkStageId = walkStage?.id || null;
+
+  // Within the synthetic walk, surface a runnable task from the *current* stage
+  // so the speaker bubble names the right agent for this step.
+  const walkStageTask = walkStageId
+    ? runnableTasks.find((task) => taskStageId(task, workflow) === walkStageId)
+      || tasks.find((task) => taskStageId(task, workflow) === walkStageId)
+    : null;
+
+  const activeTask = failedRecord
+    ? taskById[failedRecord.taskId]
+    : runningRecord
+      ? taskById[runningRecord.taskId]
+      : walkStageTask
+        ? walkStageTask
+        : approved && dispatchStatus === 'running'
+          ? tasks.find((task) => recordByTaskId[task.id]?.status !== 'completed')
+          : null;
+  const planStageId = workflow.stages.find((stage) => stage.kind === 'plan')?.id || null;
+  // Prefer a real record's stage; otherwise the synthetic walk cursor; otherwise
+  // the plan stage while the plan is being drafted / awaiting approval.
+  const recordStageId = (failedRecord && taskStageId(taskById[failedRecord.taskId], workflow))
+    || (runningRecord && taskStageId(taskById[runningRecord.taskId], workflow))
+    || null;
+  const activeStageId = recordStageId
+    ? recordStageId
+    : walkActive
+      ? walkStageId // null once the walk has finished → all stages settle to done
+      : result.plan && !approved
+        ? planStageId
+        : turn.status === 'pending'
+          ? planStageId
+          : null;
+  const activeStageIndex = activeStageId
+    ? workflow.stages.findIndex((stage) => stage.id === activeStageId)
+    : (walkActive && walkDone ? workflow.stages.length : -1);
+  const stageStates = {};
+
+  workflow.stages.forEach((stage, index) => {
+    const existing = baseRun.stageStates?.[stage.id] || {};
+    const stageTasks = tasks.filter((task) => taskStageId(task, workflow) === stage.id);
+    const stageRecords = stageTasks.map((task) => recordByTaskId[task.id]).filter(Boolean);
+    const stageFailed = stageRecords.some((record) => record.status === 'failed');
+    const allRecordedDone = stageTasks.length > 0 && stageTasks.every((task) => recordByTaskId[task.id]?.status === 'completed');
+    let status = existing.status || 'pending';
+
+    const isWorkStage = stage.kind !== 'intake' && stage.kind !== 'plan';
+    const workStageIndex = isWorkStage ? workStages.findIndex((s) => s.id === stage.id) : -1;
+
+    if (stage.kind === 'intake') status = turn.message ? 'done' : 'active';
+    else if (stage.kind === 'plan') status = result.plan && (approved || completed) ? 'done' : 'active';
+    // A real failure on this stage always shows, even mid-walk.
+    else if (stageFailed) status = 'failed';
+    // Synthetic walk drives the work stages so they light up one at a time,
+    // even though the server already reported the whole run as completed.
+    else if (walkActive) {
+      if (walkDone) status = 'done';
+      else if (workStageIndex < walkCursor) status = 'done';
+      else if (workStageIndex === walkCursor) status = 'active';
+      else status = 'pending';
+    }
+    else if (completed && (stageTasks.length > 0 || stage.kind === 'ship')) status = 'done';
+    else if (allRecordedDone) status = 'done';
+    else if (dispatchStatus === 'running' && stage.id === activeStageId) status = 'active';
+    else if (dispatchStatus === 'running' && activeStageIndex >= 0 && index < activeStageIndex && stage.kind !== 'ship') status = 'done';
+    else if (!approved) status = stage.kind === 'plan' && result.plan ? 'done' : 'pending';
+    else status = 'pending';
+
+    const seatRuns = (stage.seats || []).map((seat, idx) => {
+      const role = seat.ref?.kind === 'role' ? seat.ref.role : null;
+      const agentId = seat.ref?.kind === 'role' ? seat.ref.agentId || seat.ref.role : 'user';
+      const seatTask = stageTasks.find((task) => {
+        const assignee = String(task.assignee || '').replace(/^@/, '');
+        if (task.id === `${stage.id}__${idx}`) return true;
+        return role && assignee === role;
+      }) || stageTasks[idx];
+      const record = seatTask ? recordByTaskId[seatTask.id] : null;
+      const isActiveSeat = seatTask && activeTask && seatTask.id === activeTask.id;
+      // During the synthetic walk every dispatch record is already 'completed'
+      // server-side, so defer to the stage status (driven by the walk cursor)
+      // rather than the record — otherwise every seat would show done at once.
+      const seatStatus = walkActive && isWorkStage
+        ? (status === 'active'
+            ? 'active'
+            : status === 'done'
+              ? 'done'
+              : record?.status === 'failed' ? 'failed' : 'pending')
+        : record?.status === 'completed'
+          ? 'done'
+          : record?.status === 'failed'
+            ? 'failed'
+            : isActiveSeat || (status === 'active' && stage.kind === 'plan')
+              ? 'active'
+              : status === 'done'
+                ? 'done'
+                : 'pending';
+      return {
+        agentId,
+        status: seatStatus,
+        artifactIds: record
+          ? (record.events || [])
+              .filter((event) => event.type === 'artifact')
+              .map((event) => event.artifact?.id)
+              .filter(Boolean)
+          : [],
+      };
+    });
+
+    if (stageTasks.length > 0 && seatRuns.length === 0) {
+      stageTasks.forEach((task) => {
+        const record = recordByTaskId[task.id];
+        stageStates[stage.id] = {
+          ...(stageStates[stage.id] || existing),
+          status,
+          seatRuns: [
+            ...((stageStates[stage.id]?.seatRuns) || []),
+            {
+              agentId: taskAgentId(task, stage),
+              status: activeTask?.id === task.id ? 'active' : record?.status === 'completed' ? 'done' : status,
+              artifactIds: record
+                ? (record.events || [])
+                    .filter((event) => event.type === 'artifact')
+                    .map((event) => event.artifact?.id)
+                    .filter(Boolean)
+                : [],
+            },
+          ],
+        };
+      });
+      return;
+    }
+
+    stageStates[stage.id] = { ...existing, status, seatRuns };
+  });
+
+  return {
+    workflow,
+    workflowRun: {
+      ...baseRun,
+      stageStates,
+      activeStageId: activeStageId || undefined,
+    },
+  };
+}
+
 function liveTurnTime(turn) {
   const fromCreatedAt = turn.createdAt ? Date.parse(turn.createdAt) : NaN;
   if (!Number.isNaN(fromCreatedAt)) return fromCreatedAt;
@@ -1830,7 +2040,7 @@ function liveArtifactsFromTurns(liveTurns, agents, liveStatus) {
   ];
 }
 
-function buildLocalScene(baseScene, liveTurns, agents, sceneClock = 0) {
+function buildLocalScene(baseScene, liveTurns, agents, sceneClock = 0, liveWorkflow = null, liveWorkflowRun = null) {
   const latest = latestLiveTurn(liveTurns);
   if (!latest) return baseScene;
   const status = { ...baseScene.status };
@@ -1861,22 +2071,46 @@ function buildLocalScene(baseScene, liveTurns, agents, sceneClock = 0) {
   const taskById = Object.fromEntries(liveTasks.map((task) => [task.id, task]));
   const recordByTaskId = Object.fromEntries(dispatchRecords.map((record) => [record.taskId, record]));
 
-  const runnableTasks = liveTasks.filter((task) =>
+  // The bottom WorkflowStrip advances one stage at a time off the live run. To
+  // keep the table in lock-step, scope "who is active" to the stage the strip is
+  // currently on — instead of a free-running clock that cycles all tasks.
+  const activeStageId = liveWorkflowRun?.activeStageId || null;
+  const stageTasks = activeStageId && liveWorkflow
+    ? liveTasks.filter((task) => taskStageId(task, liveWorkflow) === activeStageId)
+    : liveTasks;
+  // Within the active stage, runnable tasks are the candidates. Fall back to all
+  // tasks only when no stage binding is available (e.g. legacy local turns).
+  const candidatePool = stageTasks.length > 0 ? stageTasks : liveTasks;
+  const runnableTasks = candidatePool.filter((task) =>
     task.deps.every((dep) => taskById[dep]?.status === 'completed' || recordByTaskId[dep]?.status === 'completed'),
   );
-  const syntheticIndex = runnableTasks.length > 0
-    ? Math.floor(Math.max(0, sceneClock - 800) / 2600) % runnableTasks.length
+  // Cycle only *within* the active stage so its seats take turns, but the table
+  // never jumps ahead of the stage the chat is showing. Paced under the 7s stage
+  // dwell so a multi-seat stage rotates roughly twice before advancing.
+  const cyclePool = runnableTasks.length > 0 ? runnableTasks : candidatePool;
+  const syntheticIndex = cyclePool.length > 0
+    ? Math.floor(Math.max(0, sceneClock - 800) / 3500) % cyclePool.length
     : 0;
-  const syntheticActiveTask = runnableTasks[syntheticIndex] || liveTasks[0];
+  const syntheticActiveTask = cyclePool[syntheticIndex] || liveTasks[0];
+
+  // When the strip projection is walking stages (it stays bound to an
+  // activeStageId until the walk settles), drive the table off that walk so the
+  // two surfaces stay in lock-step — instead of letting the already-completed
+  // dispatch records mark every agent 'done' at once. We compare each task's
+  // stage order against the active stage's order.
+  const stageOrder = liveWorkflow
+    ? Object.fromEntries(liveWorkflow.stages.map((stage, i) => [stage.id, i]))
+    : {};
+  const walking = !!(activeStageId && liveWorkflow);
+  const activeStageOrder = walking ? stageOrder[activeStageId] : -1;
+  const taskStageOrder = (task) => {
+    const sid = liveWorkflow ? taskStageId(task, liveWorkflow) : null;
+    return sid != null && stageOrder[sid] != null ? stageOrder[sid] : Infinity;
+  };
 
   liveTasks.forEach((task) => {
     const record = recordByTaskId[task.id];
     const owner = ownerByTaskId[task.id];
-    if (record?.status === 'completed') {
-      task.status = 'completed';
-      status[owner.agentId] = 'done';
-      return;
-    }
     if (record?.status === 'failed') {
       task.status = 'failed';
       status[owner.agentId] = 'done';
@@ -1885,6 +2119,29 @@ function buildLocalScene(baseScene, liveTurns, agents, sceneClock = 0) {
     if (!approved) {
       task.status = 'pending';
       status[owner.agentId] = 'idle';
+      return;
+    }
+    if (walking) {
+      const order = taskStageOrder(task);
+      if (order < activeStageOrder) {
+        task.status = 'completed';
+        if (status[owner.agentId] !== 'thinking' && status[owner.agentId] !== 'working' && status[owner.agentId] !== 'speaking') {
+          status[owner.agentId] = 'done';
+        }
+      } else if (order === activeStageOrder && task.id === syntheticActiveTask?.id) {
+        task.status = 'running';
+        status[owner.agentId] = localAgentModeFromClock(sceneClock);
+      } else {
+        task.status = 'pending';
+        if (!['thinking', 'working', 'speaking', 'done'].includes(status[owner.agentId])) {
+          status[owner.agentId] = 'idle';
+        }
+      }
+      return;
+    }
+    if (record?.status === 'completed') {
+      task.status = 'completed';
+      status[owner.agentId] = 'done';
       return;
     }
     if (dispatchStatus === 'running' && task.id === syntheticActiveTask?.id) {
@@ -1896,9 +2153,26 @@ function buildLocalScene(baseScene, liveTurns, agents, sceneClock = 0) {
     status[owner.agentId] = dispatchStatus === 'completed' ? 'done' : 'idle';
   });
 
-  const activeRecord = dispatchRecords.find((record) => record.status === 'running')
-    || [...dispatchRecords].reverse().find((record) => record.events?.length > 0);
-  const activeTask = activeRecord ? taskById[activeRecord.taskId] : syntheticActiveTask;
+  // Prefer a running record that belongs to the stage the strip is on, so the
+  // speaker bubble surfaces the agent for the *current* step — not a leftover
+  // record from a stage that already finished.
+  const stageTaskIds = new Set(stageTasks.map((task) => task.id));
+  const inActiveStage = (record) => stageTaskIds.size === 0 || stageTaskIds.has(record.taskId);
+  // While walking stages on the clock, prefer the walk's current task for the
+  // speech bubble; a genuinely *running* record still wins. We avoid latching
+  // onto a completed record from a finished stage (every record is 'completed'
+  // server-side during the walk), which would freeze the bubble on one agent.
+  const runningInStage = dispatchRecords.find((record) => record.status === 'running' && inActiveStage(record))
+    || dispatchRecords.find((record) => record.status === 'running');
+  const activeRecord = runningInStage
+    || (walking
+      ? (syntheticActiveTask ? recordByTaskId[syntheticActiveTask.id] : null)
+      : [...dispatchRecords].reverse().find((record) => record.events?.length > 0 && inActiveStage(record)));
+  const activeTask = walking
+    ? syntheticActiveTask
+    : activeRecord
+      ? taskById[activeRecord.taskId]
+      : syntheticActiveTask;
   const activeOwner = activeTask ? ownerByTaskId[activeTask.id] : null;
   const speech = buildLocalSpeech({
     owner: activeOwner,
@@ -2397,11 +2671,37 @@ function App() {
   const workflowRec = recommendWorkflow(activeTaskTitle, RT.BUILTIN_WORKFLOWS, RT.WORKBENCH.workflowId);
   const applyWorkflow = (id) => { RT.WORKBENCH.workflowId = id; setWfTick((n) => n + 1); setRecDismissed(null); };
   const effectiveRec = workflowRec && recDismissed !== workflowRec.id ? workflowRec : null;
+  // Drive the homepage workflow strip from the most recent local run. Local
+  // dispatch persists final state after background work completes, so while it
+  // is running we project the current plan/dispatch records into stage state.
+  // The same projection also steers the table, so both surfaces advance in
+  // lock-step instead of running on independent clocks.
+  const latestTurn = latestLiveTurn(localTurns);
+  const projectedWorkflow = projectLocalWorkflowRun(latestTurn, scene.clock);
+  const liveWorkflow = projectedWorkflow.workflow;
+  const liveWorkflowRun = projectedWorkflow.workflowRun;
+  // Local dispatch lands as a completed result almost instantly, so to make the
+  // table + strip visibly walk Plan→Build→Review→Ship we replay the scene clock
+  // from 0 whenever a run becomes approved (a discrete event keyed on the turn's
+  // approval time). The projection's stage cursor is clock-driven, so this is
+  // what animates the lock-step walk. It stops on its own at SCENE_DURATION.
+  const liveRunKey = latestTurn && (latestTurn.result?.approvalStatus === 'approved' || latestTurn.result?.needsApproval === false)
+    ? `${latestTurn.id}:${latestTurn.approvedAt || latestTurn.result?.dispatchedAt || 'approved'}`
+    : null;
+  const lastWalkKey = useRef(null);
+  useEffect(() => {
+    if (!localLive || !liveRunKey) return;
+    if (lastWalkKey.current === liveRunKey) return;
+    lastWalkKey.current = liveRunKey;
+    scene.replay(); // reset clock to 0 and start playing → the walk animates
+  }, [localLive, liveRunKey, scene]);
   const st = useMemo(() => {
     const s = sceneAt(localLive ? 0 : scene.clock);
     if (decided) s.decision = null;
-    return localLive ? buildLocalScene(s, localTurns, agents, scene.clock) : s;
-  }, [scene.clock, decided, localLive, localTurns, agents]);
+    return localLive
+      ? buildLocalScene(s, localTurns, agents, scene.clock, liveWorkflow, liveWorkflowRun)
+      : s;
+  }, [scene.clock, decided, localLive, localTurns, agents, liveWorkflow, liveWorkflowRun]);
   useEffect(() => { if (scene.clock < 200) setDecided(false); }, [scene.clock]);
   useEffect(() => {
     if (!compact) return;
@@ -2456,10 +2756,6 @@ function App() {
   const localInFlight = localTurns.some(
     (turn) => turn.result?.dispatchStatus === 'running',
   );
-  // Drive the homepage workflow strip from the most recent run's stage states.
-  const latestTurnResult = latestLiveTurn(localTurns)?.result;
-  const liveWorkflow = latestTurnResult?.workflow;
-  const liveWorkflowRun = latestTurnResult?.workflowRun;
   useEffect(() => {
     if (!localInFlight) return;
     const iv = setInterval(() => { loadLocalHistory(); }, 2500);

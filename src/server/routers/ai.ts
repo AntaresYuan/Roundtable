@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { generateObject, generateText } from 'ai';
 import { desc, eq } from 'drizzle-orm';
-import { createTRPCRouter, protectedProcedure, protectedRateLimitedProcedure } from '../trpc.js';
+import { createTRPCRouter, protectedProcedure, publicRateLimitedProcedure } from '../trpc.js';
 import { chats } from '../../db/schema.js';
 import { defaultOrchestratorModel } from '../../orchestrator/llm/provider.js';
 
@@ -13,7 +13,7 @@ import { defaultOrchestratorModel } from '../../orchestrator/llm/provider.js';
  */
 export const aiRouter = createTRPCRouter({
   // Refine a non-coder's plain-language request into a crisp task brief.
-  polish: protectedRateLimitedProcedure
+  polish: publicRateLimitedProcedure
     .input(z.object({ text: z.string().min(1).max(2000) }))
     .mutation(async ({ input }) => {
       try {

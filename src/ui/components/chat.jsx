@@ -256,7 +256,8 @@ function Composer({ agents, onSend, seed }) {
           placeholder="Message the table…  use @ to bring in an agent"
           style={{ flex: 1, resize: 'none', border: 'none', outline: 'none', background: 'transparent',
             font: 'inherit', fontSize: 14, color: 'var(--text)', lineHeight: 1.5, maxHeight: 120, padding: '6px 0' }} />
-        <button title={polish.isPending ? 'Polishing…' : 'Polish with AI'} onClick={() => val.trim() && polish.mutate({ text: val.trim() })}
+        <button title={polish.isPending ? 'Improving…' : 'Improve brief'}
+          onClick={() => val.trim() && polish.mutate({ text: val.trim() })}
           disabled={!val.trim() || polish.isPending}
           style={{ ...iconBtn, border: 'none', background: 'var(--surface-2)', opacity: val.trim() ? 1 : 0.4,
             color: polish.isPending ? 'var(--accent)' : 'var(--text-muted)', transition: 'all .15s' }}>

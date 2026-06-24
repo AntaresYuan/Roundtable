@@ -12,7 +12,6 @@ import { MessageGroup, Composer, ConversationRail, LogoMark } from './chat';
 import { RoundtableScene, WhiteboardZoom, sceneAt, meetingNotes } from './roundtable';
 import { WorkflowView, WorkflowStrip } from './workflow';
 import { Modal, NewTaskModal, NewWorkbenchModal, AddAgentModal, EditHandoffModal } from './modals';
-import { DependencyGraphSidebar } from './dep-graph';
 import { MemoryPanel } from './memory-panel';
 import { useSession } from 'next-auth/react';
 import { trpc } from '@/ui/lib/trpc';
@@ -91,7 +90,7 @@ function Drawer({ art, agents, onClose }) {
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 100,
       background: alpha('#000', 32), backdropFilter: 'blur(2px)', display: 'flex', justifyContent: 'flex-end' }}>
-      <div onClick={e => e.stopPropagation()} className="rt-rise" style={{ width: 'min(620px, 92vw)',
+      <div onClick={e => e.stopPropagation()} className="rt-rise" style={{ width: isPreview ? 'min(960px, 94vw)' : 'min(620px, 92vw)',
         height: '100%', background: 'var(--surface)', borderLeft: '1px solid var(--border)',
         boxShadow: 'var(--shadow-pop)', display: 'flex', flexDirection: 'column' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '15px 18px',
@@ -108,7 +107,7 @@ function Drawer({ art, agents, onClose }) {
           {isPreview
             ? <div style={{ borderRadius: 'var(--r-card)', overflow: 'hidden', border: '1px solid var(--border)',
                 boxShadow: 'var(--shadow-card)' }}>
-                <iframe title="preview" srcDoc={displayArt.preview} sandbox="allow-scripts"
+                <iframe title="preview" srcDoc={normalizePreviewHtml(displayArt.preview)} sandbox="allow-scripts"
                   style={{ width: '100%', height: 560, border: 'none', display: 'block', background: '#fff' }} />
               </div>
             : displayArt.kind === 'diff'
@@ -121,6 +120,25 @@ function Drawer({ art, agents, onClose }) {
       </div>
     </div>
   );
+}
+
+function normalizePreviewHtml(html) {
+  return (html || '')
+    .replace(
+      "presets: ['typescript', 'react'],",
+      "presets: ['typescript', ['react', { runtime: 'classic' }]],",
+    )
+    .replace(
+      "presets: [['typescript', { allExtensions: true, isTSX: true }], ['react', { runtime: 'classic' }]],",
+      "presets: ['typescript', ['react', { runtime: 'classic' }]],",
+    )
+    .replace(
+      /presets:\s*\[\s*\[\s*['"]typescript['"]\s*,\s*\{\s*allExtensions:\s*true,\s*isTSX:\s*true\s*\}\s*\]\s*,\s*\[\s*['"]react['"]\s*,\s*\{\s*runtime:\s*['"]classic['"]\s*\}\s*\]\s*,?\s*\]/g,
+      "presets: ['typescript', ['react', { runtime: 'classic' }]]",
+    )
+    .replace(/export\s+default\s+function\s+/g, 'function ')
+    .replace(/export\s+default\s+(?!function\b)([A-Za-z_$][\w$]*)\s*;?/g, '')
+    .replace(/^export\s+(?=(function|const|let|var|class)\b)/gm, '');
 }
 
 function ownerForDrawer(art, agents) {
@@ -332,7 +350,7 @@ function UserMsg({ text, onQuote, onPin }) {
   );
 }
 
-function LocalLiveThread({ turns, agents, onApproveTurn, turnActions, onQuote, onPin }) {
+function LocalLiveThread({ turns, agents, onApproveTurn, turnActions, onOpenArtifact, onQuote, onPin }) {
   if (!turns || turns.length === 0) {
     return (
       <div style={{ minHeight: 220, display: 'grid', placeItems: 'center', textAlign: 'center', color: 'var(--text-faint)' }}>
@@ -343,17 +361,19 @@ function LocalLiveThread({ turns, agents, onApproveTurn, turnActions, onQuote, o
       </div>
     );
   }
+  const displayTurns = [...turns].sort((a, b) => liveTurnTime(a) - liveTurnTime(b));
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: '16px 22px' }}>
       <div style={{ maxWidth: 720, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {turns.map((turn, index) => (
+        {displayTurns.map((turn, index) => (
           <LocalLiveTurn
             key={turn.id}
             turn={turn}
             agents={agents}
             onApproveTurn={onApproveTurn}
             turnActions={turnActions}
-            showPreview={index === 0}
+            onOpenArtifact={onOpenArtifact}
+            showPreview={index === displayTurns.length - 1}
             onQuote={onQuote}
             onPin={onPin}
           />
@@ -393,7 +413,7 @@ function PmText({ text, onQuote, onPin }) {
   );
 }
 
-function LocalLiveTurn({ turn, agents, onApproveTurn, turnActions, showPreview, onQuote, onPin }) {
+function LocalLiveTurn({ turn, agents, onApproveTurn, turnActions, showPreview, onOpenArtifact, onQuote, onPin }) {
   const completed = turn.result?.dispatchStatus === 'completed';
   const failed = turn.result?.dispatchStatus === 'failed';
   const running = turn.result?.dispatchStatus === 'running';
@@ -481,6 +501,7 @@ function LocalLiveTurn({ turn, agents, onApproveTurn, turnActions, showPreview, 
                   workspacePath={turn.result.dispatchWorkspacePath || turn.result.workspacePath}
                   previewArtifact={showPreview && !interrupted ? previewArtifact : null}
                   agents={agents}
+                  onOpenArtifact={onOpenArtifact}
                 />
               ))}
               {(completed || (failed && !interrupted)) && turnActions && (
@@ -747,24 +768,34 @@ function StageCards({ workflow, workflowRun, artifacts, agents, dispatchStatus, 
 
 // One agent's deliverable, click to expand and read what they actually produced
 // — turns the result list from a black box into reviewable output.
-function ExpandableArtifact({ artifact, owner }) {
+function ExpandableArtifact({ artifact, owner, onOpen }) {
   const [open, setOpen] = useState(false);
-  const content = artifact.preview || '';
+  const content = normalizePreviewHtml(artifact.preview || '');
   const isHtml = artifact.kind === 'html' || artifact.kind === 'preview';
   return (
     <div style={{ borderRadius: 'var(--r-sm)', background: tint(owner.color, 7),
       border: `1px solid ${alpha(owner.color, 22)}`, overflow: 'hidden' }}>
-      <button onClick={() => setOpen((v) => !v)} style={{ width: '100%', display: 'grid',
-        gridTemplateColumns: 'auto auto auto 1fr auto', gap: 9, alignItems: 'center', padding: '8px 10px',
-        background: 'transparent', border: 'none', cursor: 'pointer', font: 'inherit', textAlign: 'left' }}>
-        <Icon name={open ? 'chevdown' : 'chevron'} size={12} style={{ color: owner.color }} />
-        <Avatar agent={owner} size={20} ring={false} />
-        <Icon name={artifact.kind === 'preview' ? 'eye' : artifact.kind === 'markdown' ? 'clip' : 'code'} size={14}
-          style={{ color: owner.color }} />
-        <span className="mono" style={{ fontSize: 12, color: 'var(--text)', overflow: 'hidden',
-          textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{artifact.title}</span>
-        <span style={{ fontSize: 11, color: owner.color, fontWeight: 700 }}>@{owner.role || artifact.ownerAgentId}</span>
-      </button>
+      <div style={{ width: '100%', display: 'grid',
+        gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'center', padding: '8px 10px' }}>
+        <button onClick={() => setOpen((v) => !v)} style={{ minWidth: 0, display: 'grid',
+          gridTemplateColumns: 'auto auto auto 1fr auto', gap: 9, alignItems: 'center',
+          background: 'transparent', border: 'none', cursor: 'pointer', font: 'inherit', textAlign: 'left', padding: 0 }}>
+          <Icon name={open ? 'chevdown' : 'chevron'} size={12} style={{ color: owner.color }} />
+          <Avatar agent={owner} size={20} ring={false} />
+          <Icon name={artifact.kind === 'preview' ? 'eye' : artifact.kind === 'markdown' ? 'clip' : 'code'} size={14}
+            style={{ color: owner.color }} />
+          <span className="mono" style={{ fontSize: 12, color: 'var(--text)', overflow: 'hidden',
+            textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{artifact.title}</span>
+          <span style={{ fontSize: 11, color: owner.color, fontWeight: 700 }}>@{owner.role || artifact.ownerAgentId}</span>
+        </button>
+        <button onClick={(e) => { e.stopPropagation(); onOpen && onOpen(artifact); }}
+          style={{ justifySelf: 'end', display: 'inline-flex', alignItems: 'center', gap: 5,
+            padding: '4px 8px', borderRadius: 'var(--r-sm)', border: '1px solid var(--border)', background: 'var(--surface)',
+            color: owner.color, font: 'inherit', fontSize: 11.5, fontWeight: 650, cursor: 'pointer' }}>
+          <Icon name={artifact.kind === 'preview' ? 'eye' : 'expand'} size={12} />
+          {artifact.kind === 'preview' ? 'Open preview' : 'Open artifact'}
+        </button>
+      </div>
       {open && (
         <div style={{ borderTop: `1px solid ${alpha(owner.color, 22)}`, background: 'var(--bg)', padding: '10px 12px',
           maxHeight: 320, overflowY: 'auto' }}>
@@ -780,10 +811,13 @@ function ExpandableArtifact({ artifact, owner }) {
   );
 }
 
-function LocalResultCard({ artifacts, dispatchStatus, dispatchAdapter, dispatchStage, workspacePath, previewArtifact, agents }) {
+function LocalResultCard({ artifacts, dispatchStatus, dispatchAdapter, dispatchStage, workspacePath, previewArtifact, agents, onOpenArtifact }) {
   const completed = dispatchStatus === 'completed';
   const codeCount = artifacts.filter((artifact) => artifact.kind === 'code').length;
   const reviewCount = artifacts.filter((artifact) => artifact.ownerAgentId === 'reviewer').length;
+  const primaryMarkdown = artifacts.find((artifact) =>
+    artifact.kind === 'markdown' && artifact.ownerAgentId !== 'orchestrator' && artifact.preview,
+  );
   const statusColor = completed ? 'var(--ok)' : dispatchStatus === 'failed' ? 'var(--bad)' : 'var(--run)';
   return (
     <div style={{ marginTop: 12, border: '1px solid var(--border)', borderRadius: 'var(--r-card)',
@@ -803,22 +837,32 @@ function LocalResultCard({ artifacts, dispatchStatus, dispatchAdapter, dispatchS
           background: alpha(statusColor, 14), fontWeight: 750 }}>
           {dispatchStatus || 'not_started'}
         </span>
+        {previewArtifact && (
+          <button onClick={() => onOpenArtifact && onOpenArtifact(previewArtifact)}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 10px',
+              borderRadius: 'var(--r-sm)', border: '1px solid var(--border)', background: 'var(--surface)',
+              color: 'var(--accent)', font: 'inherit', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+            <Icon name="eye" size={13} /> Open preview
+          </button>
+        )}
       </div>
       {previewArtifact && (
         <div style={{ background: 'var(--surface-3)', padding: 12 }}>
           <div style={{ borderRadius: 'var(--r-sm)', overflow: 'hidden', border: '1px solid var(--border)',
             background: '#fff', boxShadow: 'var(--shadow-card)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 10px',
-              background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
-              {['#e5687a', '#e6a23c', '#4cc38a'].map((color) => (
-                <span key={color} style={{ width: 9, height: 9, borderRadius: '50%', background: color, opacity: .8 }} />
-              ))}
-              <span className="mono" style={{ fontSize: 11, color: 'var(--text-faint)', marginLeft: 6 }}>
-                {previewArtifact.title}
-              </span>
+            <div style={{ height: 260, overflow: 'hidden', background: '#fff' }}>
+              <iframe title={previewArtifact.title} srcDoc={normalizePreviewHtml(previewArtifact.preview)} sandbox="allow-scripts allow-forms allow-modals"
+                style={{ width: 960, height: 720, border: 'none', display: 'block', background: '#fff',
+                  transform: 'scale(.52)', transformOrigin: 'top left' }} />
             </div>
-            <iframe title={previewArtifact.title} srcDoc={previewArtifact.preview} sandbox="allow-scripts allow-forms allow-modals"
-              style={{ width: '100%', height: 360, border: 'none', display: 'block', background: '#fff' }} />
+          </div>
+        </div>
+      )}
+      {!previewArtifact && primaryMarkdown && (
+        <div style={{ padding: 12, background: 'var(--surface-3)', borderBottom: '1px solid var(--border)' }}>
+          <div style={{ borderRadius: 'var(--r-sm)', border: '1px solid var(--border)', background: 'var(--surface)',
+            padding: '12px 14px', maxHeight: 260, overflow: 'auto', fontSize: 12.5, lineHeight: 1.5 }}>
+            <Md text={primaryMarkdown.preview} />
           </div>
         </div>
       )}
@@ -828,6 +872,7 @@ function LocalResultCard({ artifacts, dispatchStatus, dispatchAdapter, dispatchS
             key={`${artifact.id}-${artifact.version}`}
             artifact={artifact}
             owner={agentForArtifact(artifact, agents)}
+            onOpen={onOpenArtifact}
           />
         ))}
         {workspacePath && (
@@ -862,7 +907,7 @@ function TodoRow({ task, owner, record, status, last }) {
   return (
     <div style={{ borderBottom: last ? 'none' : '1px solid var(--border)' }}>
       <button onClick={() => setOpen((v) => !v)} title="Expand task activity"
-        style={{ width: '100%', display: 'flex', gap: 10, alignItems: 'flex-start', padding: '9px 0',
+        style={{ width: '100%', display: 'grid', gridTemplateColumns: '18px 1fr auto', gap: '8px 10px', alignItems: 'flex-start', padding: '10px 0',
           background: 'none', border: 'none', font: 'inherit', cursor: 'pointer', textAlign: 'left' }}>
         <span style={{ display: 'grid', placeItems: 'center', width: 18, height: 18, marginTop: 3,
           borderRadius: 5, flexShrink: 0, background: alpha(sty.color, status === 'pending' ? 8 : 16), color: sty.color }}>
@@ -870,22 +915,27 @@ function TodoRow({ task, owner, record, status, last }) {
             : sty.icon ? <Icon name={sty.icon} size={11} />
             : <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'currentColor', opacity: .6 }} />}
         </span>
-        <Avatar agent={owner} size={24} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Avatar agent={owner} size={22} />
             <span className="mono" style={{ fontSize: 11, color: 'var(--text-faint)' }}>{task.id}</span>
-            <span style={{ fontSize: 13.5, fontWeight: 600,
+            <span className="mono" style={{ fontSize: 11, color: 'var(--text-faint)' }}>{task.assignee}</span>
+          </div>
+          <div style={{ marginTop: 6, fontSize: 13.5, fontWeight: 650, lineHeight: 1.35,
               color: status === 'completed' ? 'var(--text-muted)' : 'var(--text)',
-              textDecoration: status === 'completed' ? 'line-through' : 'none',
-              textDecorationColor: alpha('var(--ok)', 50) }}>{task.title}</span>
+              textDecorationLine: status === 'completed' ? 'line-through' : 'none',
+              textDecorationColor: alpha('var(--ok)', 50) }}>
+            {task.title}
           </div>
-          <div className="mono" style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 3 }}>
-            {task.assignee}{task.parallel ? ' · parallel' : ''}{task.deps.length ? ` · waits on ${task.deps.join(', ')}` : ''}
-          </div>
+          {(task.parallel || task.deps.length > 0) && (
+            <div className="mono" style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 4 }}>
+              {task.parallel ? 'parallel' : ''}{task.parallel && task.deps.length ? ' · ' : ''}{task.deps.length ? `waits on ${task.deps.join(', ')}` : ''}
+            </div>
+          )}
         </div>
         <span style={{ fontSize: 10.5, fontWeight: 700, color: sty.color, padding: '2px 8px', borderRadius: 999,
-          background: alpha(sty.color, 13), flexShrink: 0, marginTop: 3 }}>{sty.label}</span>
-        <Icon name={open ? 'chevdown' : 'chevron'} size={11} style={{ color: 'var(--text-faint)', marginTop: 6, flexShrink: 0 }} />
+          background: alpha(sty.color, 13), flexShrink: 0, marginTop: 3, whiteSpace: 'nowrap' }}>{sty.label}</span>
+        <Icon name={open ? 'chevdown' : 'chevron'} size={11} style={{ color: 'var(--text-faint)', gridColumn: '3', justifySelf: 'end', marginTop: -2, flexShrink: 0 }} />
       </button>
       {open && (
         <div style={{ margin: '0 0 9px 28px', padding: '8px 11px', borderRadius: 'var(--r-sm)',
@@ -917,6 +967,9 @@ function LocalPlanCard({ plan, intake, agents, approvalStatus, approving, approv
   };
   const approved = approvalStatus === 'approved';
   const recordFor = (taskId) => (dispatch || []).find((r) => r.taskId === taskId);
+  const visibleTasks = plan.tasks.filter((task) => task.user_visible !== false);
+  const roles = Array.from(new Set(visibleTasks.map((task) => task.assignee.replace(/^@/, ''))));
+  const planSummary = intake.userVisibleSummary || visibleTasks.map((task) => task.title).join(' → ');
   const doneCount = plan.tasks.filter((t) =>
     todoStatusFor(t, recordFor(t.id), approved, dispatchStatus) === 'completed').length;
   return (
@@ -925,14 +978,23 @@ function LocalPlanCard({ plan, intake, agents, approvalStatus, approving, approv
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '12px 14px', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
         <Icon name="layers" size={15} style={{ color: 'var(--accent)' }} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 700, fontSize: 14 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontWeight: 700, fontSize: 14 }}>
             Plan
-            <span className="mono tnum" style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-faint)', marginLeft: 8 }}>
-              {doneCount}/{plan.tasks.length} done
+            <span className="mono tnum" style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-faint)', whiteSpace: 'nowrap' }}>
+              {doneCount}/{plan.tasks.length} completed
             </span>
           </div>
-          <div className="mono" style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 2 }}>
-            intent={intake.intentType} · risk={intake.risk} · clarity={intake.clarity}
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+            {[
+              ['intent', intake.intentType],
+              ['risk', intake.risk],
+              ['clarity', intake.clarity],
+            ].map(([label, value]) => (
+              <span key={label} className="mono" style={{ fontSize: 10.5, color: 'var(--text-muted)', padding: '2px 6px',
+                borderRadius: 999, background: 'var(--surface-2)', border: '1px solid var(--border)', whiteSpace: 'nowrap' }}>
+                {label}: {value}
+              </span>
+            ))}
           </div>
         </div>
         <span style={{ fontSize: 11.5, color: approved ? 'var(--ok)' : 'var(--warn)', padding: '3px 8px', borderRadius: 999,
@@ -957,6 +1019,17 @@ function LocalPlanCard({ plan, intake, agents, approvalStatus, approving, approv
           {approvalError}
         </div>
       )}
+      <div style={{ padding: '12px 14px 10px', borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <Icon name="sparkle" size={13} style={{ color: 'var(--accent)' }} />
+          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)' }}>PM plan overview</span>
+        </div>
+        <div style={{ display: 'grid', gap: 7, fontSize: 12.5, lineHeight: 1.45, color: 'var(--text-muted)' }}>
+          <div><b style={{ color: 'var(--text)' }}>Goal:</b> {planSummary}</div>
+          <div><b style={{ color: 'var(--text)' }}>Execution:</b> {visibleTasks.length} step{visibleTasks.length === 1 ? '' : 's'} · {visibleTasks.map((task) => task.id).join(' → ')}</div>
+          <div><b style={{ color: 'var(--text)' }}>Team:</b> {roles.length ? roles.map((role) => `@${role}`).join(', ') : 'PM only'} · review before final result when code changes</div>
+        </div>
+      </div>
       <div style={{ padding: '4px 14px 6px' }}>
         {plan.tasks.map((task, i) => {
           const record = recordFor(task.id);
@@ -976,14 +1049,30 @@ function LocalPlanCard({ plan, intake, agents, approvalStatus, approving, approv
         gap: 6, padding: '8px 14px', background: 'var(--surface-2)', border: 'none', borderTop: '1px solid var(--border)',
         font: 'inherit', fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', cursor: 'pointer' }}>
         <Icon name={showPlan ? 'chevdown' : 'chevron'} size={11} />
-        {showPlan ? 'Hide plan' : 'Show plan'}
+        {showPlan ? 'Hide plan details' : 'Show plan details'}
       </button>
       {showPlan && (
-        <pre className="mono" style={{ margin: 0, padding: '10px 14px', fontSize: 11, lineHeight: 1.55,
-          color: 'var(--text-muted)', background: 'var(--bg)', borderTop: '1px solid var(--border)',
-          overflowX: 'auto', maxHeight: 260, overflowY: 'auto' }}>
-          {JSON.stringify(plan, null, 2)}
-        </pre>
+        <div style={{ margin: 0, padding: '12px 14px', background: 'var(--bg)', borderTop: '1px solid var(--border)',
+          display: 'grid', gap: 9 }}>
+          {visibleTasks.map((task, i) => {
+            const owner = ownerFor(task.assignee);
+            return (
+              <div key={task.id} style={{ display: 'grid', gap: 4, padding: '10px 11px', borderRadius: 'var(--r-sm)',
+                background: 'var(--surface)', border: '1px solid var(--border)' }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span className="mono" style={{ fontSize: 11, color: 'var(--text-faint)' }}>Step {i + 1} · {task.id}</span>
+                  <Avatar agent={owner} size={18} />
+                  <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--text)' }}>{task.title}</span>
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.45 }}>
+                  Assigned to <b>{task.assignee}</b>
+                  {task.deps.length ? ` after ${task.deps.join(', ')}` : ' as the first runnable step'}
+                  {task.parallel ? ' · can run in parallel' : ''}.
+                </div>
+              </div>
+            );
+          })}
+        </div>
       )}
     </div>
   );
@@ -1311,7 +1400,7 @@ function Dock({ st, agents, scene, onAction, onOpenChat, onOpenWorkflow, onSend,
   return (
     <div style={{ borderTop: '1px solid var(--border)', background: 'var(--surface)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 22px 0' }}>
-        <WorkflowStrip clock={scene.clock} onOpen={onOpenWorkflow} workflow={workflow} workflowRun={workflowRun} />
+        <WorkflowStrip clock={scene.clock} onOpen={onOpenWorkflow} workflow={workflow} workflowRun={workflowRun} agents={agents} />
         <span style={{ flex: 1 }} />
       </div>
       {rec && (
@@ -1450,7 +1539,7 @@ function FileRow({ art, agents, onOpen, activeChatId }) {
     </button>
   );
 }
-function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifact, onAction, onClose, live, liveArtifacts, liveMessages, liveHandoffs, activeChatId, memory, localTurns, localStatus, onApproveLocalTurn, localTurnActions, onRewrite, onQuote, onPin }) {
+function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifact, onAction, onClose, live, liveArtifacts, liveMessages, liveHandoffs, activeChatId, memory, localTurns, localStatus, onApproveLocalTurn, localTurnActions, onClearLocalTurns, onRewrite, onQuote, onPin }) {
   const placed = sceneAt(clock).placed;
   const hasLocalTurns = localTurns && localTurns.length > 0;
   const localArtifacts = hasLocalTurns ? liveArtifactsFromTurns(localTurns, agents, localStatus) : [];
@@ -1476,8 +1565,15 @@ function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifa
         {tabBtn('chat', 'Chat')}
         {tabBtn('files', `Files · ${created.length + provided.length}`)}
         {tabBtn('memory', 'Memory')}
-        {tabBtn('deps', 'Deps')}
         {tabBtn('notes', 'Notes')}
+        {hasLocalTurns && (
+          <button onClick={onClearLocalTurns} title="Clear local conversation"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '6px 8px',
+              borderRadius: 'var(--r-sm)', border: '1px solid var(--border)', background: 'var(--surface)',
+              color: 'var(--bad)', font: 'inherit', fontSize: 11.5, fontWeight: 650, cursor: 'pointer' }}>
+            <Icon name="x" size={12} /> Clear
+          </button>
+        )}
         <button onClick={onClose} style={{ ...iconBtn, border: 'none', background: 'transparent' }}><Icon name="x" size={15} /></button>
       </div>
       <div style={{ borderBottom: '1px solid var(--border)' }} />
@@ -1485,7 +1581,7 @@ function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifa
       {tab === 'chat' ? (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg)' }}>
           {hasLocalTurns
-            ? <LocalLiveThread turns={localTurns} agents={agents} onApproveTurn={onApproveLocalTurn} turnActions={localTurnActions} onQuote={onQuote} onPin={onPin} />
+            ? <LocalLiveThread turns={localTurns} agents={agents} onApproveTurn={onApproveLocalTurn} turnActions={localTurnActions} onOpenArtifact={onOpenArtifact} onQuote={onQuote} onPin={onPin} />
             : live
             ? <LiveThread messages={liveMessages ?? []} handoffs={liveHandoffs} agents={agents} onRewrite={onRewrite} />
             : <Thread agents={agents} scene={scene} onOpenArtifact={onOpenArtifact} onAction={onAction} narrow />}
@@ -1509,34 +1605,11 @@ function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifa
         </div>
       ) : tab === 'memory' ? (
         <MemoryPanel memory={memory} />
-      ) : tab === 'deps' ? (
-        <div style={{ flex: 1, overflowY: 'auto', padding: '14px 14px 24px' }}>
-          {live || hasLocalTurns ? (
-            <div style={{ fontSize: 12.5, color: 'var(--text-faint)', fontStyle: 'italic', padding: '4px 2px' }}>
-              The dependency graph isn&rsquo;t wired to live data yet — it&rsquo;ll map artifacts as the team links them.</div>
-          ) : (
-            <DependencyGraphSidebar
-              graph={RT.DEPENDENCY_GRAPH}
-              agents={agents}
-              chatId={RT.WORKBENCH?.id || 'main'}
-              onNodeClick={(node) => {
-                const art = Object.values(RT.ARTIFACTS).find((a) => a.id === node.artifactId);
-                if (art && onOpenArtifact) onOpenArtifact(art);
-              }}
-            />
-          )}
-        </div>
       ) : live || hasLocalTurns ? (
         <LiveNotes agents={agents} artifacts={created} handoffs={liveHandoffs} />
       ) : (
         <NotesContent clock={clock} agents={agents} notes={notes} />
       )}
-
-      <div style={{ padding: '10px 14px', borderTop: '1px solid var(--border)', fontSize: 11, color: 'var(--text-faint)',
-        display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--run)', animation: 'rt-blink 1.4s infinite' }} />
-        live · kept by the facilitator
-      </div>
     </div>
   );
 }
@@ -1650,19 +1723,240 @@ function storedTurnToLiveTurn(turn) {
 function latestLiveTurn(liveTurns) {
   const turns = (liveTurns || []).filter((turn) => turn.result || turn.status === 'pending' || turn.status === 'error');
   if (turns.length === 0) return null;
-  const timeOf = (turn) => {
-    const fromCreatedAt = turn.createdAt ? Date.parse(turn.createdAt) : NaN;
-    if (!Number.isNaN(fromCreatedAt)) return fromCreatedAt;
-    const fromId = /^live-(\d+)$/.exec(turn.id);
-    return fromId ? Number(fromId[1]) : 0;
+  return [...turns].sort((a, b) => liveTurnTime(b) - liveTurnTime(a))[0];
+}
+
+function taskStageId(task, workflow) {
+  if (!task || !workflow) return null;
+  if (task.workflowStageId && workflow.stages.some((stage) => stage.id === task.workflowStageId)) {
+    return task.workflowStageId;
+  }
+  const prefixed = /^([^_]+)__/.exec(task.id || '')?.[1];
+  if (prefixed && workflow.stages.some((stage) => stage.id === prefixed)) return prefixed;
+  const role = String(task.assignee || '').replace(/^@/, '');
+  const roleMatch = workflow.stages.find((stage) =>
+    stage.seats?.some((seat) => seat.ref?.kind === 'role' && seat.ref.role === role),
+  );
+  if (roleMatch) return roleMatch.id;
+  if (role === 'planner') return workflow.stages.find((stage) => stage.kind === 'plan')?.id || null;
+  if (role === 'reviewer') return workflow.stages.find((stage) => stage.kind === 'review')?.id || null;
+  return workflow.stages.find((stage) => stage.kind === 'work' || stage.kind === 'custom')?.id || null;
+}
+
+function taskAgentId(task, stage) {
+  const role = String(task?.assignee || '').replace(/^@/, '');
+  const seat = stage?.seats?.find((s) => s.ref?.kind === 'role' && s.ref.role === role)
+    || stage?.seats?.find((s) => s.ref?.kind === 'role');
+  if (seat?.ref?.kind === 'role') return seat.ref.agentId || seat.ref.role;
+  return role || 'agent';
+}
+
+function projectLocalWorkflowRun(turn, sceneClock = 0) {
+  const result = turn?.result;
+  const workflow = result?.workflow;
+  if (!turn || !workflow) {
+    return { workflow: result?.workflow, workflowRun: result?.workflowRun };
+  }
+
+  const baseRun = result.workflowRun || {
+    specId: workflow.id,
+    specVersion: workflow.version || 0,
+    autonomyPolicy: 'supervised',
+    autonomyDecisions: [],
+    stageStates: {},
+    failureRecoveryCards: [],
+    depEdges: [],
   };
-  return [...turns].sort((a, b) => timeOf(b) - timeOf(a))[0];
+  const tasks = result.plan?.tasks || [];
+  const dispatchRecords = result.dispatch || [];
+  const recordByTaskId = Object.fromEntries(dispatchRecords.map((record) => [record.taskId, record]));
+  const taskById = Object.fromEntries(tasks.map((task) => [task.id, task]));
+  const approved = result.approvalStatus === 'approved' || result.needsApproval === false;
+  const dispatchStatus = result.dispatchStatus;
+  const completed = dispatchStatus === 'completed';
+  const failedRecord = dispatchRecords.find((record) => record.status === 'failed');
+  const runningRecord = dispatchRecords.find((record) => record.status === 'running');
+
+  const runnableTasks = tasks.filter((task) =>
+    (task.deps || []).every((dep) =>
+      taskById[dep]?.status === 'completed' || recordByTaskId[dep]?.status === 'completed',
+    ) && recordByTaskId[task.id]?.status !== 'completed',
+  );
+
+  // Local dispatch finishes server-side near-instantly (the mock adapter has no
+  // per-step delay), so the 'running' window the client could poll is a few ms.
+  // Without help, both the strip and the table jump straight from "planning" to
+  // "all done" — the workflow never visibly walks Plan→Build→Review→Ship.
+  // So once a run is approved we play the work stages out on the scene clock:
+  // a time cursor advances one stage every STAGE_MS, then settles on all-done.
+  // Real running/failed dispatch records always win over this synthetic walk.
+  const STAGE_MS = 7000;
+  const workStages = workflow.stages.filter((stage) => stage.kind !== 'intake' && stage.kind !== 'plan');
+  const walkActive = approved && (dispatchStatus === 'running' || completed) && workStages.length > 0;
+  // Stage index into workStages; clamped so it "finishes" past the last stage.
+  const walkCursor = Math.floor(Math.max(0, sceneClock - 800) / STAGE_MS);
+  const walkDone = walkCursor >= workStages.length;
+  const walkStage = walkActive && !walkDone ? workStages[walkCursor] : null;
+  const walkStageId = walkStage?.id || null;
+
+  // Within the synthetic walk, surface a runnable task from the *current* stage
+  // so the speaker bubble names the right agent for this step.
+  const walkStageTask = walkStageId
+    ? runnableTasks.find((task) => taskStageId(task, workflow) === walkStageId)
+      || tasks.find((task) => taskStageId(task, workflow) === walkStageId)
+    : null;
+
+  const activeTask = failedRecord
+    ? taskById[failedRecord.taskId]
+    : runningRecord
+      ? taskById[runningRecord.taskId]
+      : walkStageTask
+        ? walkStageTask
+        : approved && dispatchStatus === 'running'
+          ? tasks.find((task) => recordByTaskId[task.id]?.status !== 'completed')
+          : null;
+  const planStageId = workflow.stages.find((stage) => stage.kind === 'plan')?.id || null;
+  // Prefer a real record's stage; otherwise the synthetic walk cursor; otherwise
+  // the plan stage while the plan is being drafted / awaiting approval.
+  const recordStageId = (failedRecord && taskStageId(taskById[failedRecord.taskId], workflow))
+    || (runningRecord && taskStageId(taskById[runningRecord.taskId], workflow))
+    || null;
+  const activeStageId = recordStageId
+    ? recordStageId
+    : walkActive
+      ? walkStageId // null once the walk has finished → all stages settle to done
+      : result.plan && !approved
+        ? planStageId
+        : turn.status === 'pending'
+          ? planStageId
+          : null;
+  const activeStageIndex = activeStageId
+    ? workflow.stages.findIndex((stage) => stage.id === activeStageId)
+    : (walkActive && walkDone ? workflow.stages.length : -1);
+  const stageStates = {};
+
+  workflow.stages.forEach((stage, index) => {
+    const existing = baseRun.stageStates?.[stage.id] || {};
+    const stageTasks = tasks.filter((task) => taskStageId(task, workflow) === stage.id);
+    const stageRecords = stageTasks.map((task) => recordByTaskId[task.id]).filter(Boolean);
+    const stageFailed = stageRecords.some((record) => record.status === 'failed');
+    const allRecordedDone = stageTasks.length > 0 && stageTasks.every((task) => recordByTaskId[task.id]?.status === 'completed');
+    let status = existing.status || 'pending';
+
+    const isWorkStage = stage.kind !== 'intake' && stage.kind !== 'plan';
+    const workStageIndex = isWorkStage ? workStages.findIndex((s) => s.id === stage.id) : -1;
+
+    if (stage.kind === 'intake') status = turn.message ? 'done' : 'active';
+    else if (stage.kind === 'plan') status = result.plan && (approved || completed) ? 'done' : 'active';
+    // A real failure on this stage always shows, even mid-walk.
+    else if (stageFailed) status = 'failed';
+    // Synthetic walk drives the work stages so they light up one at a time,
+    // even though the server already reported the whole run as completed.
+    else if (walkActive) {
+      if (walkDone) status = 'done';
+      else if (workStageIndex < walkCursor) status = 'done';
+      else if (workStageIndex === walkCursor) status = 'active';
+      else status = 'pending';
+    }
+    else if (completed && (stageTasks.length > 0 || stage.kind === 'ship')) status = 'done';
+    else if (allRecordedDone) status = 'done';
+    else if (dispatchStatus === 'running' && stage.id === activeStageId) status = 'active';
+    else if (dispatchStatus === 'running' && activeStageIndex >= 0 && index < activeStageIndex && stage.kind !== 'ship') status = 'done';
+    else if (!approved) status = stage.kind === 'plan' && result.plan ? 'done' : 'pending';
+    else status = 'pending';
+
+    const seatRuns = (stage.seats || []).map((seat, idx) => {
+      const role = seat.ref?.kind === 'role' ? seat.ref.role : null;
+      const agentId = seat.ref?.kind === 'role' ? seat.ref.agentId || seat.ref.role : 'user';
+      const seatTask = stageTasks.find((task) => {
+        const assignee = String(task.assignee || '').replace(/^@/, '');
+        if (task.id === `${stage.id}__${idx}`) return true;
+        return role && assignee === role;
+      }) || stageTasks[idx];
+      const record = seatTask ? recordByTaskId[seatTask.id] : null;
+      const isActiveSeat = seatTask && activeTask && seatTask.id === activeTask.id;
+      // During the synthetic walk every dispatch record is already 'completed'
+      // server-side, so defer to the stage status (driven by the walk cursor)
+      // rather than the record — otherwise every seat would show done at once.
+      const seatStatus = walkActive && isWorkStage
+        ? (status === 'active'
+            ? 'active'
+            : status === 'done'
+              ? 'done'
+              : record?.status === 'failed' ? 'failed' : 'pending')
+        : record?.status === 'completed'
+          ? 'done'
+          : record?.status === 'failed'
+            ? 'failed'
+            : isActiveSeat || (status === 'active' && stage.kind === 'plan')
+              ? 'active'
+              : status === 'done'
+                ? 'done'
+                : 'pending';
+      return {
+        agentId,
+        status: seatStatus,
+        artifactIds: record
+          ? (record.events || [])
+              .filter((event) => event.type === 'artifact')
+              .map((event) => event.artifact?.id)
+              .filter(Boolean)
+          : [],
+      };
+    });
+
+    if (stageTasks.length > 0 && seatRuns.length === 0) {
+      stageTasks.forEach((task) => {
+        const record = recordByTaskId[task.id];
+        stageStates[stage.id] = {
+          ...(stageStates[stage.id] || existing),
+          status,
+          seatRuns: [
+            ...((stageStates[stage.id]?.seatRuns) || []),
+            {
+              agentId: taskAgentId(task, stage),
+              status: activeTask?.id === task.id ? 'active' : record?.status === 'completed' ? 'done' : status,
+              artifactIds: record
+                ? (record.events || [])
+                    .filter((event) => event.type === 'artifact')
+                    .map((event) => event.artifact?.id)
+                    .filter(Boolean)
+                : [],
+            },
+          ],
+        };
+      });
+      return;
+    }
+
+    stageStates[stage.id] = { ...existing, status, seatRuns };
+  });
+
+  return {
+    workflow,
+    workflowRun: {
+      ...baseRun,
+      stageStates,
+      activeStageId: activeStageId || undefined,
+    },
+  };
+}
+
+function liveTurnTime(turn) {
+  const fromCreatedAt = turn.createdAt ? Date.parse(turn.createdAt) : NaN;
+  if (!Number.isNaN(fromCreatedAt)) return fromCreatedAt;
+  const fromId = /^live-(\d+)$/.exec(turn.id);
+  return fromId ? Number(fromId[1]) : 0;
 }
 
 function preferredAgentAdapterRequest() {
   if (typeof window === 'undefined') return {};
   const value = window.localStorage.getItem('roundtableAgentAdapter');
   return value ? { agentAdapter: value } : {};
+}
+
+function isDirectAgentMention(message) {
+  return /^\s*@(architect|planner|implementer|reviewer|fixer)\b/i.test(message);
 }
 
 // #15 AC: agent color persistence across sessions. Custom agents (id `a-…`)
@@ -1746,7 +2040,7 @@ function liveArtifactsFromTurns(liveTurns, agents, liveStatus) {
   ];
 }
 
-function buildLocalScene(baseScene, liveTurns, agents) {
+function buildLocalScene(baseScene, liveTurns, agents, sceneClock = 0, liveWorkflow = null, liveWorkflowRun = null) {
   const latest = latestLiveTurn(liveTurns);
   if (!latest) return baseScene;
   const status = { ...baseScene.status };
@@ -1754,6 +2048,8 @@ function buildLocalScene(baseScene, liveTurns, agents) {
   const result = latest.result;
   const approved = result?.approvalStatus === 'approved';
   const completed = result?.dispatchStatus === 'completed';
+  const dispatchStatus = result?.dispatchStatus;
+  const dispatchRecords = result?.dispatch || [];
   status.orchestrator = latest.status === 'pending' ? 'working' : result ? 'done' : 'idle';
 
   const roleCursor = {};
@@ -1765,19 +2061,156 @@ function buildLocalScene(baseScene, liveTurns, agents) {
     roleCursor[role] = index + 1;
     return candidates[index % candidates.length];
   };
+
+  const ownerByTaskId = {};
   const liveTasks = result?.plan?.tasks?.map((task) => {
     const owner = ownerFor(task.assignee);
-    status[owner.agentId] = completed || approved ? 'done' : 'idle';
-    return { ...task, owner: owner.agentId, status: completed ? 'completed' : approved ? 'running' : 'pending' };
+    ownerByTaskId[task.id] = owner;
+    return { ...task, owner: owner.agentId, status: approved ? 'pending' : 'pending' };
   }) || [];
+  const taskById = Object.fromEntries(liveTasks.map((task) => [task.id, task]));
+  const recordByTaskId = Object.fromEntries(dispatchRecords.map((record) => [record.taskId, record]));
+
+  // The bottom WorkflowStrip advances one stage at a time off the live run. To
+  // keep the table in lock-step, scope "who is active" to the stage the strip is
+  // currently on — instead of a free-running clock that cycles all tasks.
+  const activeStageId = liveWorkflowRun?.activeStageId || null;
+  const stageTasks = activeStageId && liveWorkflow
+    ? liveTasks.filter((task) => taskStageId(task, liveWorkflow) === activeStageId)
+    : liveTasks;
+  // Within the active stage, runnable tasks are the candidates. Fall back to all
+  // tasks only when no stage binding is available (e.g. legacy local turns).
+  const candidatePool = stageTasks.length > 0 ? stageTasks : liveTasks;
+  const runnableTasks = candidatePool.filter((task) =>
+    task.deps.every((dep) => taskById[dep]?.status === 'completed' || recordByTaskId[dep]?.status === 'completed'),
+  );
+  // Cycle only *within* the active stage so its seats take turns, but the table
+  // never jumps ahead of the stage the chat is showing. Paced under the 7s stage
+  // dwell so a multi-seat stage rotates roughly twice before advancing.
+  const cyclePool = runnableTasks.length > 0 ? runnableTasks : candidatePool;
+  const syntheticIndex = cyclePool.length > 0
+    ? Math.floor(Math.max(0, sceneClock - 800) / 3500) % cyclePool.length
+    : 0;
+  const syntheticActiveTask = cyclePool[syntheticIndex] || liveTasks[0];
+
+  // When the strip projection is walking stages (it stays bound to an
+  // activeStageId until the walk settles), drive the table off that walk so the
+  // two surfaces stay in lock-step — instead of letting the already-completed
+  // dispatch records mark every agent 'done' at once. We compare each task's
+  // stage order against the active stage's order.
+  const stageOrder = liveWorkflow
+    ? Object.fromEntries(liveWorkflow.stages.map((stage, i) => [stage.id, i]))
+    : {};
+  const walking = !!(activeStageId && liveWorkflow);
+  const activeStageOrder = walking ? stageOrder[activeStageId] : -1;
+  const taskStageOrder = (task) => {
+    const sid = liveWorkflow ? taskStageId(task, liveWorkflow) : null;
+    return sid != null && stageOrder[sid] != null ? stageOrder[sid] : Infinity;
+  };
+
+  liveTasks.forEach((task) => {
+    const record = recordByTaskId[task.id];
+    const owner = ownerByTaskId[task.id];
+    if (record?.status === 'failed') {
+      task.status = 'failed';
+      status[owner.agentId] = 'done';
+      return;
+    }
+    if (!approved) {
+      task.status = 'pending';
+      status[owner.agentId] = 'idle';
+      return;
+    }
+    if (walking) {
+      const order = taskStageOrder(task);
+      if (order < activeStageOrder) {
+        task.status = 'completed';
+        if (status[owner.agentId] !== 'thinking' && status[owner.agentId] !== 'working' && status[owner.agentId] !== 'speaking') {
+          status[owner.agentId] = 'done';
+        }
+      } else if (order === activeStageOrder && task.id === syntheticActiveTask?.id) {
+        task.status = 'running';
+        status[owner.agentId] = localAgentModeFromClock(sceneClock);
+      } else {
+        task.status = 'pending';
+        if (!['thinking', 'working', 'speaking', 'done'].includes(status[owner.agentId])) {
+          status[owner.agentId] = 'idle';
+        }
+      }
+      return;
+    }
+    if (record?.status === 'completed') {
+      task.status = 'completed';
+      status[owner.agentId] = 'done';
+      return;
+    }
+    if (dispatchStatus === 'running' && task.id === syntheticActiveTask?.id) {
+      task.status = 'running';
+      status[owner.agentId] = localAgentModeFromClock(sceneClock);
+      return;
+    }
+    task.status = dispatchStatus === 'completed' ? 'completed' : 'pending';
+    status[owner.agentId] = dispatchStatus === 'completed' ? 'done' : 'idle';
+  });
+
+  // Prefer a running record that belongs to the stage the strip is on, so the
+  // speaker bubble surfaces the agent for the *current* step — not a leftover
+  // record from a stage that already finished.
+  const stageTaskIds = new Set(stageTasks.map((task) => task.id));
+  const inActiveStage = (record) => stageTaskIds.size === 0 || stageTaskIds.has(record.taskId);
+  // While walking stages on the clock, prefer the walk's current task for the
+  // speech bubble; a genuinely *running* record still wins. We avoid latching
+  // onto a completed record from a finished stage (every record is 'completed'
+  // server-side during the walk), which would freeze the bubble on one agent.
+  const runningInStage = dispatchRecords.find((record) => record.status === 'running' && inActiveStage(record))
+    || dispatchRecords.find((record) => record.status === 'running');
+  const activeRecord = runningInStage
+    || (walking
+      ? (syntheticActiveTask ? recordByTaskId[syntheticActiveTask.id] : null)
+      : [...dispatchRecords].reverse().find((record) => record.events?.length > 0 && inActiveStage(record)));
+  const activeTask = walking
+    ? syntheticActiveTask
+    : activeRecord
+      ? taskById[activeRecord.taskId]
+      : syntheticActiveTask;
+  const activeOwner = activeTask ? ownerByTaskId[activeTask.id] : null;
+  const speech = buildLocalSpeech({
+    owner: activeOwner,
+    record: activeRecord,
+    task: activeTask,
+    dispatchStatus,
+    sceneClock,
+  });
+  if (speech?.agentId && status[speech.agentId] !== 'done') {
+    status[speech.agentId] = speech.mode;
+  }
+
+  const activityByAgent = {};
+  dispatchRecords.forEach((record) => {
+    const owner = ownerByTaskId[record.taskId];
+    if (!owner) return;
+    const artifactCount = (record.events || []).filter((event) => event.type === 'artifact' || event.type === 'file_change').length;
+    activityByAgent[owner.agentId] = {
+      count: (activityByAgent[owner.agentId]?.count || 0) + Math.max(1, artifactCount),
+    };
+  });
+  (result?.artifacts || []).forEach((artifact) => {
+    const owner = Object.values(agents).find((agent) => agent.role === artifact.ownerAgentId || agent.agentId === artifact.ownerAgentId);
+    if (!owner) return;
+    activityByAgent[owner.agentId] = {
+      count: (activityByAgent[owner.agentId]?.count || 0) + 1,
+    };
+  });
 
   return {
     ...baseScene,
     live: true,
     started: true,
     planPosted: true,
+    speech: speech || baseScene.speech,
+    active: activeTask ? { agentId: activeOwner?.agentId, taskId: activeTask.id } : null,
     run: {
-      phase: latest.status === 'pending' ? 'planning' : completed ? 'completed' : approved ? 'approved' : 'approval',
+      phase: latest.status === 'pending' ? 'planning' : completed ? 'completed' : approved ? 'dispatching' : 'approval',
       message: latest.message,
       error: latest.error,
       provider: result?.provider,
@@ -1788,11 +2221,56 @@ function buildLocalScene(baseScene, liveTurns, agents) {
     },
     status,
     tasks: liveTasks,
+    activityByAgent,
     placed: result?.plan ? liveArtifactsFromTurns([latest], agents, 'idle').map((art) => ({
       art,
       ownerAgentId: art.ownerAgentId,
     })) : [],
   };
+}
+
+function localAgentModeFromClock(clock) {
+  const phase = Math.floor(Math.max(0, clock) / 900) % 3;
+  if (phase === 0) return 'thinking';
+  if (phase === 1) return 'working';
+  return 'speaking';
+}
+
+function buildLocalSpeech({ owner, record, task, dispatchStatus, sceneClock }) {
+  if (!owner || !task) return null;
+  const events = record?.events || [];
+  const lastTool = [...events].reverse().find((event) => event.type === 'tool_use');
+  const text = events
+    .filter((event) => event.type === 'text_delta')
+    .map((event) => event.delta)
+    .join('')
+    .trim();
+  const thinking = events
+    .filter((event) => event.type === 'thinking_delta')
+    .map((event) => event.delta)
+    .join(' ')
+    .trim();
+
+  if (record && lastTool && record.status !== 'completed') {
+    return { agentId: owner.agentId, mode: 'working', text: '', tool: lastTool };
+  }
+  if (record && text) {
+    return { agentId: owner.agentId, mode: 'speaking', text };
+  }
+  if (record && thinking) {
+    return { agentId: owner.agentId, mode: 'thinking', text: thinking };
+  }
+  if (dispatchStatus === 'running') {
+    const mode = localAgentModeFromClock(sceneClock);
+    const fallbackTool = { name: task.assignee?.replace(/^@/, '') || 'agent_step' };
+    return {
+      agentId: owner.agentId,
+      mode,
+      text: mode === 'speaking' ? `${owner.displayName} is working on ${task.title}.` : '',
+      tool: mode === 'working' ? fallbackTool : undefined,
+    };
+  }
+  return null;
 }
 
 /* ---- structured meeting notes (decisions / deliverables / review / next) - */
@@ -2193,11 +2671,37 @@ function App() {
   const workflowRec = recommendWorkflow(activeTaskTitle, RT.BUILTIN_WORKFLOWS, RT.WORKBENCH.workflowId);
   const applyWorkflow = (id) => { RT.WORKBENCH.workflowId = id; setWfTick((n) => n + 1); setRecDismissed(null); };
   const effectiveRec = workflowRec && recDismissed !== workflowRec.id ? workflowRec : null;
+  // Drive the homepage workflow strip from the most recent local run. Local
+  // dispatch persists final state after background work completes, so while it
+  // is running we project the current plan/dispatch records into stage state.
+  // The same projection also steers the table, so both surfaces advance in
+  // lock-step instead of running on independent clocks.
+  const latestTurn = latestLiveTurn(localTurns);
+  const projectedWorkflow = projectLocalWorkflowRun(latestTurn, scene.clock);
+  const liveWorkflow = projectedWorkflow.workflow;
+  const liveWorkflowRun = projectedWorkflow.workflowRun;
+  // Local dispatch lands as a completed result almost instantly, so to make the
+  // table + strip visibly walk Plan→Build→Review→Ship we replay the scene clock
+  // from 0 whenever a run becomes approved (a discrete event keyed on the turn's
+  // approval time). The projection's stage cursor is clock-driven, so this is
+  // what animates the lock-step walk. It stops on its own at SCENE_DURATION.
+  const liveRunKey = latestTurn && (latestTurn.result?.approvalStatus === 'approved' || latestTurn.result?.needsApproval === false)
+    ? `${latestTurn.id}:${latestTurn.approvedAt || latestTurn.result?.dispatchedAt || 'approved'}`
+    : null;
+  const lastWalkKey = useRef(null);
+  useEffect(() => {
+    if (!localLive || !liveRunKey) return;
+    if (lastWalkKey.current === liveRunKey) return;
+    lastWalkKey.current = liveRunKey;
+    scene.replay(); // reset clock to 0 and start playing → the walk animates
+  }, [localLive, liveRunKey, scene]);
   const st = useMemo(() => {
     const s = sceneAt(localLive ? 0 : scene.clock);
     if (decided) s.decision = null;
-    return localLive ? buildLocalScene(s, localTurns, agents) : s;
-  }, [scene.clock, decided, localLive, localTurns, agents]);
+    return localLive
+      ? buildLocalScene(s, localTurns, agents, scene.clock, liveWorkflow, liveWorkflowRun)
+      : s;
+  }, [scene.clock, decided, localLive, localTurns, agents, liveWorkflow, liveWorkflowRun]);
   useEffect(() => { if (scene.clock < 200) setDecided(false); }, [scene.clock]);
   useEffect(() => {
     if (!compact) return;
@@ -2252,10 +2756,6 @@ function App() {
   const localInFlight = localTurns.some(
     (turn) => turn.result?.dispatchStatus === 'running',
   );
-  // Drive the homepage workflow strip from the most recent run's stage states.
-  const latestTurnResult = latestLiveTurn(localTurns)?.result;
-  const liveWorkflow = latestTurnResult?.workflow;
-  const liveWorkflowRun = latestTurnResult?.workflowRun;
   useEffect(() => {
     if (!localInFlight) return;
     const iv = setInterval(() => { loadLocalHistory(); }, 2500);
@@ -2333,6 +2833,7 @@ function App() {
   const sendLocalTurn = async (message, turnId, chatIdOverride) => {
     const id = turnId || 'live-' + Date.now();
     const createdAt = new Date().toISOString();
+    const directMention = isDirectAgentMention(message);
     setInspectorTab('chat');
     setNotesOpen(true);
     setLocalStatus('pending');
@@ -2358,8 +2859,38 @@ function App() {
       if (!res.ok || !data.ok) {
         throw new Error(data.error || 'orchestrator_turn_failed');
       }
+      let result = data;
+      if (directMention && data.needsApproval) {
+        const approvalRes = await fetch('/api/orchestrator/approval', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            turnId: id,
+            decision: 'approve',
+            autoDispatch: true,
+            ...preferredAgentAdapterRequest(),
+          }),
+        });
+        const approval = await approvalRes.json();
+        if (approvalRes.ok && approval.ok) {
+          result = {
+            ...data,
+            needsApproval: approval.needsApproval,
+            approvalStatus: approval.approvalStatus,
+            approvedAt: approval.approvedAt,
+            dispatchStatus: approval.dispatchStatus,
+            dispatchAdapter: approval.dispatchAdapter,
+            dispatchedAt: approval.dispatchedAt,
+            dispatchStage: approval.dispatchStage,
+            dispatchError: approval.dispatchError,
+            dispatchWorkspacePath: approval.workspacePath,
+            dispatch: approval.records,
+            artifacts: approval.artifacts,
+          };
+        }
+      }
       setLocalTurns((turns) => turns.map((turn) => (
-        turn.id === id ? { ...turn, status: 'done', result: data } : turn
+        turn.id === id ? { ...turn, status: 'done', result } : turn
       )));
       setLocalStatus('idle');
     } catch (error) {
@@ -2484,6 +3015,22 @@ function App() {
       turn.id === turnId ? { ...turn, discarded: true } : turn
     )));
   };
+  const clearLocalTurns = async () => {
+    if (typeof window !== 'undefined' && !window.confirm('Clear all messages and artifacts in this local conversation?')) return;
+    const chatId = turnChatId;
+    setLocalTurns([]);
+    setLocalStatus('idle');
+    try {
+      const suffix = chatId ? `?chatId=${encodeURIComponent(chatId)}` : '';
+      const res = await fetch(`/api/orchestrator/history${suffix}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || 'history_clear_failed');
+      }
+    } catch {
+      loadLocalHistory();
+    }
+  };
   const createLocalTask = (goal) => {
     setModal(null);
     setView('roundtable');
@@ -2569,7 +3116,8 @@ function App() {
                     <RoundtableScene agents={agents} scene={st} onOpenArtifact={setDrawerArt}
                       onAction={onAction} onOpenBreakouts={() => setHubOpen(true)} onSeatClick={(id) => setDmAgent(id)}
                       onOpenFiles={() => { setInspectorTab('files'); setNotesOpen(true); }}
-                      onZoomWhiteboard={() => setZoomWB(true)} wide={!railOpen && !notesOpen} memberIds={memberIds} />
+                      onZoomWhiteboard={() => setZoomWB(true)} wide={!railOpen && !notesOpen} memberIds={memberIds}
+                      activityByAgent={st.activityByAgent} />
                     {!notesOpen && (
                       <button onClick={() => setNotesOpen(true)} style={{ position: 'absolute', top: 14, right: 14, zIndex: 50,
                         display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 13px', borderRadius: 'var(--r-chip)',
@@ -2611,6 +3159,7 @@ function App() {
                   liveHandoffs={liveHandoffs} activeChatId={activeChatId} memory={memory}
                   localTurns={localTurns} localStatus={localStatus} onApproveLocalTurn={approveLocalTurn}
                   localTurnActions={{ interrupt: interruptLocalTurn, redispatch: redispatchLocalTurn, discard: discardLocalTurn }}
+                  onClearLocalTurns={clearLocalTurns}
                   onOpenArtifact={setDrawerArt} onAction={onAction} onClose={() => setNotesOpen(false)}
                   onRewrite={sendComposerMessage} onQuote={quoteToComposer}
                   onPin={authed && activeWorkbenchId

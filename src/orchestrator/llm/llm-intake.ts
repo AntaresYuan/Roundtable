@@ -26,6 +26,9 @@ Rules:
 - risk: 'high' for production deploys, secrets, payments, database \
   migrations; 'medium' for auth/database/CI; 'low' otherwise.
 - suggestedRoles: pick from architect, planner, implementer, reviewer, fixer.
+- For a new feature, page, component, endpoint, workflow, or user-facing UI, \
+  prefer multi_agent with planner, implementer, and reviewer unless it is a \
+  tiny text-only edit.
 - userVisibleSummary: <=180 chars, plain language.
 
 Never invent details the user did not state.`;

@@ -416,7 +416,7 @@ function DiffArtifact({ art, owner, agents, onOpen }) {
 /* ---- Preview artifact ----------------------------------------------------- */
 function PreviewArtifact({ art, owner, onOpen }) {
   const [mode, setMode] = useState('preview'); // preview | code
-  const preview = art.preview || art.code || '';
+  const preview = normalizePreviewHtml(art.preview || art.code || '');
   return (
     <OwnerCard owner={owner} title={art.title} version={art.version} kindLabel="preview" onOpen={onOpen}>
       <div style={{ display: 'flex', gap: 4, padding: '8px 11px', borderBottom: '1px solid var(--border)',
@@ -430,14 +430,11 @@ function PreviewArtifact({ art, owner, onOpen }) {
         <div style={{ background: 'var(--surface-3)', padding: 12 }}>
           <div style={{ borderRadius: 'var(--r-sm)', overflow: 'hidden', border: '1px solid var(--border)',
             boxShadow: 'var(--shadow-card)', background: '#fff' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 10px',
-              background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
-              {['#e5687a', 'var(--warn)', '#4cc38a'].map(c =>
-                <span key={c} style={{ width: 9, height: 9, borderRadius: '50%', background: c, opacity: .8 }} />)}
-              <span className="mono" style={{ fontSize: 11, color: 'var(--text-faint)', marginLeft: 6 }}>localhost:3000</span>
+            <div style={{ height: 260, overflow: 'hidden', background: '#fff' }}>
+              <iframe title={art.title} srcDoc={preview} sandbox="allow-scripts"
+                style={{ width: 960, height: 720, border: 'none', display: 'block', background: '#fff',
+                  transform: 'scale(.52)', transformOrigin: 'top left' }} />
             </div>
-            <iframe title={art.title} srcDoc={preview} sandbox="allow-scripts"
-              style={{ width: '100%', height: 318, border: 'none', display: 'block', background: '#fff' }} />
           </div>
         </div>
       ) : (
@@ -447,6 +444,25 @@ function PreviewArtifact({ art, owner, onOpen }) {
       )}
     </OwnerCard>
   );
+}
+
+function normalizePreviewHtml(html) {
+  return html
+    .replace(
+      "presets: ['typescript', 'react'],",
+      "presets: ['typescript', ['react', { runtime: 'classic' }]],",
+    )
+    .replace(
+      "presets: [['typescript', { allExtensions: true, isTSX: true }], ['react', { runtime: 'classic' }]],",
+      "presets: ['typescript', ['react', { runtime: 'classic' }]],",
+    )
+    .replace(
+      /presets:\s*\[\s*\[\s*['"]typescript['"]\s*,\s*\{\s*allExtensions:\s*true,\s*isTSX:\s*true\s*\}\s*\]\s*,\s*\[\s*['"]react['"]\s*,\s*\{\s*runtime:\s*['"]classic['"]\s*\}\s*\]\s*,?\s*\]/g,
+      "presets: ['typescript', ['react', { runtime: 'classic' }]]",
+    )
+    .replace(/export\s+default\s+function\s+/g, 'function ')
+    .replace(/export\s+default\s+(?!function\b)([A-Za-z_$][\w$]*)\s*;?/g, '')
+    .replace(/^export\s+(?=(function|const|let|var|class)\b)/gm, '');
 }
 function Seg({ active, onClick, icon, children }) {
   return (
@@ -768,7 +784,10 @@ function BreakoutChip({ data, agents }) {
   const [peek, setPeek] = useState(false);
   const a = agents[data.a], b = agents[data.b];
   return (
-    <div style={{ position: 'relative', display: 'inline-block' }}>
+    // When the peek panel is open it must establish a high stacking context so
+    // it cleanly covers the messages that follow it in the thread (review bubble,
+    // diff card) instead of letting their higher z-index bleed through.
+    <div style={{ position: 'relative', display: 'inline-block', zIndex: peek ? 1700 : 'auto' }}>
       <button onClick={() => setPeek(p => !p)} className="rt-breakout" style={{
         display: 'inline-flex', alignItems: 'center', gap: 9, padding: '8px 14px 8px 11px',
         borderRadius: 'var(--r-chip)', cursor: 'pointer', font: 'inherit',
@@ -792,8 +811,8 @@ function BreakoutChip({ data, agents }) {
       </button>
 
       {peek && (
-        <div className="rt-rise" style={{ position: 'absolute', zIndex: 30, top: 'calc(100% + 8px)', left: 0,
-          width: 360, maxWidth: '78vw', background: 'var(--surface)', borderRadius: 'var(--r-card)',
+        <div className="rt-rise" style={{ position: 'absolute', zIndex: 1700, top: 'calc(100% + 8px)', left: 0,
+          width: 360, maxWidth: '78vw', background: 'var(--surface)', borderRadius: 'var(--r-card)', isolation: 'isolate',
           border: '1px solid var(--border)', boxShadow: 'var(--shadow-pop)', overflow: 'hidden' }}>
           <div style={{ padding: '11px 14px', borderBottom: '1px solid var(--border)', display: 'flex',
             alignItems: 'center', gap: 8 }}>

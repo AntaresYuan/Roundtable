@@ -488,15 +488,24 @@ function Figure({ agent, isUser, head, size, speaking }) {
 }
 
 /* ---- Speech / activity card --------------------------------------------- */
-function SpeechCard({ agent, speech, aggregate, onAction, s, drop }) {
+function SpeechCard({ agent, speech, aggregate, onAction, s, drop, onClose }) {
   const w = Math.round(304 * Math.max(0.94, s));
   const accent = agent.pm ? 'var(--pm)' : agent.color;
   const wrap = drop ? { top: '100%', transform: 'translate(-50%, 10px)' } : { top: -8, transform: 'translate(-50%, -100%)' };
   return (
-    <div style={{ position: 'absolute', left: '50%', width: w, zIndex: 60, animation: 'rt-fadein .3s ease both', ...wrap }}>
+    <div style={{ position: 'absolute', left: '50%', width: w, zIndex: 1200, animation: 'rt-fadein .3s ease both', ...wrap }}>
       <div style={{ background: 'var(--surface)', borderRadius: 'var(--r-card)', border: '1px solid var(--border)',
-        borderTop: `2.5px solid ${accent}`, boxShadow: 'var(--shadow-pop)', padding: '11px 13px', textAlign: 'left' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+        borderTop: `2.5px solid ${accent}`, boxShadow: '0 18px 50px -22px rgba(20,18,45,.75), var(--shadow-pop)',
+        padding: '11px 38px 11px 13px', textAlign: 'left', position: 'relative', isolation: 'isolate' }}>
+        {onClose && (
+          <button onClick={(e) => { e.stopPropagation(); onClose(); }} title="Hide message"
+            style={{ position: 'absolute', top: 8, right: 8, width: 22, height: 22, borderRadius: '50%',
+              border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text-faint)',
+              display: 'grid', placeItems: 'center', cursor: 'pointer', padding: 0 }}>
+            <Icon name="x" size={12} />
+          </button>
+        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, minWidth: 0 }}>
           <span style={{ fontSize: 15, fontWeight: 700, color: accent }}>{agent.displayName}</span>
           {!agent.pm && <RoleTag agent={agent} />}
           {agent.pm && <span className="mono" style={{ fontSize: 10, letterSpacing: '.08em', textTransform: 'uppercase',
@@ -531,18 +540,18 @@ function SpeechCard({ agent, speech, aggregate, onAction, s, drop }) {
             <Spinner size={13} color={accent} /><span>{speech.tool?.name} is working…</span>
           </div>
         ) : (
-          <div style={{ fontSize: 14.5, color: 'var(--text)', lineHeight: 1.5 }}>{speech.text}<span className="rt-caret" /></div>
+          <div style={{ fontSize: 14.5, color: 'var(--text)', lineHeight: 1.5, overflowWrap: 'anywhere' }}>{speech.text}<span className="rt-caret" /></div>
         )}
       </div>
       <div style={{ position: 'absolute', left: '50%', width: 13, height: 13, transform: 'translateX(-50%) rotate(45deg)',
-        background: 'var(--surface)', ...(drop ? { top: -7, borderLeft: '1px solid var(--border)', borderTop: '1px solid var(--border)' }
+        background: 'var(--surface)', zIndex: -1, ...(drop ? { top: -7, borderLeft: '1px solid var(--border)', borderTop: '1px solid var(--border)' }
           : { bottom: -7, borderRight: '1px solid var(--border)', borderBottom: '1px solid var(--border)' }) }} />
     </div>
   );
 }
 
 /* ---- Seat ---------------------------------------------------------------- */
-function Seat({ seat, agents, scene, dim, onAction, onSeatClick, activity }) {
+function Seat({ seat, agents, scene, dim, onSeatClick, activity }) {
   const { x, y, s } = seatPos(seat.angle);
   const z = Math.round(200 + y);
   if (seat.empty) {
@@ -560,7 +569,6 @@ function Seat({ seat, agents, scene, dim, onAction, onSeatClick, activity }) {
   const agent = isUser ? null : agents[seat.agentId];
   const st = isUser ? 'idle' : scene.status[seat.agentId];
   const speaking = st === 'speaking' || st === 'working' || st === 'thinking';
-  const showSpeech = scene.speech && scene.speech.agentId === seat.agentId && !seat.head;
   const raisingHand = scene.decision && scene.decision.agentId === seat.agentId;
   const figSize = Math.round((seat.head ? 56 : 60) * s);
   const clickable = !isUser && onSeatClick;
@@ -571,12 +579,8 @@ function Seat({ seat, agents, scene, dim, onAction, onSeatClick, activity }) {
       title={clickable ? `Open ${agent.displayName} activity` : undefined}
       className={clickable ? 'rt-seat' : undefined}
       style={{ position: 'absolute', left: x, top: y, transform: `translate(-50%,-50%) translateY(${speaking ? -7 : 0}px)`,
-      zIndex: showSpeech ? 400 : z, transition: 'transform .4s cubic-bezier(.2,.8,.3,1)', cursor: clickable ? 'pointer' : 'default',
+      zIndex: speaking ? z + 30 : z, transition: 'transform .4s cubic-bezier(.2,.8,.3,1)', cursor: clickable ? 'pointer' : 'default',
       opacity: dim ? 0.5 : 1, filter: dim ? 'saturate(.7)' : 'none', textAlign: 'center' }}>
-
-      {showSpeech && agent && (
-        <SpeechCard agent={agent} speech={scene.speech} aggregate={null} onAction={onAction} s={s} drop={false} />
-      )}
 
       <div className={speaking ? '' : 'rt-bob'} style={{ animationDelay: `${(seat.angle % 360) / 90}s` }}>
         <div style={{ position: 'relative', display: 'inline-block' }}>
@@ -679,6 +683,20 @@ function RoundtableScene({ agents, scene, memberIds, onOpenArtifact, onAction, o
   L = wide ? LAYOUTS.wide : LAYOUTS.stacked;     // set active layout for this render
   const seats = buildSeats(memberIds);
   const speaker = scene.speech ? scene.speech.agentId : null;
+  const [dismissedSpeechKey, setDismissedSpeechKey] = useState(null);
+  const speechKey = scene.speech
+    ? `${scene.speech.agentId}:${scene.speech.mode}:${scene.speech.text || scene.speech.tool?.name || ''}`
+    : null;
+  useEffect(() => {
+    if (speechKey && dismissedSpeechKey && speechKey !== dismissedSpeechKey) setDismissedSpeechKey(null);
+  }, [speechKey, dismissedSpeechKey]);
+  const speechSeat = scene.speech
+    ? seats.find((seat) => seat.agentId === scene.speech.agentId)
+    : null;
+  const speechPos = speechSeat ? seatPos(speechSeat.angle) : null;
+  const speechAgent = scene.speech ? agents[scene.speech.agentId] : null;
+  const showTopSpeech = scene.speech && speechAgent && speechPos && dismissedSpeechKey !== speechKey;
+  const speechDrop = speechPos ? speechPos.y < L.TBL.cy : false;
   return (
     <RoomStage w={L.W} h={L.H}>
       <Whiteboard tasks={scene.tasks} agents={agents} posted={scene.planPosted} onZoom={onZoomWhiteboard} big={wide} live={scene.live} run={scene.run} />
@@ -687,10 +705,24 @@ function RoundtableScene({ agents, scene, memberIds, onOpenArtifact, onAction, o
       <Beams scene={scene} agents={agents} seats={seats} />
       <DocTray placed={scene.placed} agents={agents} onOpen={onOpenCodeLogs || onOpenFiles} />
       {seats.map((seat) => (
-        <Seat key={seat.key} seat={seat} agents={agents} scene={scene} onAction={onAction} onSeatClick={onSeatClick}
+        <Seat key={seat.key} seat={seat} agents={agents} scene={scene} onSeatClick={onSeatClick}
           activity={seat.agentId ? activityByAgent?.[seat.agentId] : null}
           dim={!!speaker && speaker !== seat.agentId && !seat.user && !seat.head} />
       ))}
+      {showTopSpeech && (
+        <div style={{ position: 'absolute', left: speechPos.x, top: speechPos.y - 46,
+          transform: 'translate(-50%,-50%)', zIndex: 1600, pointerEvents: 'auto' }}>
+          <SpeechCard
+            agent={speechAgent}
+            speech={scene.speech}
+            aggregate={null}
+            onAction={onAction}
+            s={speechPos.s}
+            drop={speechDrop}
+            onClose={() => setDismissedSpeechKey(speechKey)}
+          />
+        </div>
+      )}
     </RoomStage>
   );
 }

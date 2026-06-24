@@ -89,7 +89,10 @@ function composeTaskBrief(seat: Seat, stage: Stage): string {
 export function rolePlanner(): Planner {
   return {
     async buildPlan(state: OrchestratorState): Promise<Plan> {
-      const roles = state.intake?.suggestedRoles ?? ['implementer'];
+      const roles = normalizeRolesForPlan(
+        state.intake?.suggestedRoles ?? ['implementer'],
+        state.intake?.intentType,
+      );
       const tasks: PlanTask[] = roles.map((role, idx) =>
         roleToTask(role, idx, roles[idx - 1]),
       );
@@ -100,6 +103,19 @@ export function rolePlanner(): Planner {
       };
     },
   };
+}
+
+function normalizeRolesForPlan(
+  roles: AgentRoleId[],
+  intentType: 'build' | 'modify' | 'inspect' | 'debug' | 'review' | 'control' | undefined,
+): AgentRoleId[] {
+  if (intentType !== 'build' && intentType !== 'modify') return roles;
+
+  const ordered: AgentRoleId[] = [];
+  for (const role of ['planner', ...roles, 'implementer', 'reviewer'] as AgentRoleId[]) {
+    if (!ordered.includes(role)) ordered.push(role);
+  }
+  return ordered.filter((role) => role === 'planner' || role === 'implementer' || role === 'reviewer');
 }
 
 function roleToTask(

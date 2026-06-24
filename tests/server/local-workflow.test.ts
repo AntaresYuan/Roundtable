@@ -152,12 +152,102 @@ describe.sequential('local backend workflow', () => {
     expect(preview?.preview).toContain('<div id="root"></div>');
     expect(preview?.preview).toContain('useId');
     expect(preview?.preview).toContain("filename: 'preview.tsx'");
-    expect(preview?.preview).toContain("presets: ['typescript', 'react']");
+    expect(preview?.preview).toContain("['react', { runtime: 'classic' }]");
     expect(preview?.preview).toContain('Preview failed to render:');
     expect(preview?.preview).toContain('function GeneratedTodoPage()');
     expect(preview?.preview).toContain('render(<GeneratedTodoPage />)');
     expect(preview?.preview).not.toContain('render(<function />)');
     expect(preview?.preview).not.toContain("from 'react'");
+  });
+
+  it('treats webpage implementation work as previewable React code', async () => {
+    await saveLocalTurn({
+      ...seedTurn('turn-webpage'),
+      needsApproval: false,
+      approvalStatus: 'approved',
+      approvedAt: new Date().toISOString(),
+      plan: {
+        id: 'turn-webpage-plan',
+        createdAt: new Date(),
+        tasks: [
+          {
+            id: 'T1',
+            title: 'Implement camera gradient ranking webpage',
+            assignee: '@implementer',
+            deps: [],
+            user_visible: true,
+            status: 'pending',
+          },
+        ],
+      },
+    });
+
+    const result = await dispatchApprovedLocalTurn('turn-webpage');
+
+    expect(result.dispatchStatus).toBe('completed');
+    expect(result.artifacts.map((artifact) => artifact.kind)).toEqual(['code', 'preview']);
+    expect(result.artifacts[0]?.title).toMatch(/^app\/implement-camera-gradient-ranking-webpage\.tsx$/);
+    expect(result.artifacts[1]?.title).toMatch(/^preview\/app-implement-camera-gradient-ranking-webpage\.html$/);
+  });
+
+  it('continues the same local project workspace on follow-up turns', async () => {
+    const localChatId = 'project-chat';
+    await saveLocalTurn({
+      ...seedTurn('turn-project-initial'),
+      localChatId,
+      needsApproval: false,
+      approvalStatus: 'approved',
+      approvedAt: new Date().toISOString(),
+      plan: {
+        id: 'turn-project-initial-plan',
+        createdAt: new Date(),
+        tasks: [
+          {
+            id: 'T1',
+            title: 'Implement React camera ranking webpage',
+            assignee: '@implementer',
+            deps: [],
+            user_visible: true,
+            status: 'pending',
+          },
+        ],
+      },
+    });
+
+    const first = await dispatchApprovedLocalTurn('turn-project-initial');
+    const firstCode = first.artifacts.find((artifact) => artifact.kind === 'code');
+
+    await saveLocalTurn({
+      ...seedTurn('turn-project-followup'),
+      localChatId,
+      message: '继续优化这个页面，加上筛选和排序',
+      needsApproval: false,
+      approvalStatus: 'approved',
+      approvedAt: new Date().toISOString(),
+      plan: {
+        id: 'turn-project-followup-plan',
+        createdAt: new Date(),
+        tasks: [
+          {
+            id: 'T1',
+            title: '继续优化这个页面，加上筛选和排序',
+            assignee: '@implementer',
+            deps: [],
+            user_visible: true,
+            status: 'pending',
+          },
+        ],
+      },
+    });
+
+    const second = await dispatchApprovedLocalTurn('turn-project-followup');
+    const secondCode = second.artifacts.find((artifact) => artifact.kind === 'code');
+
+    expect(first.workspacePath).toBe(second.workspacePath);
+    expect(first.workspacePath).toContain('project-chat');
+    expect(firstCode?.title).toBe('app/implement-react-camera-ranking-webpage.tsx');
+    expect(secondCode?.title).toBe(firstCode?.title);
+    expect(second.artifacts.map((artifact) => artifact.kind)).toEqual(['code', 'preview']);
   });
 
   it('supports an explicit approve-and-dispatch smoke step', async () => {

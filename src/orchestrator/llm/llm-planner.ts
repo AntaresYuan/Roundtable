@@ -39,7 +39,13 @@ Rules:
 - parallel: true only when a task can safely run alongside its siblings.
 - user_visible: false for purely internal scaffolding tasks, true otherwise.
 - Titles must be short imperative sentences (<=70 chars).
-- Never split into more tasks than the work warrants.`;
+- For build/modify requests that create a page, component, endpoint, workflow, \
+  or user-facing behavior, produce a real collaboration plan: \
+  (1) planner clarifies requirements and acceptance criteria, \
+  (2) implementer builds the change, \
+  (3) reviewer checks behavior, accessibility, and regressions.
+- Do not merely restate the user's request as one task unless the request is \
+  truly a one-line copy/text change.`;
 
 export function llmPlanner(opts: LlmPlannerOpts = {}): Planner {
   const model = opts.model ?? defaultOrchestratorModel();
@@ -54,12 +60,12 @@ export function llmPlanner(opts: LlmPlannerOpts = {}): Planner {
           system: SYSTEM_PROMPT,
           prompt: buildPrompt(state),
         });
-        return assemblePlan(object.tasks);
+        return assemblePlan(object.tasks, state);
       } catch (error) {
         opts.onError?.(error);
         try {
           const rawPlan = await planViaJsonText(model, state);
-          return assemblePlan(rawPlan.tasks);
+          return assemblePlan(rawPlan.tasks, state);
         } catch (jsonError) {
           opts.onError?.(jsonError);
         }
@@ -122,8 +128,12 @@ function buildPrompt(state: OrchestratorState): string {
   ].join('\n\n');
 }
 
-function assemblePlan(rawTasks: z.infer<typeof LlmPlanTaskSchema>[]): Plan {
-  const tasks = rawTasks.map((t, i) => ({
+function assemblePlan(
+  rawTasks: z.infer<typeof LlmPlanTaskSchema>[],
+  state: OrchestratorState,
+): Plan {
+  const normalizedTasks = normalizeCollaborationTasks(rawTasks, state);
+  const tasks = normalizedTasks.map((t, i) => ({
     ...t,
     id: `T${i + 1}`,
     status: 'pending' as const,
@@ -138,4 +148,53 @@ function assemblePlan(rawTasks: z.infer<typeof LlmPlanTaskSchema>[]): Plan {
     createdAt: new Date(),
     tasks,
   };
+}
+
+function normalizeCollaborationTasks(
+  rawTasks: z.infer<typeof LlmPlanTaskSchema>[],
+  state: OrchestratorState,
+): z.infer<typeof LlmPlanTaskSchema>[] {
+  const intentType = state.intake?.intentType;
+  if (intentType !== 'build' && intentType !== 'modify') return rawTasks;
+
+  const hasPlanner = rawTasks.some((task) => task.assignee === '@planner');
+  const hasImplementer = rawTasks.some((task) => task.assignee === '@implementer');
+  const hasReviewer = rawTasks.some((task) => task.assignee === '@reviewer');
+
+  if (rawTasks.length > 1 && hasImplementer && hasReviewer) return rawTasks;
+
+  const implementationTask = rawTasks.find((task) => task.assignee === '@implementer') ?? rawTasks[0];
+  if (!implementationTask) return rawTasks;
+
+  return [
+    hasPlanner
+      ? rawTasks.find((task) => task.assignee === '@planner')!
+      : {
+          title: 'Define requirements and acceptance criteria',
+          assignee: '@planner',
+          deps: [],
+          parallel: false,
+          user_visible: true,
+        },
+    {
+      ...implementationTask,
+      title:
+        implementationTask.title.length > 8
+          ? implementationTask.title
+          : 'Implement the requested product change',
+      assignee: '@implementer',
+      deps: ['T1'],
+      parallel: false,
+      user_visible: true,
+    },
+    hasReviewer
+      ? rawTasks.find((task) => task.assignee === '@reviewer')!
+      : {
+          title: 'Review behavior, accessibility, and regressions',
+          assignee: '@reviewer',
+          deps: ['T2'],
+          parallel: false,
+          user_visible: true,
+        },
+  ];
 }

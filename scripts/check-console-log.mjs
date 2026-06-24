@@ -11,6 +11,11 @@ const SKIP_DIRS = new Set([
   'node_modules',
   'workspaces',
 ]);
+// Debug-only demo/probe tooling legitimately writes to stdout — the very
+// "debug-only paths" the violation message exempts. Matched by relative path so
+// only scripts/demo is skipped, not every directory that happens to be named
+// "demo".
+const SKIP_PATHS = ['scripts/demo'];
 const LOG_PATTERN = new RegExp(`console[.]${'log'}\\s*\\(`);
 
 const violations = [];
@@ -44,6 +49,8 @@ async function scan(path) {
 
     const child = join(path, entry.name);
     if (entry.isDirectory()) {
+      const rel = relative(ROOT, child).split('\\').join('/');
+      if (SKIP_PATHS.includes(rel)) continue;
       await scan(child);
       continue;
     }

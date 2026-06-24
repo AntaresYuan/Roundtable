@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { generateText } from 'ai';
+import ts from 'typescript';
 import { AdapterRegistry, createClaudeCodeAdapter, createCodexAdapter } from '@/adapters';
 import type {
   AgentAdapter,
@@ -123,8 +124,9 @@ async function executeDispatchWork(
   try {
     const agentAdapter = resolveLocalAgentAdapterMode(options.agentAdapter);
     const registry = createLocalDispatchRegistry(agentAdapter);
+    const projectChatId = projectChatIdForTurn(turn);
     const state = {
-      ...initialState(`local-${turn.id}`, turn.message, turn.workflow),
+      ...initialState(projectChatId, turn.message, turn.workflow),
       stage: 'dispatch' as const,
       intake: turn.intake,
       plan: turn.plan,
@@ -171,7 +173,7 @@ async function executeDispatchWork(
   } catch (error) {
     if (error instanceof LocalDispatchError) throw error;
     const message = errorMessage(error);
-    const failedWorkspace = await workspaceResolver(join(localRuntimeRoot(), 'workspaces')).resolve(`local-${turn.id}`);
+    const failedWorkspace = await workspaceResolver(join(localRuntimeRoot(), 'workspaces')).resolve(projectChatIdForTurn(turn));
     const failedTurn = await updateLiveTurn(turn.id, (current) => ({
       ...current,
       dispatchStatus: 'failed',
@@ -465,7 +467,7 @@ function createLocalSession(opts: SessionOpts): AgentSession {
       }
       const role = opts.role;
       const title = taskTitleFromBrief(input.text);
-      const path = suggestedPath(role, title);
+      const path = await suggestedPath(role, title, opts.cwd, input.text);
       const toolId = `tool-${sessionId}`;
       yield { type: 'thinking_delta', delta: `${opts.agentMeta.displayName} received the handoff.` };
       yield {
@@ -479,6 +481,7 @@ function createLocalSession(opts: SessionOpts): AgentSession {
         title,
         taskBrief: input.text,
         path,
+        cwd: opts.cwd,
       });
       yield {
         type: 'tool_result',
@@ -571,28 +574,38 @@ async function generateArtifactContent(input: {
   title: string;
   taskBrief: string;
   path: string;
+  cwd: string;
 }): Promise<GeneratedArtifactContent> {
+  if (input.role === 'fixer' && /\bpreview\b.*\b(render|runtime|error|failed)|\brender\b.*\bpreview\b/i.test(input.taskBrief)) {
+    return {
+      text: previewRuntimeFixTemplate(input),
+      source: 'template',
+    };
+  }
+
   if (process.env.NODE_ENV !== 'test' && process.env['ROUNDTABLE_LOCAL_AGENT_LLM'] !== '0') {
     try {
       requireOrchestratorKey();
-      const { text } = await generateText({
-        model: defaultOrchestratorModel(),
-        system: [
-          'You are a Roundtable coding agent.',
-          'Produce exactly one useful file for the assigned task.',
-          'Return raw file contents only. Do not wrap in markdown fences.',
-          'Keep the file self-contained and practical.',
-          `Role: ${input.role}`,
-          `Target path: ${input.path}`,
-        ].join('\n'),
-        prompt: [
-          `User/task brief:\n${input.taskBrief}`,
-          `File title: ${input.title}`,
-          'Write the complete file now.',
-        ].join('\n\n'),
-      });
-      const trimmed = stripMarkdownFence(text).trim();
-      if (trimmed) return { text: ensureTrailingNewline(trimmed), source: 'llm' };
+      const firstPass = await generateLocalAgentFile(input);
+      let candidate = stripMarkdownFence(firstPass).trim();
+      if (!candidate) throw new Error('empty_generation');
+      let issues = previewReadinessIssues(input.path, candidate);
+
+      for (let attempt = 0; issues.length && attempt < 2; attempt += 1) {
+        const repaired = await repairGeneratedArtifact(input, candidate, issues);
+        const repairedText = stripMarkdownFence(repaired).trim();
+        if (!repairedText) break;
+        candidate = repairedText;
+        issues = previewReadinessIssues(input.path, candidate);
+      }
+
+      return {
+        text: ensureTrailingNewline(candidate),
+        source: 'llm',
+        ...(issues.length
+          ? { error: `preview_quality_warnings: ${issues.join('; ')}` }
+          : {}),
+      };
     } catch (error) {
       return {
         text: templateArtifactContent(input),
@@ -608,6 +621,194 @@ async function generateArtifactContent(input: {
   };
 }
 
+async function generateLocalAgentFile(input: {
+  role: AgentRoleId;
+  title: string;
+  taskBrief: string;
+  path: string;
+  cwd: string;
+}): Promise<string> {
+  const projectContext = await buildProjectContextWindow(input.cwd, input.path);
+  const { text } = await generateText({
+    model: defaultOrchestratorModel(),
+    messages: [
+      { role: 'system', content: localAgentSystemPrompt(input) },
+      ...(projectContext ? [{ role: 'user' as const, content: projectContext }] : []),
+      { role: 'user', content: localAgentTaskPrompt(input) },
+    ],
+  });
+  return text;
+}
+
+async function repairGeneratedArtifact(
+  input: {
+    role: AgentRoleId;
+    title: string;
+    taskBrief: string;
+    path: string;
+    cwd: string;
+  },
+  source: string,
+  issues: string[],
+): Promise<string> {
+  const projectContext = await buildProjectContextWindow(input.cwd, input.path);
+  const { text } = await generateText({
+    model: defaultOrchestratorModel(),
+    messages: [
+      { role: 'system', content: localAgentSystemPrompt(input) },
+      ...(projectContext ? [{ role: 'user' as const, content: projectContext }] : []),
+      {
+        role: 'user',
+        content: [
+          'The previous file does not work well in the Roundtable preview runtime.',
+          'Rewrite the complete file, fixing every issue below.',
+          '',
+          'Issues:',
+          ...issues.map((issue) => `- ${issue}`),
+          '',
+          `Original task brief:\n${input.taskBrief}`,
+          '',
+          `Target path: ${input.path}`,
+          '',
+          'Previous file:',
+          source,
+          '',
+          'Return only the corrected raw file contents.',
+        ].join('\n'),
+      },
+    ],
+  });
+  return text;
+}
+
+function localAgentSystemPrompt(input: {
+  role: AgentRoleId;
+  path: string;
+}): string {
+  const isPreviewableReact = /\.(tsx|jsx)$/i.test(input.path);
+  return [
+    'You are a Roundtable coding agent.',
+    'Produce exactly one useful file for the assigned task.',
+    'Return raw file contents only. Do not wrap in markdown fences.',
+    'Keep the file self-contained and practical.',
+    `Role: ${input.role}`,
+    `Target path: ${input.path}`,
+    ...(isPreviewableReact
+      ? [
+          '',
+          'This React file is rendered inside a standalone iframe preview that only provides React, ReactDOM, and Babel.',
+          'Do not use Tailwind CSS, utility class names, CSS modules, stylesheet imports, shadcn/ui, lucide-react, icon packages, image imports, or any external component library.',
+          'Use plain React, semantic HTML, inline style objects, and/or a <style> element inside the component.',
+          'If you use SVG, set explicit width, height, viewBox, and aria-hidden attributes so it cannot render at a huge default size.',
+          'Export a default React component. Make the result look like a finished product, not a wireframe or raw HTML.',
+          'For UI pages, include complete layout, spacing, typography, colors, responsive behavior, empty/loading/error states where relevant, and accessible labels.',
+        ]
+      : []),
+  ].join('\n');
+}
+
+function localAgentTaskPrompt(input: {
+  title: string;
+  taskBrief: string;
+  path: string;
+}): string {
+  return [
+    '<current_task>',
+    `User/task brief:\n${input.taskBrief}`,
+    `File title: ${input.title}`,
+    `Target path: ${input.path}`,
+    'Write the complete file now.',
+    '</current_task>',
+  ].join('\n\n');
+}
+
+export function previewReadinessIssues(path: string, source: string): string[] {
+  if (!/\.(tsx|jsx)$/i.test(path)) return [];
+  const issues: string[] = [];
+  issues.push(...tsxSyntaxIssues(path, source));
+
+  if (!inferDefaultComponentName(source)) {
+    issues.push('React preview files must export a default component.');
+  }
+
+  const unsupportedImports = unsupportedPreviewImports(source);
+  if (unsupportedImports.length) {
+    issues.push(`Remove unsupported imports: ${unsupportedImports.join(', ')}. The preview runtime only provides React.`);
+  }
+
+  if (usesTailwindUtilities(source)) {
+    issues.push('Replace Tailwind/utility className styling with inline styles or a <style> element because the preview iframe does not load Tailwind CSS.');
+  }
+
+  if (usesUnbackedClassNames(source)) {
+    issues.push('Every className in a preview file needs matching CSS in a <style> element, or should be replaced with inline styles.');
+  }
+
+  if (/<svg\b/i.test(source) && !/<svg\b[^>]*\b(width|style)=/i.test(source)) {
+    issues.push('SVG elements need explicit width/height or inline size styles to avoid oversized default rendering.');
+  }
+
+  return issues;
+}
+
+function tsxSyntaxIssues(path: string, source: string): string[] {
+  const result = ts.transpileModule(source, {
+    fileName: path.endsWith('.jsx') ? 'preview.jsx' : 'preview.tsx',
+    reportDiagnostics: true,
+    compilerOptions: {
+      jsx: ts.JsxEmit.React,
+      module: ts.ModuleKind.ESNext,
+      target: ts.ScriptTarget.ES2022,
+      allowJs: path.endsWith('.jsx'),
+    },
+  });
+
+  return (result.diagnostics ?? [])
+    .filter((diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error)
+    .slice(0, 4)
+    .map((diagnostic) => {
+      const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, ' ');
+      const position = diagnostic.file && diagnostic.start !== undefined
+        ? diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start)
+        : null;
+      const location = position ? `line ${position.line + 1}, column ${position.character + 1}` : 'unknown location';
+      return `Fix TSX syntax error at ${location}: ${message}`;
+    });
+}
+
+function unsupportedPreviewImports(source: string): string[] {
+  const imports = new Set<string>();
+  for (const match of source.matchAll(/^\s*import\s+(?:[\s\S]*?\s+from\s+)?['"]([^'"]+)['"];?\s*$/gm)) {
+    const specifier = match[1];
+    if (!specifier || specifier === 'react') continue;
+    imports.add(specifier);
+  }
+  return [...imports];
+}
+
+function usesTailwindUtilities(source: string): boolean {
+  if (/<style[\s>]/i.test(source)) return false;
+  const classValues = [
+    ...source.matchAll(/\bclassName\s*=\s*["']([^"']+)["']/g),
+    ...source.matchAll(/\bclassName\s*=\s*\{\s*`([^`]+)`\s*\}/g),
+  ].map((match) => match[1] ?? '');
+
+  return classValues.some((value) => {
+    const tokens = value.split(/\s+/).filter(Boolean);
+    const utilityCount = tokens.filter(isLikelyTailwindToken).length;
+    return utilityCount >= 2 || (utilityCount >= 1 && tokens.length <= 3);
+  });
+}
+
+function isLikelyTailwindToken(token: string): boolean {
+  return /^(?:-?m[trblxy]?|p[trblxy]?|w|h|min-h|max-w|grid|flex|items|justify|gap|space-y|space-x|rounded|border|bg|text|font|leading|tracking|shadow|ring|opacity|overflow|absolute|relative|fixed|inset|top|right|bottom|left|z|mx|my|container|sr-only|transition|duration|ease|hover:|focus:|sm:|md:|lg:|xl:|dark:)/.test(token);
+}
+
+function usesUnbackedClassNames(source: string): boolean {
+  if (/<style[\s>]/i.test(source)) return false;
+  return /\bclassName\s*=/.test(source);
+}
+
 function taskTitleFromBrief(brief: string): string {
   const firstLine = brief
     .split('\n')
@@ -616,7 +817,21 @@ function taskTitleFromBrief(brief: string): string {
   return (firstLine || 'Roundtable task').replace(/^#+\s*/, '').slice(0, 90);
 }
 
-function suggestedPath(role: AgentRoleId, title: string): string {
+function projectChatIdForTurn(turn: LocalTurn): string {
+  return turn.localChatId || `local-${turn.id}`;
+}
+
+async function suggestedPath(
+  role: AgentRoleId,
+  title: string,
+  cwd: string,
+  taskBrief: string,
+): Promise<string> {
+  if ((role === 'implementer' || role === 'fixer') && isFollowUpProjectRequest(`${title}\n${taskBrief}`)) {
+    const existingPage = await findPrimaryProjectFile(cwd);
+    if (existingPage) return existingPage;
+  }
+
   const slug = title
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
@@ -625,7 +840,10 @@ function suggestedPath(role: AgentRoleId, title: string): string {
   if (role === 'implementer' && /\b(test|tests|spec|unit)\b/i.test(title)) {
     return `tests/${slug}.test.ts`;
   }
-  if (role === 'implementer' && /\b(page|ui|frontend|react|tsx|landing|single[- ]page)\b/i.test(title)) {
+  if (
+    role === 'implementer' &&
+    /\b(web\s?page|webpage|website|site|page|ui|frontend|front[- ]end|react|tsx|landing|dashboard|app|single[- ]page)\b|网页|页面|前端|界面/i.test(title)
+  ) {
     return `app/${slug}.tsx`;
   }
   if (role === 'implementer' && /\b(api|endpoint|route|server|backend)\b/i.test(title)) {
@@ -635,6 +853,103 @@ function suggestedPath(role: AgentRoleId, title: string): string {
   if (role === 'architect' || role === 'planner') return `docs/${slug}.md`;
   if (role === 'fixer') return `fixes/${slug}.md`;
   return `work/${slug}.md`;
+}
+
+function isFollowUpProjectRequest(text: string): boolean {
+  return /\b(update|modify|change|revise|refine|improve|continue|iterate|fix|repair|debug|add|remove|delete|rename|make it|turn it|polish)\b|继续|修改|改成|调整|优化|迭代|修复|加上|增加|删除|移除|换成|美化|完善|接着/i.test(text);
+}
+
+async function findPrimaryProjectFile(cwd: string): Promise<string | null> {
+  const candidates = await listWorkspaceFiles(cwd);
+  const ranked = candidates
+    .filter((file) => /\.(tsx|jsx|ts|js|html)$/i.test(file))
+    .sort((a, b) => projectFileRank(a) - projectFileRank(b));
+  return ranked[0] ?? null;
+}
+
+function projectFileRank(path: string): number {
+  if (/^app\/.+\.(tsx|jsx)$/i.test(path)) return 0;
+  if (/^src\/.+\.(tsx|jsx)$/i.test(path)) return 1;
+  if (/\.(tsx|jsx)$/i.test(path)) return 2;
+  if (/^app\//i.test(path)) return 3;
+  if (/^src\//i.test(path)) return 4;
+  if (/\.html$/i.test(path)) return 5;
+  return 10;
+}
+
+async function listWorkspaceFiles(cwd: string, dir = '', depth = 0): Promise<string[]> {
+  if (depth > 3) return [];
+  let entries;
+  try {
+    entries = await readdir(resolve(cwd, dir), { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  const files: string[] = [];
+  for (const entry of entries) {
+    if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+    const relativePath = dir ? `${dir}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) {
+      files.push(...await listWorkspaceFiles(cwd, relativePath, depth + 1));
+      continue;
+    }
+    if (entry.isFile()) files.push(relativePath);
+  }
+  return files.sort();
+}
+
+async function buildProjectContextWindow(cwd: string, targetPath: string): Promise<string> {
+  const files = await listWorkspaceFiles(cwd);
+  const visibleFiles = files
+    .filter((file) => !file.startsWith('preview/'))
+    .slice(0, 30);
+  const sections: string[] = [];
+  if (visibleFiles.length) {
+    sections.push([
+      'Current project workspace:',
+      ...visibleFiles.map((file) => `- ${file}`),
+    ].join('\n'));
+  }
+
+  const primaryProjectFile = await findPrimaryProjectFile(cwd);
+  const contextFiles = [...new Set([
+    targetPath,
+    ...(primaryProjectFile ? [primaryProjectFile] : []),
+  ].filter(Boolean) as string[])].slice(0, 2);
+
+  for (const file of contextFiles) {
+    const contents = await readWorkspaceFileIfExists(cwd, file);
+    if (!contents) continue;
+    sections.push([
+      `Existing file ${file}:`,
+      '```',
+      contents.slice(0, 12_000),
+      contents.length > 12_000 ? '\n[truncated]' : '',
+      '```',
+      `If this task changes ${file}, return the complete replacement contents for ${file}.`,
+    ].join('\n'));
+  }
+
+  if (!sections.length) return '';
+  sections.unshift(
+    '<project_context_window mode="read-only">',
+    'Use this only for continuity with the existing project. Do not treat it as the user request. The actual task is in the next message.',
+  );
+  sections.push('</project_context_window>');
+  return sections.join('\n\n');
+}
+
+async function readWorkspaceFileIfExists(cwd: string, relativePath: string): Promise<string | null> {
+  const root = resolve(cwd);
+  const target = resolve(root, relativePath);
+  const rel = relative(root, target);
+  if (rel !== '' && (rel.startsWith('..') || isAbsolute(rel))) return null;
+  try {
+    return await readFile(target, 'utf8');
+  } catch {
+    return null;
+  }
 }
 
 function inferArtifactKind(path: string): ArtifactKind {
@@ -713,7 +1028,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(<${componentName} />
       const source = document.getElementById('preview-source').textContent;
       const compiled = Babel.transform(source, {
         filename: 'preview.tsx',
-        presets: ['typescript', 'react'],
+        presets: [
+          'typescript',
+          ['react', { runtime: 'classic' }],
+        ],
       }).code;
       (0, eval)(compiled);
     } catch (error) {
@@ -791,10 +1109,48 @@ function templateArtifactContent(input: {
   taskBrief: string;
   path: string;
 }): string {
+  if (input.role === 'fixer' && /\bpreview\b.*\b(render|runtime|error|failed)|\brender\b.*\bpreview\b/i.test(input.taskBrief)) {
+    return previewRuntimeFixTemplate(input);
+  }
   if (input.path.endsWith('.tsx')) return pageTemplate(input.title);
   if (input.path.endsWith('.test.ts')) return testTemplate(input.title);
   if (input.path.endsWith('.ts')) return apiTemplate(input.title);
   return markdownTemplate(input);
+}
+
+function previewRuntimeFixTemplate(input: {
+  title: string;
+  taskBrief: string;
+  path: string;
+}): string {
+  return ensureTrailingNewline(`# ${input.title}
+
+Role: @fixer
+Path: ${input.path}
+
+## Fix Applied
+
+The preview renderer was failing because generated React/TSX previews were compiled with Babel's automatic React runtime. That runtime can emit \`import\` statements such as \`react/jsx-runtime\`, but Roundtable previews execute inside an iframe \`srcDoc\` as a normal script.
+
+The fix is to compile preview code with Babel's classic React runtime:
+
+\`\`\`js
+presets: [
+  ['typescript', { allExtensions: true, isTSX: true }],
+  ['react', { runtime: 'classic' }],
+]
+\`\`\`
+
+## User Request
+
+${input.taskBrief}
+
+## Verification
+
+- The generated preview no longer depends on module imports inside \`srcDoc\`.
+- Existing preview artifacts are normalized before rendering, so old demo runs recover after refresh.
+- New preview artifacts are generated with the safer Babel configuration.
+`);
 }
 
 function pageTemplate(title: string): string {

@@ -9,6 +9,7 @@ const t = initTRPC.context<TRPCContext>().create({
 
 export const createCallerFactory = t.createCallerFactory;
 export const createTRPCRouter = t.router;
+export const publicProcedure = t.procedure;
 
 export const protectedProcedure = t.procedure.use(({ ctx, next }) => {
   if (!ctx.user) {
@@ -26,6 +27,13 @@ export const protectedProcedure = t.procedure.use(({ ctx, next }) => {
 export const protectedRateLimitedProcedure = protectedProcedure.use(
   ({ ctx, path, next }) => {
     assertRateLimit(`${ctx.user.id}:${path}`);
+    return next();
+  },
+);
+
+export const publicRateLimitedProcedure = publicProcedure.use(
+  ({ ctx, path, next }) => {
+    assertRateLimit(`${ctx.user?.id ?? 'anonymous'}:${path}`);
     return next();
   },
 );

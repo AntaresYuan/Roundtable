@@ -146,11 +146,13 @@ function NewTaskModal({ workbench, members, agents, onClose, onCreate }) {
       <textarea value={goal} onChange={(e) => setGoal(e.target.value)} rows={3} autoFocus
         placeholder="Describe the outcome in plain language — the facilitator will plan it." style={{ ...fieldStyle, resize: 'vertical' }} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
-        <button onClick={() => goal.trim() && polish.mutate({ text: goal.trim() })} disabled={!goal.trim() || polish.isPending}
+        <button title="Improve this task brief with AI"
+          onClick={() => goal.trim() && polish.mutate({ text: goal.trim() })}
+          disabled={!goal.trim() || polish.isPending}
           style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 'var(--r-chip)',
             border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', font: 'inherit', fontSize: 12,
             cursor: goal.trim() && !polish.isPending ? 'pointer' : 'default', opacity: goal.trim() ? 1 : 0.5 }}>
-          <Icon name="sparkle" size={13} style={{ color: 'var(--accent)' }} /> {polish.isPending ? 'Polishing…' : 'Polish with AI'}</button>
+          <Icon name="sparkle" size={13} style={{ color: 'var(--accent)' }} /> {polish.isPending ? 'Improving…' : 'Improve brief'}</button>
         {polish.error && <span style={{ fontSize: 11, color: 'var(--bad)' }}>{polish.error.message}</span>}
       </div>
       <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginTop: 10 }}>

@@ -416,7 +416,7 @@ function DiffArtifact({ art, owner, agents, onOpen }) {
 /* ---- Preview artifact ----------------------------------------------------- */
 function PreviewArtifact({ art, owner, onOpen }) {
   const [mode, setMode] = useState('preview'); // preview | code
-  const preview = art.preview || art.code || '';
+  const preview = normalizePreviewHtml(art.preview || art.code || '');
   return (
     <OwnerCard owner={owner} title={art.title} version={art.version} kindLabel="preview" onOpen={onOpen}>
       <div style={{ display: 'flex', gap: 4, padding: '8px 11px', borderBottom: '1px solid var(--border)',
@@ -436,8 +436,11 @@ function PreviewArtifact({ art, owner, onOpen }) {
                 <span key={c} style={{ width: 9, height: 9, borderRadius: '50%', background: c, opacity: .8 }} />)}
               <span className="mono" style={{ fontSize: 11, color: 'var(--text-faint)', marginLeft: 6 }}>localhost:3000</span>
             </div>
-            <iframe title={art.title} srcDoc={preview} sandbox="allow-scripts"
-              style={{ width: '100%', height: 318, border: 'none', display: 'block', background: '#fff' }} />
+            <div style={{ height: 260, overflow: 'hidden', background: '#fff' }}>
+              <iframe title={art.title} srcDoc={preview} sandbox="allow-scripts"
+                style={{ width: 960, height: 720, border: 'none', display: 'block', background: '#fff',
+                  transform: 'scale(.52)', transformOrigin: 'top left' }} />
+            </div>
           </div>
         </div>
       ) : (
@@ -447,6 +450,22 @@ function PreviewArtifact({ art, owner, onOpen }) {
       )}
     </OwnerCard>
   );
+}
+
+function normalizePreviewHtml(html) {
+  return html
+    .replace(
+      "presets: ['typescript', 'react'],",
+      "presets: ['typescript', ['react', { runtime: 'classic' }]],",
+    )
+    .replace(
+      "presets: [['typescript', { allExtensions: true, isTSX: true }], ['react', { runtime: 'classic' }]],",
+      "presets: ['typescript', ['react', { runtime: 'classic' }]],",
+    )
+    .replace(
+      /presets:\s*\[\s*\[\s*['"]typescript['"]\s*,\s*\{\s*allExtensions:\s*true,\s*isTSX:\s*true\s*\}\s*\]\s*,\s*\[\s*['"]react['"]\s*,\s*\{\s*runtime:\s*['"]classic['"]\s*\}\s*\]\s*,?\s*\]/g,
+      "presets: ['typescript', ['react', { runtime: 'classic' }]]",
+    );
 }
 function Seg({ active, onClick, icon, children }) {
   return (

@@ -94,6 +94,22 @@ export async function listLiveTurns(chatId?: string): Promise<LocalTurn[]> {
   return listLocalTurns(chatId);
 }
 
+export async function clearLiveTurns(chatId?: string): Promise<void> {
+  if (canUseDbTurnStore(chatId)) {
+    await withDbFallback(
+      async (db) => {
+        await db.delete(liveTurns).where(eq(liveTurns.chatId, chatId));
+        return true;
+      },
+      'clear',
+    );
+  }
+
+  const turns = await listLocalTurns();
+  const next = chatId ? turns.filter((turn) => turn.localChatId !== chatId) : [];
+  await writeLocalTurns(next);
+}
+
 export function mergeDbAndLocalTurns(
   dbTurns: LocalTurn[],
   localTurns: LocalTurn[],

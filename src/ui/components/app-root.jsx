@@ -91,7 +91,7 @@ function Drawer({ art, agents, onClose }) {
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 100,
       background: alpha('#000', 32), backdropFilter: 'blur(2px)', display: 'flex', justifyContent: 'flex-end' }}>
-      <div onClick={e => e.stopPropagation()} className="rt-rise" style={{ width: 'min(620px, 92vw)',
+      <div onClick={e => e.stopPropagation()} className="rt-rise" style={{ width: isPreview ? 'min(960px, 94vw)' : 'min(620px, 92vw)',
         height: '100%', background: 'var(--surface)', borderLeft: '1px solid var(--border)',
         boxShadow: 'var(--shadow-pop)', display: 'flex', flexDirection: 'column' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '15px 18px',
@@ -108,7 +108,7 @@ function Drawer({ art, agents, onClose }) {
           {isPreview
             ? <div style={{ borderRadius: 'var(--r-card)', overflow: 'hidden', border: '1px solid var(--border)',
                 boxShadow: 'var(--shadow-card)' }}>
-                <iframe title="preview" srcDoc={displayArt.preview} sandbox="allow-scripts"
+                <iframe title="preview" srcDoc={normalizePreviewHtml(displayArt.preview)} sandbox="allow-scripts"
                   style={{ width: '100%', height: 560, border: 'none', display: 'block', background: '#fff' }} />
               </div>
             : displayArt.kind === 'diff'
@@ -121,6 +121,22 @@ function Drawer({ art, agents, onClose }) {
       </div>
     </div>
   );
+}
+
+function normalizePreviewHtml(html) {
+  return (html || '')
+    .replace(
+      "presets: ['typescript', 'react'],",
+      "presets: ['typescript', ['react', { runtime: 'classic' }]],",
+    )
+    .replace(
+      "presets: [['typescript', { allExtensions: true, isTSX: true }], ['react', { runtime: 'classic' }]],",
+      "presets: ['typescript', ['react', { runtime: 'classic' }]],",
+    )
+    .replace(
+      /presets:\s*\[\s*\[\s*['"]typescript['"]\s*,\s*\{\s*allExtensions:\s*true,\s*isTSX:\s*true\s*\}\s*\]\s*,\s*\[\s*['"]react['"]\s*,\s*\{\s*runtime:\s*['"]classic['"]\s*\}\s*\]\s*,?\s*\]/g,
+      "presets: ['typescript', ['react', { runtime: 'classic' }]]",
+    );
 }
 
 function ownerForDrawer(art, agents) {
@@ -332,7 +348,7 @@ function UserMsg({ text, onQuote, onPin }) {
   );
 }
 
-function LocalLiveThread({ turns, agents, onApproveTurn, turnActions, onQuote, onPin }) {
+function LocalLiveThread({ turns, agents, onApproveTurn, turnActions, onOpenArtifact, onQuote, onPin }) {
   if (!turns || turns.length === 0) {
     return (
       <div style={{ minHeight: 220, display: 'grid', placeItems: 'center', textAlign: 'center', color: 'var(--text-faint)' }}>
@@ -343,17 +359,19 @@ function LocalLiveThread({ turns, agents, onApproveTurn, turnActions, onQuote, o
       </div>
     );
   }
+  const displayTurns = [...turns].sort((a, b) => liveTurnTime(a) - liveTurnTime(b));
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: '16px 22px' }}>
       <div style={{ maxWidth: 720, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {turns.map((turn, index) => (
+        {displayTurns.map((turn, index) => (
           <LocalLiveTurn
             key={turn.id}
             turn={turn}
             agents={agents}
             onApproveTurn={onApproveTurn}
             turnActions={turnActions}
-            showPreview={index === 0}
+            onOpenArtifact={onOpenArtifact}
+            showPreview={index === displayTurns.length - 1}
             onQuote={onQuote}
             onPin={onPin}
           />
@@ -393,7 +411,7 @@ function PmText({ text, onQuote, onPin }) {
   );
 }
 
-function LocalLiveTurn({ turn, agents, onApproveTurn, turnActions, showPreview, onQuote, onPin }) {
+function LocalLiveTurn({ turn, agents, onApproveTurn, turnActions, showPreview, onOpenArtifact, onQuote, onPin }) {
   const completed = turn.result?.dispatchStatus === 'completed';
   const failed = turn.result?.dispatchStatus === 'failed';
   const running = turn.result?.dispatchStatus === 'running';
@@ -481,6 +499,7 @@ function LocalLiveTurn({ turn, agents, onApproveTurn, turnActions, showPreview, 
                   workspacePath={turn.result.dispatchWorkspacePath || turn.result.workspacePath}
                   previewArtifact={showPreview && !interrupted ? previewArtifact : null}
                   agents={agents}
+                  onOpenArtifact={onOpenArtifact}
                 />
               ))}
               {(completed || (failed && !interrupted)) && turnActions && (
@@ -747,24 +766,34 @@ function StageCards({ workflow, workflowRun, artifacts, agents, dispatchStatus, 
 
 // One agent's deliverable, click to expand and read what they actually produced
 // — turns the result list from a black box into reviewable output.
-function ExpandableArtifact({ artifact, owner }) {
+function ExpandableArtifact({ artifact, owner, onOpen }) {
   const [open, setOpen] = useState(false);
-  const content = artifact.preview || '';
+  const content = normalizePreviewHtml(artifact.preview || '');
   const isHtml = artifact.kind === 'html' || artifact.kind === 'preview';
   return (
     <div style={{ borderRadius: 'var(--r-sm)', background: tint(owner.color, 7),
       border: `1px solid ${alpha(owner.color, 22)}`, overflow: 'hidden' }}>
-      <button onClick={() => setOpen((v) => !v)} style={{ width: '100%', display: 'grid',
-        gridTemplateColumns: 'auto auto auto 1fr auto', gap: 9, alignItems: 'center', padding: '8px 10px',
-        background: 'transparent', border: 'none', cursor: 'pointer', font: 'inherit', textAlign: 'left' }}>
-        <Icon name={open ? 'chevdown' : 'chevron'} size={12} style={{ color: owner.color }} />
-        <Avatar agent={owner} size={20} ring={false} />
-        <Icon name={artifact.kind === 'preview' ? 'eye' : artifact.kind === 'markdown' ? 'clip' : 'code'} size={14}
-          style={{ color: owner.color }} />
-        <span className="mono" style={{ fontSize: 12, color: 'var(--text)', overflow: 'hidden',
-          textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{artifact.title}</span>
-        <span style={{ fontSize: 11, color: owner.color, fontWeight: 700 }}>@{owner.role || artifact.ownerAgentId}</span>
-      </button>
+      <div style={{ width: '100%', display: 'grid',
+        gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'center', padding: '8px 10px' }}>
+        <button onClick={() => setOpen((v) => !v)} style={{ minWidth: 0, display: 'grid',
+          gridTemplateColumns: 'auto auto auto 1fr auto', gap: 9, alignItems: 'center',
+          background: 'transparent', border: 'none', cursor: 'pointer', font: 'inherit', textAlign: 'left', padding: 0 }}>
+          <Icon name={open ? 'chevdown' : 'chevron'} size={12} style={{ color: owner.color }} />
+          <Avatar agent={owner} size={20} ring={false} />
+          <Icon name={artifact.kind === 'preview' ? 'eye' : artifact.kind === 'markdown' ? 'clip' : 'code'} size={14}
+            style={{ color: owner.color }} />
+          <span className="mono" style={{ fontSize: 12, color: 'var(--text)', overflow: 'hidden',
+            textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{artifact.title}</span>
+          <span style={{ fontSize: 11, color: owner.color, fontWeight: 700 }}>@{owner.role || artifact.ownerAgentId}</span>
+        </button>
+        <button onClick={(e) => { e.stopPropagation(); onOpen && onOpen(artifact); }}
+          style={{ justifySelf: 'end', display: 'inline-flex', alignItems: 'center', gap: 5,
+            padding: '4px 8px', borderRadius: 'var(--r-sm)', border: '1px solid var(--border)', background: 'var(--surface)',
+            color: owner.color, font: 'inherit', fontSize: 11.5, fontWeight: 650, cursor: 'pointer' }}>
+          <Icon name={artifact.kind === 'preview' ? 'eye' : 'expand'} size={12} />
+          {artifact.kind === 'preview' ? 'Open preview' : 'Open artifact'}
+        </button>
+      </div>
       {open && (
         <div style={{ borderTop: `1px solid ${alpha(owner.color, 22)}`, background: 'var(--bg)', padding: '10px 12px',
           maxHeight: 320, overflowY: 'auto' }}>
@@ -780,10 +809,13 @@ function ExpandableArtifact({ artifact, owner }) {
   );
 }
 
-function LocalResultCard({ artifacts, dispatchStatus, dispatchAdapter, dispatchStage, workspacePath, previewArtifact, agents }) {
+function LocalResultCard({ artifacts, dispatchStatus, dispatchAdapter, dispatchStage, workspacePath, previewArtifact, agents, onOpenArtifact }) {
   const completed = dispatchStatus === 'completed';
   const codeCount = artifacts.filter((artifact) => artifact.kind === 'code').length;
   const reviewCount = artifacts.filter((artifact) => artifact.ownerAgentId === 'reviewer').length;
+  const primaryMarkdown = artifacts.find((artifact) =>
+    artifact.kind === 'markdown' && artifact.ownerAgentId !== 'orchestrator' && artifact.preview,
+  );
   const statusColor = completed ? 'var(--ok)' : dispatchStatus === 'failed' ? 'var(--bad)' : 'var(--run)';
   return (
     <div style={{ marginTop: 12, border: '1px solid var(--border)', borderRadius: 'var(--r-card)',
@@ -803,6 +835,14 @@ function LocalResultCard({ artifacts, dispatchStatus, dispatchAdapter, dispatchS
           background: alpha(statusColor, 14), fontWeight: 750 }}>
           {dispatchStatus || 'not_started'}
         </span>
+        {previewArtifact && (
+          <button onClick={() => onOpenArtifact && onOpenArtifact(previewArtifact)}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 10px',
+              borderRadius: 'var(--r-sm)', border: '1px solid var(--border)', background: 'var(--surface)',
+              color: 'var(--accent)', font: 'inherit', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+            <Icon name="eye" size={13} /> Open preview
+          </button>
+        )}
       </div>
       {previewArtifact && (
         <div style={{ background: 'var(--surface-3)', padding: 12 }}>
@@ -817,8 +857,19 @@ function LocalResultCard({ artifacts, dispatchStatus, dispatchAdapter, dispatchS
                 {previewArtifact.title}
               </span>
             </div>
-            <iframe title={previewArtifact.title} srcDoc={previewArtifact.preview} sandbox="allow-scripts allow-forms allow-modals"
-              style={{ width: '100%', height: 360, border: 'none', display: 'block', background: '#fff' }} />
+            <div style={{ height: 260, overflow: 'hidden', background: '#fff' }}>
+              <iframe title={previewArtifact.title} srcDoc={normalizePreviewHtml(previewArtifact.preview)} sandbox="allow-scripts allow-forms allow-modals"
+                style={{ width: 960, height: 720, border: 'none', display: 'block', background: '#fff',
+                  transform: 'scale(.52)', transformOrigin: 'top left' }} />
+            </div>
+          </div>
+        </div>
+      )}
+      {!previewArtifact && primaryMarkdown && (
+        <div style={{ padding: 12, background: 'var(--surface-3)', borderBottom: '1px solid var(--border)' }}>
+          <div style={{ borderRadius: 'var(--r-sm)', border: '1px solid var(--border)', background: 'var(--surface)',
+            padding: '12px 14px', maxHeight: 260, overflow: 'auto', fontSize: 12.5, lineHeight: 1.5 }}>
+            <Md text={primaryMarkdown.preview} />
           </div>
         </div>
       )}
@@ -828,6 +879,7 @@ function LocalResultCard({ artifacts, dispatchStatus, dispatchAdapter, dispatchS
             key={`${artifact.id}-${artifact.version}`}
             artifact={artifact}
             owner={agentForArtifact(artifact, agents)}
+            onOpen={onOpenArtifact}
           />
         ))}
         {workspacePath && (
@@ -862,7 +914,7 @@ function TodoRow({ task, owner, record, status, last }) {
   return (
     <div style={{ borderBottom: last ? 'none' : '1px solid var(--border)' }}>
       <button onClick={() => setOpen((v) => !v)} title="Expand task activity"
-        style={{ width: '100%', display: 'flex', gap: 10, alignItems: 'flex-start', padding: '9px 0',
+        style={{ width: '100%', display: 'grid', gridTemplateColumns: '18px 1fr auto', gap: '8px 10px', alignItems: 'flex-start', padding: '10px 0',
           background: 'none', border: 'none', font: 'inherit', cursor: 'pointer', textAlign: 'left' }}>
         <span style={{ display: 'grid', placeItems: 'center', width: 18, height: 18, marginTop: 3,
           borderRadius: 5, flexShrink: 0, background: alpha(sty.color, status === 'pending' ? 8 : 16), color: sty.color }}>
@@ -870,22 +922,27 @@ function TodoRow({ task, owner, record, status, last }) {
             : sty.icon ? <Icon name={sty.icon} size={11} />
             : <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'currentColor', opacity: .6 }} />}
         </span>
-        <Avatar agent={owner} size={24} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Avatar agent={owner} size={22} />
             <span className="mono" style={{ fontSize: 11, color: 'var(--text-faint)' }}>{task.id}</span>
-            <span style={{ fontSize: 13.5, fontWeight: 600,
+            <span className="mono" style={{ fontSize: 11, color: 'var(--text-faint)' }}>{task.assignee}</span>
+          </div>
+          <div style={{ marginTop: 6, fontSize: 13.5, fontWeight: 650, lineHeight: 1.35,
               color: status === 'completed' ? 'var(--text-muted)' : 'var(--text)',
-              textDecoration: status === 'completed' ? 'line-through' : 'none',
-              textDecorationColor: alpha('var(--ok)', 50) }}>{task.title}</span>
+              textDecorationLine: status === 'completed' ? 'line-through' : 'none',
+              textDecorationColor: alpha('var(--ok)', 50) }}>
+            {task.title}
           </div>
-          <div className="mono" style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 3 }}>
-            {task.assignee}{task.parallel ? ' · parallel' : ''}{task.deps.length ? ` · waits on ${task.deps.join(', ')}` : ''}
-          </div>
+          {(task.parallel || task.deps.length > 0) && (
+            <div className="mono" style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 4 }}>
+              {task.parallel ? 'parallel' : ''}{task.parallel && task.deps.length ? ' · ' : ''}{task.deps.length ? `waits on ${task.deps.join(', ')}` : ''}
+            </div>
+          )}
         </div>
         <span style={{ fontSize: 10.5, fontWeight: 700, color: sty.color, padding: '2px 8px', borderRadius: 999,
-          background: alpha(sty.color, 13), flexShrink: 0, marginTop: 3 }}>{sty.label}</span>
-        <Icon name={open ? 'chevdown' : 'chevron'} size={11} style={{ color: 'var(--text-faint)', marginTop: 6, flexShrink: 0 }} />
+          background: alpha(sty.color, 13), flexShrink: 0, marginTop: 3, whiteSpace: 'nowrap' }}>{sty.label}</span>
+        <Icon name={open ? 'chevdown' : 'chevron'} size={11} style={{ color: 'var(--text-faint)', gridColumn: '3', justifySelf: 'end', marginTop: -2, flexShrink: 0 }} />
       </button>
       {open && (
         <div style={{ margin: '0 0 9px 28px', padding: '8px 11px', borderRadius: 'var(--r-sm)',
@@ -917,6 +974,9 @@ function LocalPlanCard({ plan, intake, agents, approvalStatus, approving, approv
   };
   const approved = approvalStatus === 'approved';
   const recordFor = (taskId) => (dispatch || []).find((r) => r.taskId === taskId);
+  const visibleTasks = plan.tasks.filter((task) => task.user_visible !== false);
+  const roles = Array.from(new Set(visibleTasks.map((task) => task.assignee.replace(/^@/, ''))));
+  const planSummary = intake.userVisibleSummary || visibleTasks.map((task) => task.title).join(' → ');
   const doneCount = plan.tasks.filter((t) =>
     todoStatusFor(t, recordFor(t.id), approved, dispatchStatus) === 'completed').length;
   return (
@@ -925,14 +985,23 @@ function LocalPlanCard({ plan, intake, agents, approvalStatus, approving, approv
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '12px 14px', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
         <Icon name="layers" size={15} style={{ color: 'var(--accent)' }} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 700, fontSize: 14 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontWeight: 700, fontSize: 14 }}>
             Plan
-            <span className="mono tnum" style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-faint)', marginLeft: 8 }}>
-              {doneCount}/{plan.tasks.length} done
+            <span className="mono tnum" style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-faint)', whiteSpace: 'nowrap' }}>
+              {doneCount}/{plan.tasks.length} completed
             </span>
           </div>
-          <div className="mono" style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 2 }}>
-            intent={intake.intentType} · risk={intake.risk} · clarity={intake.clarity}
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+            {[
+              ['intent', intake.intentType],
+              ['risk', intake.risk],
+              ['clarity', intake.clarity],
+            ].map(([label, value]) => (
+              <span key={label} className="mono" style={{ fontSize: 10.5, color: 'var(--text-muted)', padding: '2px 6px',
+                borderRadius: 999, background: 'var(--surface-2)', border: '1px solid var(--border)', whiteSpace: 'nowrap' }}>
+                {label}: {value}
+              </span>
+            ))}
           </div>
         </div>
         <span style={{ fontSize: 11.5, color: approved ? 'var(--ok)' : 'var(--warn)', padding: '3px 8px', borderRadius: 999,
@@ -957,6 +1026,17 @@ function LocalPlanCard({ plan, intake, agents, approvalStatus, approving, approv
           {approvalError}
         </div>
       )}
+      <div style={{ padding: '12px 14px 10px', borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <Icon name="sparkle" size={13} style={{ color: 'var(--accent)' }} />
+          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)' }}>PM plan overview</span>
+        </div>
+        <div style={{ display: 'grid', gap: 7, fontSize: 12.5, lineHeight: 1.45, color: 'var(--text-muted)' }}>
+          <div><b style={{ color: 'var(--text)' }}>Goal:</b> {planSummary}</div>
+          <div><b style={{ color: 'var(--text)' }}>Execution:</b> {visibleTasks.length} step{visibleTasks.length === 1 ? '' : 's'} · {visibleTasks.map((task) => task.id).join(' → ')}</div>
+          <div><b style={{ color: 'var(--text)' }}>Team:</b> {roles.length ? roles.map((role) => `@${role}`).join(', ') : 'PM only'} · review before final result when code changes</div>
+        </div>
+      </div>
       <div style={{ padding: '4px 14px 6px' }}>
         {plan.tasks.map((task, i) => {
           const record = recordFor(task.id);
@@ -976,14 +1056,30 @@ function LocalPlanCard({ plan, intake, agents, approvalStatus, approving, approv
         gap: 6, padding: '8px 14px', background: 'var(--surface-2)', border: 'none', borderTop: '1px solid var(--border)',
         font: 'inherit', fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', cursor: 'pointer' }}>
         <Icon name={showPlan ? 'chevdown' : 'chevron'} size={11} />
-        {showPlan ? 'Hide plan' : 'Show plan'}
+        {showPlan ? 'Hide plan details' : 'Show plan details'}
       </button>
       {showPlan && (
-        <pre className="mono" style={{ margin: 0, padding: '10px 14px', fontSize: 11, lineHeight: 1.55,
-          color: 'var(--text-muted)', background: 'var(--bg)', borderTop: '1px solid var(--border)',
-          overflowX: 'auto', maxHeight: 260, overflowY: 'auto' }}>
-          {JSON.stringify(plan, null, 2)}
-        </pre>
+        <div style={{ margin: 0, padding: '12px 14px', background: 'var(--bg)', borderTop: '1px solid var(--border)',
+          display: 'grid', gap: 9 }}>
+          {visibleTasks.map((task, i) => {
+            const owner = ownerFor(task.assignee);
+            return (
+              <div key={task.id} style={{ display: 'grid', gap: 4, padding: '10px 11px', borderRadius: 'var(--r-sm)',
+                background: 'var(--surface)', border: '1px solid var(--border)' }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span className="mono" style={{ fontSize: 11, color: 'var(--text-faint)' }}>Step {i + 1} · {task.id}</span>
+                  <Avatar agent={owner} size={18} />
+                  <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--text)' }}>{task.title}</span>
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.45 }}>
+                  Assigned to <b>{task.assignee}</b>
+                  {task.deps.length ? ` after ${task.deps.join(', ')}` : ' as the first runnable step'}
+                  {task.parallel ? ' · can run in parallel' : ''}.
+                </div>
+              </div>
+            );
+          })}
+        </div>
       )}
     </div>
   );
@@ -1450,7 +1546,7 @@ function FileRow({ art, agents, onOpen, activeChatId }) {
     </button>
   );
 }
-function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifact, onAction, onClose, live, liveArtifacts, liveMessages, liveHandoffs, activeChatId, memory, localTurns, localStatus, onApproveLocalTurn, localTurnActions, onRewrite, onQuote, onPin }) {
+function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifact, onAction, onClose, live, liveArtifacts, liveMessages, liveHandoffs, activeChatId, memory, localTurns, localStatus, onApproveLocalTurn, localTurnActions, onClearLocalTurns, onRewrite, onQuote, onPin }) {
   const placed = sceneAt(clock).placed;
   const hasLocalTurns = localTurns && localTurns.length > 0;
   const localArtifacts = hasLocalTurns ? liveArtifactsFromTurns(localTurns, agents, localStatus) : [];
@@ -1478,6 +1574,14 @@ function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifa
         {tabBtn('memory', 'Memory')}
         {tabBtn('deps', 'Deps')}
         {tabBtn('notes', 'Notes')}
+        {hasLocalTurns && (
+          <button onClick={onClearLocalTurns} title="Clear local conversation"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '6px 8px',
+              borderRadius: 'var(--r-sm)', border: '1px solid var(--border)', background: 'var(--surface)',
+              color: 'var(--bad)', font: 'inherit', fontSize: 11.5, fontWeight: 650, cursor: 'pointer' }}>
+            <Icon name="x" size={12} /> Clear
+          </button>
+        )}
         <button onClick={onClose} style={{ ...iconBtn, border: 'none', background: 'transparent' }}><Icon name="x" size={15} /></button>
       </div>
       <div style={{ borderBottom: '1px solid var(--border)' }} />
@@ -1485,7 +1589,7 @@ function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifa
       {tab === 'chat' ? (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg)' }}>
           {hasLocalTurns
-            ? <LocalLiveThread turns={localTurns} agents={agents} onApproveTurn={onApproveLocalTurn} turnActions={localTurnActions} onQuote={onQuote} onPin={onPin} />
+            ? <LocalLiveThread turns={localTurns} agents={agents} onApproveTurn={onApproveLocalTurn} turnActions={localTurnActions} onOpenArtifact={onOpenArtifact} onQuote={onQuote} onPin={onPin} />
             : live
             ? <LiveThread messages={liveMessages ?? []} handoffs={liveHandoffs} agents={agents} onRewrite={onRewrite} />
             : <Thread agents={agents} scene={scene} onOpenArtifact={onOpenArtifact} onAction={onAction} narrow />}
@@ -1650,19 +1754,24 @@ function storedTurnToLiveTurn(turn) {
 function latestLiveTurn(liveTurns) {
   const turns = (liveTurns || []).filter((turn) => turn.result || turn.status === 'pending' || turn.status === 'error');
   if (turns.length === 0) return null;
-  const timeOf = (turn) => {
-    const fromCreatedAt = turn.createdAt ? Date.parse(turn.createdAt) : NaN;
-    if (!Number.isNaN(fromCreatedAt)) return fromCreatedAt;
-    const fromId = /^live-(\d+)$/.exec(turn.id);
-    return fromId ? Number(fromId[1]) : 0;
-  };
-  return [...turns].sort((a, b) => timeOf(b) - timeOf(a))[0];
+  return [...turns].sort((a, b) => liveTurnTime(b) - liveTurnTime(a))[0];
+}
+
+function liveTurnTime(turn) {
+  const fromCreatedAt = turn.createdAt ? Date.parse(turn.createdAt) : NaN;
+  if (!Number.isNaN(fromCreatedAt)) return fromCreatedAt;
+  const fromId = /^live-(\d+)$/.exec(turn.id);
+  return fromId ? Number(fromId[1]) : 0;
 }
 
 function preferredAgentAdapterRequest() {
   if (typeof window === 'undefined') return {};
   const value = window.localStorage.getItem('roundtableAgentAdapter');
   return value ? { agentAdapter: value } : {};
+}
+
+function isDirectAgentMention(message) {
+  return /^\s*@(architect|planner|implementer|reviewer|fixer)\b/i.test(message);
 }
 
 // #15 AC: agent color persistence across sessions. Custom agents (id `a-…`)
@@ -2333,6 +2442,7 @@ function App() {
   const sendLocalTurn = async (message, turnId, chatIdOverride) => {
     const id = turnId || 'live-' + Date.now();
     const createdAt = new Date().toISOString();
+    const directMention = isDirectAgentMention(message);
     setInspectorTab('chat');
     setNotesOpen(true);
     setLocalStatus('pending');
@@ -2358,8 +2468,38 @@ function App() {
       if (!res.ok || !data.ok) {
         throw new Error(data.error || 'orchestrator_turn_failed');
       }
+      let result = data;
+      if (directMention && data.needsApproval) {
+        const approvalRes = await fetch('/api/orchestrator/approval', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            turnId: id,
+            decision: 'approve',
+            autoDispatch: true,
+            ...preferredAgentAdapterRequest(),
+          }),
+        });
+        const approval = await approvalRes.json();
+        if (approvalRes.ok && approval.ok) {
+          result = {
+            ...data,
+            needsApproval: approval.needsApproval,
+            approvalStatus: approval.approvalStatus,
+            approvedAt: approval.approvedAt,
+            dispatchStatus: approval.dispatchStatus,
+            dispatchAdapter: approval.dispatchAdapter,
+            dispatchedAt: approval.dispatchedAt,
+            dispatchStage: approval.dispatchStage,
+            dispatchError: approval.dispatchError,
+            dispatchWorkspacePath: approval.workspacePath,
+            dispatch: approval.records,
+            artifacts: approval.artifacts,
+          };
+        }
+      }
       setLocalTurns((turns) => turns.map((turn) => (
-        turn.id === id ? { ...turn, status: 'done', result: data } : turn
+        turn.id === id ? { ...turn, status: 'done', result } : turn
       )));
       setLocalStatus('idle');
     } catch (error) {
@@ -2483,6 +2623,22 @@ function App() {
     setLocalTurns((turns) => turns.map((turn) => (
       turn.id === turnId ? { ...turn, discarded: true } : turn
     )));
+  };
+  const clearLocalTurns = async () => {
+    if (typeof window !== 'undefined' && !window.confirm('Clear all messages and artifacts in this local conversation?')) return;
+    const chatId = turnChatId;
+    setLocalTurns([]);
+    setLocalStatus('idle');
+    try {
+      const suffix = chatId ? `?chatId=${encodeURIComponent(chatId)}` : '';
+      const res = await fetch(`/api/orchestrator/history${suffix}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || 'history_clear_failed');
+      }
+    } catch {
+      loadLocalHistory();
+    }
   };
   const createLocalTask = (goal) => {
     setModal(null);
@@ -2611,6 +2767,7 @@ function App() {
                   liveHandoffs={liveHandoffs} activeChatId={activeChatId} memory={memory}
                   localTurns={localTurns} localStatus={localStatus} onApproveLocalTurn={approveLocalTurn}
                   localTurnActions={{ interrupt: interruptLocalTurn, redispatch: redispatchLocalTurn, discard: discardLocalTurn }}
+                  onClearLocalTurns={clearLocalTurns}
                   onOpenArtifact={setDrawerArt} onAction={onAction} onClose={() => setNotesOpen(false)}
                   onRewrite={sendComposerMessage} onQuote={quoteToComposer}
                   onPin={authed && activeWorkbenchId

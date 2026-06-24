@@ -8,6 +8,7 @@ export * from './plan.js';
 export * from './adapter.js';
 export * from './workflow.js';
 export * from './workflow-run.js';
+export * from './mission.js';
 export * from './portable-handoff.js';
 export * from './selector.js';
 export * from './autonomy.js';

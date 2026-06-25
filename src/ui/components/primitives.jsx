@@ -28,6 +28,7 @@ function Icon({ name, size = 16, style }) {
     case 'door':     return <svg {...p}><path d="M14 3H6a1 1 0 0 0-1 1v17h9M14 3l5 2v15l-5 1V3z"/><path d="M11.5 12h.01"/></svg>;
     case 'pin':      return <svg {...p}><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3-1-6zM12 16v5"/></svg>;
     case 'clip':     return <svg {...p}><path d="M21 11.5l-8.5 8.5a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 1 1-3-3l8-8"/></svg>;
+    case 'download': return <svg {...p}><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>;
     case 'expand':   return <svg {...p}><path d="M4 9V4h5M20 15v5h-5M15 4h5v5M9 20H4v-5"/></svg>;
     case 'edit':     return <svg {...p}><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>;
     case 'check':    return <svg {...p}><path d="M5 12l5 5L20 6"/></svg>;

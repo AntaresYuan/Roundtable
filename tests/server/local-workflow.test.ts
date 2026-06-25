@@ -190,6 +190,38 @@ describe.sequential('local backend workflow', () => {
     expect(result.artifacts[1]?.title).toMatch(/^preview\/app-implement-camera-gradient-ranking-webpage\.html$/);
   });
 
+  it('treats HTML slideshow and PPT work as a rendered HTML artifact', async () => {
+    await saveLocalTurn({
+      ...seedTurn('turn-html-slides'),
+      needsApproval: false,
+      approvalStatus: 'approved',
+      approvedAt: new Date().toISOString(),
+      plan: {
+        id: 'turn-html-slides-plan',
+        createdAt: new Date(),
+        tasks: [
+          {
+            id: 'T1',
+            title: 'Create bright color HTML slideshow PPT with keyboard navigation',
+            assignee: '@implementer',
+            deps: [],
+            user_visible: true,
+            status: 'pending',
+          },
+        ],
+      },
+    });
+
+    const result = await dispatchApprovedLocalTurn('turn-html-slides');
+
+    expect(result.dispatchStatus).toBe('completed');
+    expect(result.artifacts.map((artifact) => artifact.kind)).toEqual(['html']);
+    expect(result.artifacts[0]?.title).toMatch(/^app\/create-bright-color-html-slideshow-ppt-with-keyb\.html$/);
+    expect(result.artifacts[0]?.preview).toContain('<!doctype html>');
+    expect(result.artifacts[0]?.preview).toContain('Generated HTML slide deck');
+    expect(result.artifacts[0]?.preview).toContain('ArrowRight');
+  });
+
   it('continues the same local project workspace on follow-up turns', async () => {
     const localChatId = 'project-chat';
     await saveLocalTurn({

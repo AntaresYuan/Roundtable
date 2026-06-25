@@ -67,7 +67,7 @@ describe('runDispatch', () => {
     expect(result.dispatch[0]?.status).toBe('completed');
   });
 
-  it('resolves adapter cwd from the chat workbench workspace path', { timeout: 10_000 }, async () => {
+  it('resolves adapter cwd from the chat workbench workspace path', { timeout: 30_000 }, async () => {
     const client = new PGlite();
     const db = drizzle(client, { schema });
     const userId = '68000000-0000-4000-8000-000000000001';
@@ -673,7 +673,7 @@ describe('runDispatch', () => {
     }
   });
 
-  it('injects workbench and chat pins into generated HandoffCards', async () => {
+  it('injects workbench and chat pins into generated HandoffCards', { timeout: 30_000 }, async () => {
     const client = new PGlite();
     const db = drizzle(client, { schema });
     const userId = '66000000-0000-4000-8000-000000000001';

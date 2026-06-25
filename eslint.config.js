@@ -9,6 +9,8 @@ export default tseslint.config(
       '.next/**',
       'next-env.d.ts',
       'coverage/**',
+      'test-results/**',
+      'playwright-report/**',
       '.roundtable/**',
       'workspaces/**',
     ],
@@ -23,6 +25,12 @@ export default tseslint.config(
         'error',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
       ],
+    },
+  },
+  {
+    files: ['scripts/demo/**/*.mjs'],
+    rules: {
+      'no-console': 'off',
     },
   },
 );

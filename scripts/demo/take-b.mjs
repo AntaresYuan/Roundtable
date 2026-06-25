@@ -2,7 +2,7 @@
 // inline HandoffCard expanded + dependency-changed badge on the downstream
 // artifact card. Recorded against /gallery, which renders the same product
 // components from fixtures.
-import { BASE, openTake, glide, glideClick } from './lib.mjs';
+import { BASE, openTake, glide } from './lib.mjs';
 
 const { page, mark, done } = await openTake({ name: 'take-b-theater' });
 

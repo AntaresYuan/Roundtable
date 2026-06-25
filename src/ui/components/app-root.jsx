@@ -1728,6 +1728,7 @@ function LiveNotes({ agents, artifacts, handoffs }) {
 
 const LOCAL_CHATS_KEY = 'roundtable.localChats';
 const LOCAL_ACTIVE_CHAT_KEY = 'roundtable.localActiveChatId';
+const PRIVATE_ROOMS_KEY = 'roundtable.privateRooms';
 
 function titleForLocalChat(text) {
   const title = String(text || '').trim().replace(/\s+/g, ' ');
@@ -1765,6 +1766,27 @@ function writeLocalChats(chats) {
   } catch {
     // Local task persistence is best-effort.
   }
+}
+
+function readPrivateRooms() {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(PRIVATE_ROOMS_KEY) || '{}');
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writePrivateRooms(rooms) {
+  try {
+    window.localStorage.setItem(PRIVATE_ROOMS_KEY, JSON.stringify(rooms || {}));
+  } catch {
+    // Private room transcript persistence is best-effort.
+  }
+}
+
+function privateRoomKey(chatId, agentId) {
+  return `${chatId || 'demo'}::${agentId || 'unknown'}`;
 }
 
 function sortLocalChats(chats) {
@@ -2580,31 +2602,25 @@ function BreakoutsHub({ agents, memberIds, autoRoom, onEnterAuto, onStartDM, onC
 }
 
 /* ---- DMRoom : a private 1:1 side room (You ↔ agent), doubles as steering -- */
-function DMRoom({ agent, activeTask, onClose }) {
+function DMRoom({ agent, activeTask, messages, onSend, onCommit, onClose }) {
   if (!agent) return null;
   const [val, setVal] = useState('');
-  const [messages, setMessages] = useState([]);
   const scrollRef = useRef(null);
   const steering = !!activeTask;
   const redirects = ['Use Postgres, not SQLite', 'Add rate limiting', 'Keep it server-rendered'];
   const openingLine = steering
     ? 'Mid-build — tell me what to change and I’ll fold it in.'
     : 'Hey — what would you like to go over, just the two of us?';
-  useEffect(() => {
-    setMessages([{ id: 'opening', from: 'agent', text: openingLine }]);
-  }, [agent.agentId, openingLine]);
+  const transcript = messages.length > 0 ? messages : [{ id: 'opening', from: 'agent', text: openingLine }];
+  const hasUserMessages = messages.some((message) => message.from === 'you');
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
-  }, [messages.length]);
+  }, [transcript.length]);
   const sendMessage = () => {
     const text = val.trim();
     if (!text) return;
-    setMessages((prev) => [
-      ...prev,
-      { id: `you-${Date.now()}`, from: 'you', text },
-      { id: `agent-${Date.now()}`, from: 'agent', text: privateRoomReply(agent, text, steering) },
-    ]);
     setVal('');
+    onSend?.(agent, text, steering);
   };
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 115, background: alpha('#000', 34),
@@ -2631,7 +2647,7 @@ function DMRoom({ agent, activeTask, onClose }) {
                 <b>Working on {activeTask}</b> right now. A note here steers the live task without stopping the table.</div>
             </div>
           )}
-          {messages.map((message) => (
+          {transcript.map((message) => (
             <div key={message.id} style={{ display: 'flex', gap: 9, justifyContent: message.from === 'you' ? 'flex-end' : 'flex-start' }}>
               {message.from !== 'you' && <Avatar agent={agent} size={26} />}
               <div style={{ background: message.from === 'you' ? 'var(--accent)' : 'var(--surface)',
@@ -2653,6 +2669,15 @@ function DMRoom({ agent, activeTask, onClose }) {
             ))}
           </div>
         )}
+        {hasUserMessages && (
+          <div style={{ padding: '0 13px 10px' }}>
+            <button onClick={() => onCommit?.(agent, messages)} style={{ width: '100%', display: 'inline-flex', alignItems: 'center',
+              justifyContent: 'center', gap: 7, padding: '9px 12px', borderRadius: 'var(--r-sm)', border: '1px solid var(--border)',
+              background: 'var(--surface)', color: 'var(--accent)', cursor: 'pointer', font: 'inherit', fontSize: 12.5, fontWeight: 600 }}>
+              <Icon name="layers" size={14} /> Bring back to task chat
+            </button>
+          </div>
+        )}
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 9, padding: '11px 13px', borderTop: '1px solid var(--border)' }}>
           <textarea value={val} onChange={(e) => setVal(e.target.value)} rows={1} placeholder={steering ? `Redirect ${agent.displayName}…` : `Message ${agent.displayName} privately…`}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
@@ -2670,14 +2695,14 @@ function DMRoom({ agent, activeTask, onClose }) {
 function privateRoomReply(agent, text, steering) {
   const lower = text.toLowerCase();
   if (agent.pm) {
-    if (steering) return 'Got it. I’ll treat that as steering for the current task and keep the main table aligned.';
+    if (steering) return 'Got it. I’ll keep this here until you bring it back to the task chat.';
     if (lower.includes('html') || lower.includes('ppt') || lower.includes('slide')) {
-      return 'Received. I’ll keep the ask outcome-focused: produce the actual slide artifact, not just explanation text.';
+      return 'Received. I’ll hold that as the outcome: produce the actual slide artifact, not just explanation text.';
     }
     if (lower.includes('breakout') || lower.includes('private')) {
-      return 'Received. This private note is staying in our side room, and I can bring the outcome back when you are ready.';
+      return 'Received. I’ll keep this in the private room until you decide to bring it back.';
     }
-    return 'Received. I’m listening here privately; tell me whether you want this folded back into the main task or kept as context.';
+    return 'Received. I’ll keep this here; bring it back when you want me to act on it with the table.';
   }
   if (steering) return `Got it. I’ll fold that into ${activeVerbFor(agent)} without stopping the rest of the table.`;
   return `Got it. I’ll keep this private and use it to shape my ${agent.role || 'work'} contribution.`;
@@ -2747,6 +2772,7 @@ function App() {
   const [localStatus, setLocalStatus] = useState('idle');
   const historyRequestSeq = useRef(0);
   const [localChats, setLocalChats] = useState(() => readLocalChats());
+  const [privateRooms, setPrivateRooms] = useState(() => readPrivateRooms());
   const [selectedLocalChatId, setSelectedLocalChatId] = useState(() => {
     try {
       const selected = window.localStorage.getItem(LOCAL_ACTIVE_CHAT_KEY);
@@ -2932,6 +2958,10 @@ function App() {
   useEffect(() => {
     writeLocalChats(localChats);
   }, [localChats]);
+
+  useEffect(() => {
+    writePrivateRooms(privateRooms);
+  }, [privateRooms]);
 
   useEffect(() => {
     try {
@@ -3314,6 +3344,36 @@ function App() {
       sendLocalTurn(message, undefined, chat.id);
     }
   };
+  const appendPrivateRoomMessages = (key, messages) => {
+    setPrivateRooms((rooms) => ({
+      ...rooms,
+      [key]: [...(rooms[key] || []), ...messages],
+    }));
+  };
+  const sendPrivateRoomMessage = (agent, text, steering) => {
+    const clean = String(text || '').trim();
+    if (!agent || !clean) return;
+    const chatId = turnChatId || activeLocalChatId || activeChatId || 'demo';
+    const key = privateRoomKey(chatId, agent.agentId);
+    const ts = Date.now();
+    appendPrivateRoomMessages(key, [
+      { id: `you-${ts}`, from: 'you', text: clean, createdAt: new Date(ts).toISOString() },
+      { id: `agent-${ts}`, from: 'agent', text: privateRoomReply(agent, clean, steering), createdAt: new Date(ts + 1).toISOString() },
+    ]);
+  };
+  const commitPrivateRoomMessages = (agent, messages = []) => {
+    if (!agent || !turnChatId) return;
+    const userMessages = messages
+      .filter((message) => message.from === 'you' && message.text)
+      .map((message) => String(message.text).trim())
+      .filter(Boolean);
+    if (userMessages.length === 0) return;
+    const mention = agent.pm ? '@planner' : `@${agent.role || 'planner'}`;
+    const currentTask = tasks.find((task) => task.id === (authed ? activeChatId : activeLocalChatId));
+    const taskContext = currentTask?.title ? ` for "${currentTask.title}"` : '';
+    const transcript = userMessages.map((message) => `- ${message}`).join('\n');
+    sendComposerMessage(`${mention} Private breakout decision${taskContext}:\n${transcript}`);
+  };
   const memory = {
     live: authed,
     workbench: activeWorkbench,
@@ -3448,6 +3508,9 @@ function App() {
         onStartDM={(id) => { setHubOpen(false); setDmAgent(id); }} onClose={() => setHubOpen(false)} />}
       {dmAgent && <DMRoom agent={agents[dmAgent]}
         activeTask={(['working', 'speaking', 'thinking'].includes(st.status[dmAgent])) ? (RT.PLAN.tasks.find((tk) => tk.owner === dmAgent) || {}).id : null}
+        messages={privateRooms[privateRoomKey(turnChatId || activeLocalChatId || activeChatId || 'demo', dmAgent)] || []}
+        onSend={sendPrivateRoomMessage}
+        onCommit={commitPrivateRoomMessages}
         onClose={() => setDmAgent(null)} />}
       {modal === 'task' && <NewTaskModal workbench={railWorkbench} members={memberIds} agents={agents}
         onClose={() => setModal(null)} onCreate={async (goal) => {

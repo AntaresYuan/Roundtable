@@ -85,8 +85,17 @@ test('breakout private room sends and receives PM messages', async ({ page }) =>
   await page.getByPlaceholder(/Message PM privately/i).fill('Please keep this private and fold it back later');
   await page.getByRole('button', { name: /Send private message to PM/i }).click();
 
-  await expect(page.getByText('Please keep this private and fold it back later')).toBeVisible();
-  await expect(page.getByText(/Received\. This private note is staying in our side room/i)).toBeVisible();
+  await expect(page.getByText('Please keep this private and fold it back later', { exact: true })).toBeVisible();
+  await expect(page.getByText(/Received\. I’ll keep this in the private room/i)).toBeVisible();
+  await expect(page.getByText(/Private breakout decision/i)).toHaveCount(0);
+
+  await page.getByRole('button', { name: /Bring back to task chat/i }).click();
+  await page.keyboard.press('Escape');
+  await expect(page.getByText(/Private breakout decision/i)).toBeVisible();
+
+  await page.getByRole('button', { name: /Breakout side room/i }).click();
+  await page.getByRole('button', { name: /PM facilitator.*Message/i }).click();
+  await expect(page.getByText('Please keep this private and fold it back later', { exact: true })).toBeVisible();
 });
 
 async function forceStableLocalChatId(page: Page) {

@@ -1920,20 +1920,29 @@ function projectLocalWorkflowRun(turn, sceneClock = 0) {
     ) && recordByTaskId[task.id]?.status !== 'completed',
   );
 
-  // Local dispatch finishes server-side near-instantly (the mock adapter has no
-  // per-step delay), so the 'running' window the client could poll is a few ms.
-  // Without help, both the strip and the table jump straight from "planning" to
-  // "all done" — the workflow never visibly walks Plan→Build→Review→Ship.
-  // So once a run is approved we play the work stages out on the scene clock:
-  // a time cursor advances one stage every STAGE_MS, then settles on all-done.
-  // Real running/failed dispatch records always win over this synthetic walk.
+  // Local dispatch runs server-side while the UI keeps animating. During the
+  // actual build we stop the synthetic cursor on Build; after generated output
+  // lands, a second replay walks the remaining stages.
   const STAGE_MS = 7000;
   const workStages = workflow.stages.filter((stage) => stage.kind !== 'intake' && stage.kind !== 'plan');
-  const walkActive = approved && (dispatchStatus === 'running' || completed) && workStages.length > 0;
-  // Stage index into workStages; clamped so it "finishes" past the last stage.
+  const preferredBuildStageIndex = workStages.findIndex((stage) => stage.kind === 'work' || stage.kind === 'custom');
+  const buildStageIndex = preferredBuildStageIndex >= 0 ? preferredBuildStageIndex : 0;
+  const buildStage = workStages[buildStageIndex] || null;
+  const postBuildStages = buildStage
+    ? workStages.slice(workStages.findIndex((stage) => stage.id === buildStage.id) + 1)
+    : [];
+  const runningWalkActive = approved && dispatchStatus === 'running' && !!buildStage;
+  const completedWalkActive = approved && completed && postBuildStages.length > 0;
+  const walkActive = runningWalkActive || completedWalkActive;
+  const syntheticStages = runningWalkActive ? [buildStage] : postBuildStages;
+  // Stage index into syntheticStages; clamped so it "finishes" past the last stage.
   const walkCursor = Math.floor(Math.max(0, sceneClock - 800) / STAGE_MS);
-  const walkDone = walkCursor >= workStages.length;
-  const walkStage = walkActive && !walkDone ? workStages[walkCursor] : null;
+  const walkDone = completedWalkActive && walkCursor >= syntheticStages.length;
+  const walkStage = runningWalkActive
+    ? buildStage
+    : walkActive && !walkDone
+      ? syntheticStages[walkCursor]
+      : null;
   const walkStageId = walkStage?.id || null;
 
   // Within the synthetic walk, surface a runnable task from the *current* stage
@@ -1989,11 +1998,20 @@ function projectLocalWorkflowRun(turn, sceneClock = 0) {
     else if (stageFailed) status = 'failed';
     // Synthetic walk drives the work stages so they light up one at a time,
     // even though the server already reported the whole run as completed.
-    else if (walkActive) {
-      if (walkDone) status = 'done';
-      else if (workStageIndex < walkCursor) status = 'done';
-      else if (workStageIndex === walkCursor) status = 'active';
+    else if (runningWalkActive) {
+      if (buildStage && stage.id === buildStage.id) status = 'active';
+      else if (workStageIndex >= 0 && buildStage && workStageIndex < buildStageIndex) status = 'done';
       else status = 'pending';
+    }
+    else if (completedWalkActive) {
+      if (workStageIndex >= 0 && buildStage && workStageIndex <= buildStageIndex) status = 'done';
+      else if (walkDone) status = 'done';
+      else {
+        const syntheticIndex = syntheticStages.findIndex((s) => s.id === stage.id);
+        if (syntheticIndex >= 0 && syntheticIndex < walkCursor) status = 'done';
+        else if (syntheticIndex === walkCursor) status = 'active';
+        else status = 'pending';
+      }
     }
     else if (completed && (stageTasks.length > 0 || stage.kind === 'ship')) status = 'done';
     else if (allRecordedDone) status = 'done';
@@ -2929,13 +2947,11 @@ function App() {
   const projectedWorkflow = projectLocalWorkflowRun(latestTurn, scene.clock);
   const liveWorkflow = projectedWorkflow.workflow;
   const liveWorkflowRun = projectedWorkflow.workflowRun;
-  // Local dispatch lands as a completed result almost instantly, so to make the
-  // table + strip visibly walk Plan→Build→Review→Ship we replay the scene clock
-  // from 0 whenever a run becomes approved (a discrete event keyed on the turn's
-  // approval time). The projection's stage cursor is clock-driven, so this is
-  // what animates the lock-step walk. It stops on its own at SCENE_DURATION.
+  // Local dispatch runs in the background. Replay once when the run is approved
+  // so the UI walks to Build, then again when dispatch completes so the strip
+  // can continue through the post-build stages instead of racing to Ship early.
   const liveRunKey = latestTurn && (latestTurn.result?.approvalStatus === 'approved' || latestTurn.result?.needsApproval === false)
-    ? `${latestTurn.id}:${latestTurn.approvedAt || latestTurn.result?.dispatchedAt || 'approved'}`
+    ? `${latestTurn.id}:${latestTurn.approvedAt || 'approved'}:${latestTurn.result?.dispatchStatus || 'not_started'}:${latestTurn.result?.dispatchedAt || ''}`
     : null;
   const lastWalkKey = useRef(null);
   useEffect(() => {

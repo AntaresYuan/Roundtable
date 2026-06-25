@@ -133,17 +133,22 @@ export async function POST(req: Request) {
     // (multi_agent requests fall to PM planning so the golden path still splits
     // into parallel tasks). A workflow-bound chat always follows its stages.
     // Routing reads the clean user `message`, not the context-augmented prompt.
+    const roster = defaultRoomRoster();
+    const implementer = roster.find((agent) => agent.role === 'implementer');
+    const directImplementer = implementer && shouldRouteToSingleImplementer(message);
     const routing: SpeakerRouting = workflow
       ? { kind: 'plan' }
-      : await resolveSpeakerRouting(
-          message,
-          defaultRoomRoster(),
-          {
-            chatId: ChatIdSchema.parse(responseChatId(chatId, turnId)),
-            ...(hasKey ? { selector: llmSelector({ fallback: heuristicSelector() }) } : {}),
-          },
-          intake.complexity === 'single_agent',
-        );
+      : directImplementer
+        ? { kind: 'direct', speakers: [implementer], reason: 'direct content or presentation request' }
+        : await resolveSpeakerRouting(
+            message,
+            roster,
+            {
+              chatId: ChatIdSchema.parse(responseChatId(chatId, turnId)),
+              ...(hasKey ? { selector: llmSelector({ fallback: heuristicSelector() }) } : {}),
+            },
+            intake.complexity === 'single_agent',
+          );
 
     let plan: Plan;
     if (routing.kind === 'direct') {
@@ -270,6 +275,15 @@ function orchestratorKeyPresent(): boolean {
 
 function responseChatId(chatId: string | undefined, turnId: string): string {
   return chatId ?? `local-${turnId}`;
+}
+
+function shouldRouteToSingleImplementer(message: string): boolean {
+  return isCopywritingRequest(message);
+}
+
+function isCopywritingRequest(message: string): boolean {
+  return /\b(copy|copywriting|caption|tagline|slogan|blurb|microcopy|tweet|social\s+post|ad\s+copy|email|newsletter|blog|article|post|bio|description|story|script|summary|speech|invitation)\b/i.test(message)
+    || /(?:\u6587\u6848|\u63a8\u6587|\u6807\u8bed|\u5e7f\u544a\u8bed|\u5ba3\u4f20\u8bed|\u90ae\u4ef6|\u6587\u7ae0|\u535a\u5ba2|\u5e16\u5b50|\u7b80\u4ecb|\u6545\u4e8b|\u811a\u672c|\u5267\u672c|\u603b\u7ed3|\u6458\u8981|\u53d1\u8a00\u7a3f|\u9080\u8bf7\u51fd)/u.test(message);
 }
 
 function buildTurnArtifacts(

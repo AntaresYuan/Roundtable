@@ -222,6 +222,152 @@ describe.sequential('local backend workflow', () => {
     expect(result.artifacts[0]?.preview).toContain('ArrowRight');
   });
 
+  it('treats localized presentation work as a rendered HTML artifact', async () => {
+    await saveLocalTurn({
+      ...seedTurn('turn-localized-slides'),
+      needsApproval: false,
+      approvalStatus: 'approved',
+      approvedAt: new Date().toISOString(),
+      plan: {
+        id: 'turn-localized-slides-plan',
+        createdAt: new Date(),
+        tasks: [
+          {
+            id: 'T1',
+            title: 'Create kitten \u6f14\u793a\u7a3f',
+            assignee: '@implementer',
+            deps: [],
+            user_visible: true,
+            status: 'pending',
+          },
+        ],
+      },
+    });
+
+    const result = await dispatchApprovedLocalTurn('turn-localized-slides');
+
+    expect(result.dispatchStatus).toBe('completed');
+    expect(result.artifacts.map((artifact) => artifact.kind)).toEqual(['html']);
+    expect(result.artifacts[0]?.title).toMatch(/^app\/create-kitten\.html$/);
+    expect(result.artifacts[0]?.preview).toContain('Generated HTML slide deck');
+  });
+
+  it('keeps copywriting follow-ups as final copy artifacts', async () => {
+    const localChatId = 'copy-chat';
+    await saveLocalTurn({
+      ...seedTurn('turn-copy-initial'),
+      localChatId,
+      message: 'Create cute kitten \u6587\u6848',
+      needsApproval: false,
+      approvalStatus: 'approved',
+      approvedAt: new Date().toISOString(),
+      plan: {
+        id: 'turn-copy-initial-plan',
+        createdAt: new Date(),
+        tasks: [
+          {
+            id: 'T1',
+            title: 'Create cute kitten \u6587\u6848',
+            assignee: '@implementer',
+            deps: [],
+            user_visible: true,
+            status: 'pending',
+          },
+        ],
+      },
+    });
+
+    const first = await dispatchApprovedLocalTurn('turn-copy-initial');
+
+    await saveLocalTurn({
+      ...seedTurn('turn-copy-followup'),
+      localChatId,
+      message: '\u5728\u6587\u6848\u4e2d\u63d0\u53ca\u72f8\u82b1\u732b',
+      needsApproval: false,
+      approvalStatus: 'approved',
+      approvedAt: new Date().toISOString(),
+      plan: {
+        id: 'turn-copy-followup-plan',
+        createdAt: new Date(),
+        tasks: [
+          {
+            id: 'T1',
+            title: '\u5728\u6587\u6848\u4e2d\u63d0\u53ca\u72f8\u82b1\u732b',
+            assignee: '@implementer',
+            deps: [],
+            user_visible: true,
+            status: 'pending',
+          },
+        ],
+      },
+    });
+
+    const second = await dispatchApprovedLocalTurn('turn-copy-followup');
+
+    await saveLocalTurn({
+      ...seedTurn('turn-copy-second-followup'),
+      localChatId,
+      message: '\u518d\u53ef\u7231\u4e00\u70b9',
+      needsApproval: false,
+      approvalStatus: 'approved',
+      approvedAt: new Date().toISOString(),
+      plan: {
+        id: 'turn-copy-second-followup-plan',
+        createdAt: new Date(),
+        tasks: [
+          {
+            id: 'T1',
+            title: '\u518d\u53ef\u7231\u4e00\u70b9',
+            assignee: '@implementer',
+            deps: [],
+            user_visible: true,
+            status: 'pending',
+          },
+        ],
+      },
+    });
+
+    const third = await dispatchApprovedLocalTurn('turn-copy-second-followup');
+
+    expect(first.artifacts.map((artifact) => artifact.title)).toEqual(['work/copy.md']);
+    expect(second.artifacts.map((artifact) => artifact.title)).toEqual(['work/copy.md']);
+    expect(third.artifacts.map((artifact) => artifact.title)).toEqual(['work/copy.md']);
+    expect(second.artifacts[0]?.preview).toContain('\u72f8\u82b1\u732b');
+    expect(second.artifacts[0]?.preview).not.toContain('Task Brief');
+    expect(second.artifacts[0]?.preview).not.toContain('# \u4efb\u52a1');
+    expect(third.artifacts[0]?.preview).not.toContain('Task Brief');
+  });
+
+  it('keeps non-cat content requests as final content artifacts', async () => {
+    await saveLocalTurn({
+      ...seedTurn('turn-email-content'),
+      message: 'Write a launch email',
+      needsApproval: false,
+      approvalStatus: 'approved',
+      approvedAt: new Date().toISOString(),
+      plan: {
+        id: 'turn-email-content-plan',
+        createdAt: new Date(),
+        tasks: [
+          {
+            id: 'T1',
+            title: 'Write a launch email',
+            assignee: '@implementer',
+            deps: [],
+            user_visible: true,
+            status: 'pending',
+          },
+        ],
+      },
+    });
+
+    const result = await dispatchApprovedLocalTurn('turn-email-content');
+
+    expect(result.artifacts.map((artifact) => artifact.title)).toEqual(['work/copy.md']);
+    expect(result.artifacts[0]?.preview).toContain('Subject:');
+    expect(result.artifacts[0]?.preview).not.toContain('Acceptance Checks');
+  });
+
   it('continues the same local project workspace on follow-up turns', async () => {
     const localChatId = 'project-chat';
     await saveLocalTurn({

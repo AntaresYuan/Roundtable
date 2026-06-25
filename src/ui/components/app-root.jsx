@@ -458,7 +458,7 @@ function LocalLiveTurn({ turn, agents, onApproveTurn, turnActions, showPreview, 
   const running = turn.result?.dispatchStatus === 'running';
   const stopping = turn.result?.dispatchStage === 'interrupting' || turn.interrupting;
   const interrupted = failed && turn.result?.dispatchError === 'interrupted_by_user';
-  const artifacts = turn.result?.artifacts || [];
+  const artifacts = sortArtifactsForDisplay(turn.result?.artifacts || []);
   const previewArtifact = artifacts.find((artifact) => artifact.kind === 'preview')
     || artifacts.find((artifact) => artifact.kind === 'html');
   return (
@@ -860,10 +860,13 @@ function ExpandableArtifact({ artifact, owner, onOpen }) {
 }
 
 function LocalResultCard({ artifacts, dispatchStatus, dispatchAdapter, dispatchStage, workspacePath, previewArtifact, agents, onOpenArtifact }) {
+  const displayArtifacts = sortArtifactsForDisplay(artifacts);
   const completed = dispatchStatus === 'completed';
-  const codeCount = artifacts.filter((artifact) => artifact.kind === 'code' || artifact.kind === 'html').length;
-  const reviewCount = artifacts.filter((artifact) => artifact.ownerAgentId === 'reviewer').length;
-  const primaryMarkdown = artifacts.find((artifact) =>
+  const codeCount = displayArtifacts.filter((artifact) => artifact.kind === 'code' || artifact.kind === 'html').length;
+  const reviewCount = displayArtifacts.filter((artifact) => artifact.ownerAgentId === 'reviewer').length;
+  const primaryMarkdown = displayArtifacts.find((artifact) =>
+    artifact.kind === 'markdown' && isFinalArtifactOwner(artifact) && artifact.preview,
+  ) || displayArtifacts.find((artifact) =>
     artifact.kind === 'markdown' && artifact.ownerAgentId !== 'orchestrator' && artifact.preview,
   );
   const statusColor = completed ? 'var(--ok)' : dispatchStatus === 'failed' ? 'var(--bad)' : 'var(--run)';
@@ -878,7 +881,7 @@ function LocalResultCard({ artifacts, dispatchStatus, dispatchAdapter, dispatchS
             {completed ? 'Result ready' : 'Result in progress'}
           </div>
           <div className="mono" style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 2 }}>
-            {artifacts.length} artifacts · {codeCount} code · {reviewCount} review · adapter={dispatchAdapter || 'local-dispatch'} · next={dispatchStage || 'done'}
+            {displayArtifacts.length} artifacts · {codeCount} code · {reviewCount} review · adapter={dispatchAdapter || 'local-dispatch'} · next={dispatchStage || 'done'}
           </div>
         </div>
         <span style={{ fontSize: 11.5, color: statusColor, padding: '3px 8px', borderRadius: 999,
@@ -923,7 +926,7 @@ function LocalResultCard({ artifacts, dispatchStatus, dispatchAdapter, dispatchS
         </div>
       )}
       <div style={{ padding: '11px 14px', display: 'grid', gap: 8 }}>
-        {artifacts.slice(0, 8).map((artifact) => (
+        {displayArtifacts.slice(0, 8).map((artifact) => (
           <ExpandableArtifact
             key={`${artifact.id}-${artifact.version}`}
             artifact={artifact}
@@ -1611,7 +1614,7 @@ function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifa
   const created = hasLocalTurns
     ? localArtifacts
     : live
-    ? (liveArtifacts ?? []).map((a) => ({ ...a, version: a.currentVersion, source: a.source ?? 'generated' }))
+    ? sortArtifactsForDisplay((liveArtifacts ?? []).map((a) => ({ ...a, version: a.currentVersion, source: a.source ?? 'generated' })))
     : placed.map((p) => p.art);
   // The fixture "brief" is demo-only — in live mode there are no user-provided artifacts yet.
   const provided = live || hasLocalTurns ? [] : [RT.ARTIFACTS.brief];
@@ -2168,10 +2171,33 @@ function normalizeLiveArtifacts(artifacts, agents) {
 
 function liveArtifactsFromTurns(liveTurns, agents, liveStatus) {
   const turns = liveTurns || [];
-  return [
+  return sortArtifactsForDisplay([
     ...(turns.length > 0 ? [livePlanArtifact(turns, liveStatus)] : []),
     ...turns.flatMap((turn) => normalizeLiveArtifacts(turn.result?.artifacts || [], agents)),
-  ];
+  ]);
+}
+
+function sortArtifactsForDisplay(artifacts) {
+  return [...(artifacts || [])].sort((a, b) => artifactDisplayRank(a) - artifactDisplayRank(b));
+}
+
+function artifactDisplayRank(artifact) {
+  if (!artifact) return 99;
+  const owner = artifact.ownerAgentId;
+  const kind = artifact.kind;
+  if (isFinalArtifactOwner(artifact) && (kind === 'preview' || kind === 'html')) return 0;
+  if (isFinalArtifactOwner(artifact) && kind === 'code') return 1;
+  if (isFinalArtifactOwner(artifact) && kind === 'markdown') return 2;
+  if (kind === 'preview' || kind === 'html') return 3;
+  if (kind === 'code') return 4;
+  if (owner === 'reviewer') return 5;
+  if (owner === 'planner' || owner === 'architect') return 6;
+  if (owner === 'orchestrator') return 8;
+  return 7;
+}
+
+function isFinalArtifactOwner(artifact) {
+  return artifact?.ownerAgentId === 'implementer' || artifact?.ownerAgentId === 'fixer';
 }
 
 function buildLocalScene(baseScene, liveTurns, agents, sceneClock = 0, liveWorkflow = null, liveWorkflowRun = null) {

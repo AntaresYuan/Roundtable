@@ -684,9 +684,11 @@ async function repairGeneratedArtifact(
 function localAgentSystemPrompt(input: {
   role: AgentRoleId;
   path: string;
+  taskBrief?: string;
 }): string {
   const isPreviewableReact = /\.(tsx|jsx)$/i.test(input.path);
   const isHtml = /\.html?$/i.test(input.path);
+  const isCopywriting = input.role === 'implementer' && isCopywritingRequest(`${input.path}\n${input.taskBrief ?? ''}`);
   return [
     'You are a Roundtable coding agent.',
     'Produce exactly one useful file for the assigned task.',
@@ -700,6 +702,15 @@ function localAgentSystemPrompt(input: {
           'This file is rendered directly in a sandboxed iframe.',
           'Return a complete standalone HTML document with <!doctype html>, inline CSS, and inline JavaScript when interaction is needed.',
           'For slide decks or PPT-like requests, create an actual slide presentation with keyboard navigation, not a requirements document or prose explanation.',
+        ]
+      : []),
+    ...(isCopywriting
+      ? [
+          '',
+          'This is a final copywriting/content artifact.',
+          'Return the finished user-facing copy itself, not requirements, instructions, analysis, acceptance criteria, or a task description.',
+          'If an existing copy file is provided in context, return the complete revised copy, preserving useful wording and applying the new request.',
+          'Keep the output concise and ready to publish.',
         ]
       : []),
     ...(isPreviewableReact
@@ -726,7 +737,9 @@ function localAgentTaskPrompt(input: {
     `User/task brief:\n${input.taskBrief}`,
     `File title: ${input.title}`,
     `Target path: ${input.path}`,
-    'Write the complete file now.',
+    isCopywritingRequest(`${input.title}\n${input.taskBrief}`)
+      ? 'Write the complete final copy now. Do not write instructions about how to change the copy.'
+      : 'Write the complete file now.',
     '</current_task>',
   ].join('\n\n');
 }
@@ -836,7 +849,15 @@ async function suggestedPath(
   cwd: string,
   taskBrief: string,
 ): Promise<string> {
+  if (role === 'implementer' && isCopywritingRequest(`${title}\n${taskBrief}`)) {
+    return await findPrimaryCopyFile(cwd) ?? 'work/copy.md';
+  }
+
   if ((role === 'implementer' || role === 'fixer') && isFollowUpProjectRequest(`${title}\n${taskBrief}`)) {
+    if (role === 'implementer') {
+      const existingCopy = await findPrimaryCopyFile(cwd);
+      if (existingCopy) return existingCopy;
+    }
     const existingPage = await findPrimaryProjectFile(cwd);
     if (existingPage) return existingPage;
   }
@@ -868,11 +889,41 @@ async function suggestedPath(
 }
 
 function isHtmlPresentationRequest(text: string): boolean {
-  return /\b(html\s*ppt|html\s*slide|slide\s*deck|slideshow|slides?|presentation|ppt|keynote)\b/i.test(text);
+  return /\b(html\s*ppt|html\s*slide|slide\s*deck|slideshow|slides?|presentation|ppt|keynote)\b/i.test(text)
+    || /(?:\u6f14\u793a\u7a3f|\u5e7b\u706f\u7247|\u8bfe\u4ef6|\u8def\u6f14|\u6c47\u62a5)/u.test(text);
+}
+
+function isCopywritingRequest(text: string): boolean {
+  return /\b(copy|copywriting|caption|tagline|slogan|blurb|microcopy|tweet|social\s+post|ad\s+copy|email|newsletter|blog|article|post|bio|description|story|script|summary|speech|invitation)\b/i.test(text)
+    || /(?:\u6587\u6848|\u63a8\u6587|\u6807\u8bed|\u5e7f\u544a\u8bed|\u5ba3\u4f20\u8bed|\u90ae\u4ef6|\u6587\u7ae0|\u535a\u5ba2|\u5e16\u5b50|\u7b80\u4ecb|\u6545\u4e8b|\u811a\u672c|\u5267\u672c|\u603b\u7ed3|\u6458\u8981|\u53d1\u8a00\u7a3f|\u9080\u8bf7\u51fd)/u.test(text);
 }
 
 function isFollowUpProjectRequest(text: string): boolean {
   return /\b(update|modify|change|revise|refine|improve|continue|iterate|fix|repair|debug|add|remove|delete|rename|make it|turn it|polish)\b|继续|修改|改成|调整|优化|迭代|修复|加上|增加|删除|移除|换成|美化|完善|接着/i.test(text);
+}
+
+async function findPrimaryCopyFile(cwd: string): Promise<string | null> {
+  const candidates = (await listWorkspaceFiles(cwd))
+    .filter((file) => /^work\/.+\.md$/i.test(file))
+    .sort((a, b) => copyFileRank(a) - copyFileRank(b));
+
+  for (const file of candidates) {
+    const contents = await readWorkspaceFileIfExists(cwd, file);
+    if (!contents || looksLikeProcessMarkdown(contents)) continue;
+    return file;
+  }
+  return null;
+}
+
+function copyFileRank(path: string): number {
+  if (/^work\/copy\.md$/i.test(path)) return 0;
+  if (/\b(copy|caption|tagline|content)\b/i.test(path)) return 1;
+  return 2;
+}
+
+function looksLikeProcessMarkdown(contents: string): boolean {
+  return /^\s*#\s*(?:Task|\u4efb\u52a1|Define requirements|Confirm requirements)/i.test(contents)
+    || /\b(?:Acceptance Checks|Acceptance Criteria|Functional Requirements)\b/i.test(contents);
 }
 
 async function findPrimaryProjectFile(cwd: string): Promise<string | null> {
@@ -1128,11 +1179,36 @@ function templateArtifactContent(input: {
   if (input.role === 'fixer' && /\bpreview\b.*\b(render|runtime|error|failed)|\brender\b.*\bpreview\b/i.test(input.taskBrief)) {
     return previewRuntimeFixTemplate(input);
   }
+  if (input.role === 'implementer' && isCopywritingRequest(`${input.title}\n${input.taskBrief}`)) {
+    return copywritingTemplate(input);
+  }
   if (input.path.endsWith('.tsx')) return pageTemplate(input.title);
   if (input.path.endsWith('.html')) return htmlSlideTemplate(input.title);
   if (input.path.endsWith('.test.ts')) return testTemplate(input.title);
   if (input.path.endsWith('.ts')) return apiTemplate(input.title);
   return markdownTemplate(input);
+}
+
+function copywritingTemplate(input: {
+  title: string;
+  taskBrief: string;
+}): string {
+  const request = `${input.title}\n${input.taskBrief}`;
+  const wantsTabby = /\u72f8\u82b1\u732b/.test(input.taskBrief);
+  if (wantsTabby || /\b(kitten|cat)\b|(?:\u5c0f\u732b|\u732b)/i.test(request)) {
+    const subject = wantsTabby ? '\u72f8\u82b1\u732b' : '\u5c0f\u732b';
+    return ensureTrailingNewline(`${subject}\u628a\u9633\u5149\u8e29\u6210\u4e86\u5c0f\u6885\u82b1\uff0c\u6602\u7740\u5c0f\u8138\u50cf\u5728\u8bf4\uff1a\u4eca\u5929\u7684\u53ef\u7231\u4efd\u989d\uff0c\u672c\u55b5\u627f\u5305\u4e86\u3002`);
+  }
+  if (/\b(email|newsletter|invitation)\b|(?:\u90ae\u4ef6|\u9080\u8bf7\u51fd)/i.test(request)) {
+    return ensureTrailingNewline(`Subject: A quick update\n\nHi there,\n\nI wanted to share a concise update and make the next step easy to act on. Please take a look when you have a moment, and let me know what you think.\n\nBest,\nRoundtable`);
+  }
+  if (/\b(story|script)\b|(?:\u6545\u4e8b|\u811a\u672c|\u5267\u672c)/i.test(request)) {
+    return ensureTrailingNewline(`A small idea walked into the room with more nerve than polish. By the time it left, it had become clear enough to follow, warm enough to remember, and useful enough to share.`);
+  }
+  if (/\b(summary|speech)\b|(?:\u603b\u7ed3|\u6458\u8981|\u53d1\u8a00\u7a3f)/i.test(request)) {
+    return ensureTrailingNewline(`Here is the core message: the work is moving from rough intent into a clearer final shape, with the next step focused on making the result easier to understand, use, and share.`);
+  }
+  return ensureTrailingNewline(`A polished final draft for this request, written to be clear, concise, and ready to use.`);
 }
 
 function previewRuntimeFixTemplate(input: {

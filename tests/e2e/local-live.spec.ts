@@ -68,6 +68,27 @@ test('local live UI shows sanitized provider failures', async ({ page }) => {
   await expect(page.getByText(/sk-test|sk-live|sk-proj/)).toHaveCount(0);
 });
 
+test('breakout private room sends and receives PM messages', async ({ page }) => {
+  const turns = new Map<string, StoredTurn>();
+  await forceStableLocalChatId(page);
+  await mockLocalOrchestrator(page, turns);
+
+  await page.goto('/');
+  await page.getByPlaceholder(/Message the table/).fill('Build a tiny demo page');
+  await page.getByRole('button', { name: 'Send message' }).click();
+  await expect(page.getByText('awaiting approval', { exact: true }).first()).toBeVisible();
+
+  await page.getByRole('button', { name: /Breakout side room/i }).click();
+  await page.getByRole('button', { name: /PM facilitator.*Message/i }).click();
+
+  await expect(page.getByText('Private · PM')).toBeVisible();
+  await page.getByPlaceholder(/Message PM privately/i).fill('Please keep this private and fold it back later');
+  await page.getByRole('button', { name: /Send private message to PM/i }).click();
+
+  await expect(page.getByText('Please keep this private and fold it back later')).toBeVisible();
+  await expect(page.getByText(/Received\. This private note is staying in our side room/i)).toBeVisible();
+});
+
 async function forceStableLocalChatId(page: Page) {
   await page.addInitScript(() => {
     Object.defineProperty(globalThis.crypto, 'randomUUID', {

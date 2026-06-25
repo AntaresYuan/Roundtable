@@ -2448,7 +2448,18 @@ function NotesContent({ clock, agents, notes }) {
 function BreakoutModal({ data, agents, onClose, onBringBack }) {
   if (!data) return null;
   const [val, setVal] = useState('');
+  const [notes, setNotes] = useState([]);
+  const scrollRef = useRef(null);
   const a = agents[data.a], b = agents[data.b];
+  const sendNote = () => {
+    const text = val.trim();
+    if (!text) return;
+    setNotes((prev) => [...prev, { id: `you-${Date.now()}`, from: 'you', text }]);
+    setVal('');
+  };
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
+  }, [notes.length]);
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 115, background: alpha('#000', 38),
       backdropFilter: 'blur(3px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
@@ -2469,7 +2480,7 @@ function BreakoutModal({ data, agents, onClose, onBringBack }) {
           <span className="mono" style={{ fontSize: 10.5, padding: '2px 7px', borderRadius: 5, background: 'var(--surface-3)', color: 'var(--text-faint)' }}>{data.turns} turns</span>
           <button onClick={onClose} style={{ ...iconBtn, marginLeft: 4 }}><Icon name="x" size={15} /></button>
         </div>
-        <div style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: 14, background: 'var(--bg)' }}>
+        <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: 14, background: 'var(--bg)' }}>
           {data.transcript.map((t, i) => {
             const ag = agents[t.agentId];
             return (
@@ -2483,6 +2494,15 @@ function BreakoutModal({ data, agents, onClose, onBringBack }) {
               </div>
             );
           })}
+          {notes.map((note) => (
+            <div key={note.id} style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <div style={{ flex: '0 1 78%', display: 'flex', justifyContent: 'flex-end' }}>
+                <div style={{ background: 'var(--accent)', borderRadius: '12px 4px 12px 12px',
+                  padding: '9px 12px', fontSize: 13.5, color: '#fff', lineHeight: 1.5 }}>{note.text}</div>
+              </div>
+              <Avatar agent={{ agentId: 'you-user', displayName: 'You', color: '#8076a0' }} size={28} />
+            </div>
+          ))}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, alignSelf: 'center', fontSize: 11.5, color: 'var(--text-faint)',
             padding: '4px 12px', borderRadius: 999, background: 'var(--surface-2)' }}>
             <Icon name="check" size={12} style={{ color: 'var(--ok)' }} /> aligned — outcome ready to share
@@ -2491,10 +2511,12 @@ function BreakoutModal({ data, agents, onClose, onBringBack }) {
         <div style={{ padding: '11px 14px', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: 9 }}>
             <textarea value={val} onChange={(e) => setVal(e.target.value)} rows={1} placeholder="Join in — add a note to the room…"
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendNote(); } }}
               style={{ flex: 1, resize: 'none', border: '1px solid var(--border)', borderRadius: 'var(--r-sm)', background: 'var(--surface-2)',
                 font: 'inherit', fontSize: 13.5, color: 'var(--text)', padding: '9px 11px', outline: 'none', maxHeight: 90 }} />
-            <button onClick={() => setVal('')} style={{ display: 'grid', placeItems: 'center', width: 38, height: 38, borderRadius: 'var(--r-sm)',
-              border: 'none', cursor: 'pointer', background: 'var(--surface-3)', color: 'var(--text-muted)', flexShrink: 0 }}><Icon name="send" size={16} /></button>
+            <button onClick={sendNote} disabled={!val.trim()} aria-label="Send breakout note" style={{ display: 'grid', placeItems: 'center', width: 38, height: 38, borderRadius: 'var(--r-sm)',
+              border: 'none', cursor: val.trim() ? 'pointer' : 'not-allowed', background: val.trim() ? 'var(--accent)' : 'var(--surface-3)',
+              color: val.trim() ? '#fff' : 'var(--text-muted)', flexShrink: 0 }}><Icon name="send" size={16} /></button>
           </div>
           <button onClick={() => { onBringBack && onBringBack(); onClose(); }} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
             gap: 7, padding: '10px', borderRadius: 'var(--r-sm)', border: 'none', cursor: 'pointer', background: 'var(--accent)', color: '#fff',
@@ -2561,8 +2583,29 @@ function BreakoutsHub({ agents, memberIds, autoRoom, onEnterAuto, onStartDM, onC
 function DMRoom({ agent, activeTask, onClose }) {
   if (!agent) return null;
   const [val, setVal] = useState('');
+  const [messages, setMessages] = useState([]);
+  const scrollRef = useRef(null);
   const steering = !!activeTask;
   const redirects = ['Use Postgres, not SQLite', 'Add rate limiting', 'Keep it server-rendered'];
+  const openingLine = steering
+    ? 'Mid-build — tell me what to change and I’ll fold it in.'
+    : 'Hey — what would you like to go over, just the two of us?';
+  useEffect(() => {
+    setMessages([{ id: 'opening', from: 'agent', text: openingLine }]);
+  }, [agent.agentId, openingLine]);
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
+  }, [messages.length]);
+  const sendMessage = () => {
+    const text = val.trim();
+    if (!text) return;
+    setMessages((prev) => [
+      ...prev,
+      { id: `you-${Date.now()}`, from: 'you', text },
+      { id: `agent-${Date.now()}`, from: 'agent', text: privateRoomReply(agent, text, steering) },
+    ]);
+    setVal('');
+  };
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 115, background: alpha('#000', 34),
       backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
@@ -2579,7 +2622,7 @@ function DMRoom({ agent, activeTask, onClose }) {
           </div>
           <button onClick={onClose} style={iconBtn}><Icon name="x" size={15} /></button>
         </div>
-        <div style={{ flex: 1, overflowY: 'auto', padding: '16px 15px', display: 'flex', flexDirection: 'column', gap: 12, background: 'var(--bg)' }}>
+        <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '16px 15px', display: 'flex', flexDirection: 'column', gap: 12, background: 'var(--bg)' }}>
           {steering && (
             <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start', padding: '10px 12px', borderRadius: 'var(--r-sm)',
               background: tint(agent.color, 9), border: `1px solid ${alpha(agent.color, 35)}` }}>
@@ -2588,12 +2631,19 @@ function DMRoom({ agent, activeTask, onClose }) {
                 <b>Working on {activeTask}</b> right now. A note here steers the live task without stopping the table.</div>
             </div>
           )}
-          <div style={{ display: 'flex', gap: 9 }}>
-            <Avatar agent={agent} size={26} />
-            <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '4px 12px 12px 12px',
-              padding: '9px 12px', fontSize: 13.5, color: 'var(--text)', maxWidth: '80%' }}>
-              {steering ? 'Mid-build — tell me what to change and I’ll fold it in.' : 'Hey — what would you like to go over, just the two of us?'}</div>
-          </div>
+          {messages.map((message) => (
+            <div key={message.id} style={{ display: 'flex', gap: 9, justifyContent: message.from === 'you' ? 'flex-end' : 'flex-start' }}>
+              {message.from !== 'you' && <Avatar agent={agent} size={26} />}
+              <div style={{ background: message.from === 'you' ? 'var(--accent)' : 'var(--surface)',
+                border: message.from === 'you' ? 'none' : '1px solid var(--border)',
+                borderRadius: message.from === 'you' ? '12px 4px 12px 12px' : '4px 12px 12px 12px',
+                padding: '9px 12px', fontSize: 13.5, color: message.from === 'you' ? '#fff' : 'var(--text)', maxWidth: '80%',
+                lineHeight: 1.5 }}>
+                {message.text}
+              </div>
+              {message.from === 'you' && <Avatar agent={{ agentId: 'you-user', displayName: 'You', color: '#8076a0' }} size={26} />}
+            </div>
+          ))}
         </div>
         {steering && (
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '0 13px 4px' }}>
@@ -2605,14 +2655,39 @@ function DMRoom({ agent, activeTask, onClose }) {
         )}
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 9, padding: '11px 13px', borderTop: '1px solid var(--border)' }}>
           <textarea value={val} onChange={(e) => setVal(e.target.value)} rows={1} placeholder={steering ? `Redirect ${agent.displayName}…` : `Message ${agent.displayName} privately…`}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
             style={{ flex: 1, resize: 'none', border: '1px solid var(--border)', borderRadius: 'var(--r-sm)', background: 'var(--surface-2)',
               font: 'inherit', fontSize: 13.5, color: 'var(--text)', padding: '9px 11px', outline: 'none', maxHeight: 100 }} />
-          <button onClick={() => setVal('')} style={{ display: 'grid', placeItems: 'center', width: 38, height: 38, borderRadius: 'var(--r-sm)',
-            border: 'none', cursor: 'pointer', background: 'var(--accent)', color: '#fff', flexShrink: 0 }}><Icon name="send" size={16} /></button>
+          <button onClick={sendMessage} disabled={!val.trim()} aria-label={`Send private message to ${agent.displayName}`} style={{ display: 'grid', placeItems: 'center', width: 38, height: 38, borderRadius: 'var(--r-sm)',
+            border: 'none', cursor: val.trim() ? 'pointer' : 'not-allowed', background: val.trim() ? 'var(--accent)' : 'var(--surface-3)',
+            color: val.trim() ? '#fff' : 'var(--text-muted)', flexShrink: 0 }}><Icon name="send" size={16} /></button>
         </div>
       </div>
     </div>
   );
+}
+
+function privateRoomReply(agent, text, steering) {
+  const lower = text.toLowerCase();
+  if (agent.pm) {
+    if (steering) return 'Got it. I’ll treat that as steering for the current task and keep the main table aligned.';
+    if (lower.includes('html') || lower.includes('ppt') || lower.includes('slide')) {
+      return 'Received. I’ll keep the ask outcome-focused: produce the actual slide artifact, not just explanation text.';
+    }
+    if (lower.includes('breakout') || lower.includes('private')) {
+      return 'Received. This private note is staying in our side room, and I can bring the outcome back when you are ready.';
+    }
+    return 'Received. I’m listening here privately; tell me whether you want this folded back into the main task or kept as context.';
+  }
+  if (steering) return `Got it. I’ll fold that into ${activeVerbFor(agent)} without stopping the rest of the table.`;
+  return `Got it. I’ll keep this private and use it to shape my ${agent.role || 'work'} contribution.`;
+}
+
+function activeVerbFor(agent) {
+  if (agent.role === 'reviewer') return 'the review';
+  if (agent.role === 'architect') return 'the architecture pass';
+  if (agent.role === 'planner') return 'the plan';
+  return 'the implementation';
 }
 
 /* ---- ResizeHandle : drag to resize the inspector ------------------------- */

@@ -101,6 +101,9 @@ function Drawer({ art, agents, onClose }) {
             <div style={{ marginTop: 2 }}><RoleTag agent={owner} showName /></div>
           </div>
           <VChip v={displayArt.version} />
+          <button onClick={() => downloadArtifact(art)} title="Download artifact" style={iconBtn}>
+            <Icon name="download" size={15} />
+          </button>
           <button onClick={onClose} style={iconBtn}><Icon name="x" size={16} /></button>
         </div>
         <div style={{ flex: 1, overflow: 'auto', padding: 18, background: 'var(--surface-2)' }}>
@@ -120,6 +123,42 @@ function Drawer({ art, agents, onClose }) {
       </div>
     </div>
   );
+}
+
+function downloadArtifact(artifact) {
+  const display = normalizeArtifactForDisplay(artifact);
+  if (!display) return;
+  const isHtml = artifact.kind === 'html' || artifact.kind === 'preview' || display.kind === 'preview';
+  const content = isHtml
+    ? normalizePreviewHtml(display.preview || display.code || '')
+    : display.code || display.preview || display.content || display.uri || '';
+  const type = isHtml ? 'text/html;charset=utf-8' : 'text/plain;charset=utf-8';
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = artifactDownloadName(artifact, display, isHtml);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function artifactDownloadName(raw, display, isHtml) {
+  const title = String(raw?.title || display?.title || raw?.uri || 'roundtable-artifact')
+    .replace(/^workspace:\/\//, '')
+    .split('/')
+    .filter(Boolean)
+    .pop() || 'roundtable-artifact';
+  const clean = title
+    .replace(/[<>:"/\\|?*\x00-\x1f]/g, '-')
+    .replace(/\s+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 96) || 'roundtable-artifact';
+  if (/\.[a-z0-9]{1,8}$/i.test(clean)) return clean;
+  if (isHtml) return `${clean}.html`;
+  if (raw?.kind === 'markdown') return `${clean}.md`;
+  return `${clean}.txt`;
 }
 
 function normalizePreviewHtml(html) {
@@ -420,7 +459,8 @@ function LocalLiveTurn({ turn, agents, onApproveTurn, turnActions, showPreview, 
   const stopping = turn.result?.dispatchStage === 'interrupting' || turn.interrupting;
   const interrupted = failed && turn.result?.dispatchError === 'interrupted_by_user';
   const artifacts = turn.result?.artifacts || [];
-  const previewArtifact = artifacts.find((artifact) => artifact.kind === 'preview');
+  const previewArtifact = artifacts.find((artifact) => artifact.kind === 'preview')
+    || artifacts.find((artifact) => artifact.kind === 'html');
   return (
     <>
       <UserMsg text={turn.message} onQuote={onQuote} onPin={onPin} />
@@ -776,7 +816,7 @@ function ExpandableArtifact({ artifact, owner, onOpen }) {
     <div style={{ borderRadius: 'var(--r-sm)', background: tint(owner.color, 7),
       border: `1px solid ${alpha(owner.color, 22)}`, overflow: 'hidden' }}>
       <div style={{ width: '100%', display: 'grid',
-        gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'center', padding: '8px 10px' }}>
+        gridTemplateColumns: '1fr auto auto', gap: 8, alignItems: 'center', padding: '8px 10px' }}>
         <button onClick={() => setOpen((v) => !v)} style={{ minWidth: 0, display: 'grid',
           gridTemplateColumns: 'auto auto auto 1fr auto', gap: 9, alignItems: 'center',
           background: 'transparent', border: 'none', cursor: 'pointer', font: 'inherit', textAlign: 'left', padding: 0 }}>
@@ -794,6 +834,14 @@ function ExpandableArtifact({ artifact, owner, onOpen }) {
             color: owner.color, font: 'inherit', fontSize: 11.5, fontWeight: 650, cursor: 'pointer' }}>
           <Icon name={artifact.kind === 'preview' ? 'eye' : 'expand'} size={12} />
           {artifact.kind === 'preview' ? 'Open preview' : 'Open artifact'}
+        </button>
+        <button onClick={(e) => { e.stopPropagation(); downloadArtifact(artifact); }}
+          title="Download artifact"
+          style={{ justifySelf: 'end', display: 'inline-flex', alignItems: 'center', gap: 5,
+            padding: '4px 8px', borderRadius: 'var(--r-sm)', border: '1px solid var(--border)', background: 'var(--surface)',
+            color: owner.color, font: 'inherit', fontSize: 11.5, fontWeight: 650, cursor: 'pointer' }}>
+          <Icon name="download" size={12} />
+          Download
         </button>
       </div>
       {open && (
@@ -813,7 +861,7 @@ function ExpandableArtifact({ artifact, owner, onOpen }) {
 
 function LocalResultCard({ artifacts, dispatchStatus, dispatchAdapter, dispatchStage, workspacePath, previewArtifact, agents, onOpenArtifact }) {
   const completed = dispatchStatus === 'completed';
-  const codeCount = artifacts.filter((artifact) => artifact.kind === 'code').length;
+  const codeCount = artifacts.filter((artifact) => artifact.kind === 'code' || artifact.kind === 'html').length;
   const reviewCount = artifacts.filter((artifact) => artifact.ownerAgentId === 'reviewer').length;
   const primaryMarkdown = artifacts.find((artifact) =>
     artifact.kind === 'markdown' && artifact.ownerAgentId !== 'orchestrator' && artifact.preview,
@@ -838,12 +886,20 @@ function LocalResultCard({ artifacts, dispatchStatus, dispatchAdapter, dispatchS
           {dispatchStatus || 'not_started'}
         </span>
         {previewArtifact && (
-          <button onClick={() => onOpenArtifact && onOpenArtifact(previewArtifact)}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 10px',
-              borderRadius: 'var(--r-sm)', border: '1px solid var(--border)', background: 'var(--surface)',
-              color: 'var(--accent)', font: 'inherit', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
-            <Icon name="eye" size={13} /> Open preview
-          </button>
+          <>
+            <button onClick={() => onOpenArtifact && onOpenArtifact(previewArtifact)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 10px',
+                borderRadius: 'var(--r-sm)', border: '1px solid var(--border)', background: 'var(--surface)',
+                color: 'var(--accent)', font: 'inherit', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+              <Icon name="eye" size={13} /> Open preview
+            </button>
+            <button onClick={() => downloadArtifact(previewArtifact)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 10px',
+                borderRadius: 'var(--r-sm)', border: '1px solid var(--border)', background: 'var(--surface)',
+                color: 'var(--accent)', font: 'inherit', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+              <Icon name="download" size={13} /> Download
+            </button>
+          </>
         )}
       </div>
       {previewArtifact && (
@@ -1518,25 +1574,32 @@ function FileRow({ art, agents, onOpen, activeChatId }) {
       ? 'project artifact'
       : null;
   return (
-    <button onClick={() => onOpen(art)} style={{ width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 10,
+    <div style={{ width: '100%', display: 'flex', alignItems: 'stretch', gap: 7, marginBottom: 7 }}>
+      <button onClick={() => onOpen(art)} style={{ flex: 1, minWidth: 0, textAlign: 'left', display: 'flex', alignItems: 'center', gap: 10,
       padding: '10px 12px', borderRadius: 'var(--r-sm)', border: '1px solid var(--border)', background: 'var(--surface)',
-      color: 'var(--text)', font: 'inherit', cursor: 'pointer', marginBottom: 7 }}
+      color: 'var(--text)', font: 'inherit', cursor: 'pointer' }}
       onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--surface-2)')}
       onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--surface)')}>
-      <span style={{ display: 'grid', placeItems: 'center', width: 30, height: 30, borderRadius: 8, flexShrink: 0,
-        background: tint(owner && !art.source.includes('upload') ? owner.color : 'var(--text-faint)', 14),
-        color: owner && art.source !== 'uploaded' ? owner.color : 'var(--text-muted)' }}>
-        <Icon name={icon} size={15} /></span>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div className="mono" style={{ fontSize: 12.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {art.title.split('/').pop()}</div>
-        <div style={{ fontSize: 11, color: 'var(--text-faint)', display: 'flex', alignItems: 'center', gap: 6, marginTop: 1 }}>
-          {scopeCopy || (art.source === 'uploaded' ? 'you · uploaded' : owner ? owner.displayName + ' · ' + art.kind : art.kind)}
+        <span style={{ display: 'grid', placeItems: 'center', width: 30, height: 30, borderRadius: 8, flexShrink: 0,
+          background: tint(owner && !String(art.source || '').includes('upload') ? owner.color : 'var(--text-faint)', 14),
+          color: owner && art.source !== 'uploaded' ? owner.color : 'var(--text-muted)' }}>
+          <Icon name={icon} size={15} /></span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="mono" style={{ fontSize: 12.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {art.title.split('/').pop()}</div>
+          <div style={{ fontSize: 11, color: 'var(--text-faint)', display: 'flex', alignItems: 'center', gap: 6, marginTop: 1 }}>
+            {scopeCopy || (art.source === 'uploaded' ? 'you · uploaded' : owner ? owner.displayName + ' · ' + art.kind : art.kind)}
+          </div>
         </div>
-      </div>
-      <span className="mono tnum" style={{ fontSize: 10.5, fontWeight: 600, padding: '1px 6px', borderRadius: 5,
-        background: 'var(--surface-3)', color: 'var(--text-muted)', flexShrink: 0 }}>v{art.version}</span>
-    </button>
+        <span className="mono tnum" style={{ fontSize: 10.5, fontWeight: 600, padding: '1px 6px', borderRadius: 5,
+          background: 'var(--surface-3)', color: 'var(--text-muted)', flexShrink: 0 }}>v{art.version}</span>
+      </button>
+      <button onClick={() => downloadArtifact(art)} title="Download artifact"
+        style={{ display: 'grid', placeItems: 'center', width: 38, flexShrink: 0, borderRadius: 'var(--r-sm)',
+          border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-muted)', cursor: 'pointer' }}>
+        <Icon name="download" size={15} />
+      </button>
+    </div>
   );
 }
 function InspectorPanel({ tab, setTab, clock, agents, scene, width, onOpenArtifact, onAction, onClose, live, liveArtifacts, liveMessages, liveHandoffs, activeChatId, memory, localTurns, localStatus, onApproveLocalTurn, localTurnActions, onClearLocalTurns, onRewrite, onQuote, onPin }) {
@@ -1663,24 +1726,73 @@ function LiveNotes({ agents, artifacts, handoffs }) {
   );
 }
 
-function turnToTask(turn) {
-  const title = turn.message.length > 40 ? turn.message.slice(0, 40) + '...' : turn.message;
-  if (turn.status === 'error') {
-    return { id: turn.id, title, meta: turn.error || 'failed', status: 'queued' };
+const LOCAL_CHATS_KEY = 'roundtable.localChats';
+const LOCAL_ACTIVE_CHAT_KEY = 'roundtable.localActiveChatId';
+
+function titleForLocalChat(text) {
+  const title = String(text || '').trim().replace(/\s+/g, ' ');
+  return title.length > 40 ? `${title.slice(0, 40)}...` : title || 'Untitled task';
+}
+
+function readLocalChats() {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(LOCAL_CHATS_KEY) || '[]');
+    if (Array.isArray(parsed) && parsed.length > 0) return sortLocalChats(parsed.filter((chat) => chat?.id));
+
+    // Legacy fallback: older local mode had one global localChatId, which is
+    // exactly what made tasks bleed together. Preserve it as a selectable task
+    // so existing demo history is not orphaned after the model is fixed.
+    const legacyId = window.localStorage.getItem('roundtable.localChatId');
+    if (legacyId) {
+      const now = new Date().toISOString();
+      return [{
+        id: legacyId,
+        title: 'Local task',
+        meta: 'legacy local chat',
+        createdAt: now,
+        updatedAt: now,
+      }];
+    }
+  } catch {
+    // Local task persistence is best-effort.
   }
+  return [];
+}
+
+function writeLocalChats(chats) {
+  try {
+    window.localStorage.setItem(LOCAL_CHATS_KEY, JSON.stringify(sortLocalChats(chats || [])));
+  } catch {
+    // Local task persistence is best-effort.
+  }
+}
+
+function sortLocalChats(chats) {
+  return [...(chats || [])].sort((a, b) => Date.parse(b.updatedAt || b.createdAt || 0) - Date.parse(a.updatedAt || a.createdAt || 0));
+}
+
+function taskMetaFromTurn(turn) {
+  if (turn.status === 'error') return turn.error || 'failed';
   const count = turn.result?.plan?.tasks?.length || turn.plan?.tasks?.length || 0;
   const approvalStatus = turn.result?.approvalStatus || turn.approvalStatus;
   const dispatchStatus = turn.result?.dispatchStatus || turn.dispatchStatus;
   const artifactCount = turn.result?.artifacts?.length || turn.artifacts?.length || 0;
   const approvalMeta = approvalStatus === 'approved' ? 'approved' : 'awaiting approval';
+  if (dispatchStatus === 'completed') return `${artifactCount} artifacts · result ready`;
+  if (count) return `${count} planned · ${approvalMeta}`;
+  return 'planned';
+}
+
+function turnToTask(turn) {
+  const title = titleForLocalChat(turn.message);
+  if (turn.status === 'error') {
+    return { id: turn.id, title, meta: taskMetaFromTurn(turn), status: 'queued' };
+  }
+  const approvalStatus = turn.result?.approvalStatus || turn.approvalStatus;
   return {
     id: turn.id,
     title,
-    meta: dispatchStatus === 'completed'
-      ? `${artifactCount} artifacts · result ready`
-      : count
-      ? `${count} planned · ${approvalMeta}`
-      : 'planned',
+    meta: taskMetaFromTurn(turn),
     status: approvalStatus === 'approved' ? 'done' : turn.status === 'pending' ? 'live' : 'queued',
   };
 }
@@ -2397,21 +2509,24 @@ function BreakoutModal({ data, agents, onClose, onBringBack }) {
 /* ---- BreakoutsHub : the door's panel — see & start side rooms ------------ */
 function BreakoutsHub({ agents, memberIds, autoRoom, onEnterAuto, onStartDM, onClose }) {
   const members = (memberIds || []).filter((id) => id !== 'orchestrator' || true).map((id) => agents[id]).filter(Boolean);
+  const room = autoRoom || RT.SCRIPT.find((b) => b.kind === 'breakout');
   return (
     <Modal title="Breakout rooms" icon="door" onClose={onClose} width={500}
       sub="Pull people aside for a side conversation — two agents, or a private 1:1 with you.">
       <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--text-faint)', marginBottom: 8 }}>Active rooms</div>
-      {autoRoom ? (
+      {room ? (
         <button onClick={onEnterAuto} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 11, padding: '11px 13px',
           borderRadius: 'var(--r-sm)', border: '1px solid var(--border)', background: 'var(--surface-2)', cursor: 'pointer', font: 'inherit',
           textAlign: 'left', marginBottom: 18 }}>
           <span style={{ display: 'flex' }}>
-            <span style={{ zIndex: 1 }}><Avatar agent={agents[autoRoom.a]} size={26} /></span>
-            <span style={{ marginLeft: -8 }}><Avatar agent={agents[autoRoom.b]} size={26} /></span>
+            <span style={{ zIndex: 1 }}><Avatar agent={agents[room.a]} size={26} /></span>
+            <span style={{ marginLeft: -8 }}><Avatar agent={agents[room.b]} size={26} /></span>
           </span>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 13, fontWeight: 600 }}>{agents[autoRoom.a].displayName} &amp; {agents[autoRoom.b].displayName}</div>
-            <div style={{ fontSize: 11.5, color: 'var(--text-faint)' }}>aligning on validation · {autoRoom.turns} turns</div>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>{agents[room.a].displayName} &amp; {agents[room.b].displayName}</div>
+            <div style={{ fontSize: 11.5, color: 'var(--text-faint)' }}>
+              {autoRoom ? 'aligning on validation' : 'demo side room'} · {room.turns} turns
+            </div>
           </div>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 12, fontWeight: 600, color: 'var(--accent)' }}>
             Enter <Icon name="chevron" size={12} /></span>
@@ -2555,18 +2670,17 @@ function App() {
   }, []);
   const [localTurns, setLocalTurns] = useState([]);
   const [localStatus, setLocalStatus] = useState('idle');
-  // Persisted so a page refresh restores this chat's live turns from history
-  // instead of starting an empty session (the history API filters by chatId).
-  const [localChatId] = useState(() => {
-    const key = 'roundtable.localChatId';
+  const historyRequestSeq = useRef(0);
+  const [localChats, setLocalChats] = useState(() => readLocalChats());
+  const [selectedLocalChatId, setSelectedLocalChatId] = useState(() => {
     try {
-      const existing = window.localStorage.getItem(key);
-      if (existing) return existing;
-      const id = crypto.randomUUID();
-      window.localStorage.setItem(key, id);
-      return id;
+      const selected = window.localStorage.getItem(LOCAL_ACTIVE_CHAT_KEY);
+      const chats = readLocalChats();
+      return selected && chats.some((chat) => chat.id === selected)
+        ? selected
+        : chats[0]?.id ?? null;
     } catch {
-      return crypto.randomUUID();
+      return null;
     }
   });
   // P3.2: live chats when signed in; fall back to fixtures for the logged-out demo.
@@ -2622,7 +2736,15 @@ function App() {
     authed && activeWorkbenchId
       ? liveWorkbenches.find((w) => w.id === activeWorkbenchId) ?? null
       : null;
-  const localTasks = localTurns.map(turnToTask);
+  const activeLocalChatId = selectedLocalChatId ?? localChats[0]?.id ?? null;
+  const localTasks = localChats.length > 0
+    ? localChats.map((chat) => ({
+        id: chat.id,
+        title: chat.title,
+        meta: chat.meta || 'local task chat',
+        status: chat.id === activeLocalChatId && localStatus === 'pending' ? 'live' : 'idle',
+      }))
+    : [];
   const tasks =
     authed && chatsQ.data
       ? chatsQ.data
@@ -2661,7 +2783,7 @@ function App() {
   const scene = useScene(t.autoplay, t.speed);
   const compact = useMediaQuery('(max-width: 760px)');
   const [decided, setDecided] = useState(false);
-  const localLive = !authed && localTurns.length > 0;
+  const localLive = !authed && !!activeLocalChatId && localTurns.length > 0;
   // Workflow recommendation for the active task (local heuristic; no backend on main).
   const activeTaskTitle = localLive
     ? (tasks[0]?.title ?? '')
@@ -2732,18 +2854,37 @@ function App() {
   // Turns are saved in the turn store under whatever chatId was sent to
   // /api/orchestrator/turn: the real chat id when signed in, else the local
   // fallback id. Poll history under the *same* id, or we'd query an empty chat.
-  const turnChatId = authed ? activeChatId : localChatId;
+  useEffect(() => {
+    writeLocalChats(localChats);
+  }, [localChats]);
+
+  useEffect(() => {
+    try {
+      if (activeLocalChatId) window.localStorage.setItem(LOCAL_ACTIVE_CHAT_KEY, activeLocalChatId);
+      else window.localStorage.removeItem(LOCAL_ACTIVE_CHAT_KEY);
+    } catch {
+      // Local task selection is a convenience only.
+    }
+  }, [activeLocalChatId]);
+
+  const turnChatId = authed ? activeChatId : activeLocalChatId;
   const loadLocalHistory = useCallback(async () => {
-    if (!turnChatId) return;
+    if (localStatus === 'pending') return;
+    const requestSeq = ++historyRequestSeq.current;
+    if (!turnChatId) {
+      if (requestSeq === historyRequestSeq.current) setLocalTurns([]);
+      return;
+    }
     try {
       const res = await fetch(`/api/orchestrator/history?chatId=${turnChatId}`, { cache: 'no-store' });
       const data = await res.json();
       if (!res.ok || !data.ok) return;
+      if (requestSeq !== historyRequestSeq.current) return;
       setLocalTurns((data.turns || []).map(storedTurnToLiveTurn));
     } catch {
       // Local history is a dev convenience; a fresh turn should still work.
     }
-  }, [turnChatId]);
+  }, [localStatus, turnChatId]);
 
   useEffect(() => {
     if (authStatus === 'loading') return;
@@ -2772,6 +2913,11 @@ function App() {
     setSelectedChatId(id);
     const chat = chatsQ.data?.find((c) => c.id === id);
     if (chat) setSelectedWorkbenchId(chat.workbenchId);
+  };
+  const pickLocalChat = (id) => {
+    setSelectedLocalChatId(id);
+    setInspectorTab('chat');
+    setNotesOpen(true);
   };
   const pickWorkbench = (id) => {
     setSelectedWorkbenchId(id);
@@ -2830,16 +2976,37 @@ function App() {
       // Builtin fallback keeps the run functional; binding is best-effort.
     }
   };
+  const touchLocalChat = (id, patch = {}) => {
+    setLocalChats((chats) => sortLocalChats(chats.map((chat) => (
+      chat.id === id ? { ...chat, ...patch, updatedAt: new Date().toISOString() } : chat
+    ))));
+  };
+  const createLocalChat = (goal) => {
+    const now = new Date().toISOString();
+    const chat = {
+      id: crypto.randomUUID(),
+      title: titleForLocalChat(goal),
+      meta: 'local task chat',
+      createdAt: now,
+      updatedAt: now,
+    };
+    setLocalChats((chats) => sortLocalChats([chat, ...chats.filter((item) => item.id !== chat.id)]));
+    setSelectedLocalChatId(chat.id);
+    return chat;
+  };
   const sendLocalTurn = async (message, turnId, chatIdOverride) => {
     const id = turnId || 'live-' + Date.now();
     const createdAt = new Date().toISOString();
+    const targetChatId = chatIdOverride ?? turnChatId;
     const directMention = isDirectAgentMention(message);
+    historyRequestSeq.current += 1;
     setInspectorTab('chat');
     setNotesOpen(true);
     setLocalStatus('pending');
     // Recent thread (localTurns is newest-first) → chronological history so
     // the PM model sees the conversation, not just this one message.
-    const history = localTurns
+    const historyTurns = targetChatId && targetChatId === turnChatId ? localTurns : [];
+    const history = historyTurns
       .slice(0, 4)
       .reverse()
       .flatMap((turn) => [
@@ -2848,11 +3015,14 @@ function App() {
       ])
       .slice(-8);
     setLocalTurns((turns) => [{ id, message, createdAt, status: 'pending' }, ...turns]);
+    if (!authed && targetChatId) {
+      touchLocalChat(targetChatId, { meta: 'running in chat' });
+    }
     try {
       const res = await fetch('/api/orchestrator/turn', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, turnId: id, chatId: chatIdOverride ?? localChatId,
+        body: JSON.stringify({ message, turnId: id, chatId: targetChatId,
           ...(history.length > 0 ? { history } : {}) }),
       });
       const data = await res.json();
@@ -2892,12 +3062,18 @@ function App() {
       setLocalTurns((turns) => turns.map((turn) => (
         turn.id === id ? { ...turn, status: 'done', result } : turn
       )));
+      if (!authed && targetChatId) {
+        touchLocalChat(targetChatId, { meta: taskMetaFromTurn({ status: 'done', result }) });
+      }
       setLocalStatus('idle');
     } catch (error) {
       const errorText = error instanceof Error ? error.message : 'orchestrator_turn_failed';
       setLocalTurns((turns) => turns.map((turn) => (
         turn.id === id ? { ...turn, status: 'error', error: errorText } : turn
       )));
+      if (!authed && targetChatId) {
+        touchLocalChat(targetChatId, { meta: errorText });
+      }
       setLocalStatus('error');
     }
   };
@@ -3036,7 +3212,9 @@ function App() {
     setView('roundtable');
     setInspectorTab('chat');
     setNotesOpen(true);
-    sendLocalTurn(goal);
+    const chat = createLocalChat(goal);
+    setLocalTurns([]);
+    sendLocalTurn(goal, undefined, chat.id);
   };
   const sendComposerMessage = async (message) => {
     if (authed) {
@@ -3053,7 +3231,13 @@ function App() {
       }
       return;
     }
-    sendLocalTurn(message);
+    if (activeLocalChatId) {
+      sendLocalTurn(message, undefined, activeLocalChatId);
+    } else {
+      const chat = createLocalChat(message);
+      setLocalTurns([]);
+      sendLocalTurn(message, undefined, chat.id);
+    }
   };
   const memory = {
     live: authed,
@@ -3081,7 +3265,7 @@ function App() {
       <TopBar t={t} setTweak={setTweak} view={view} setView={setView} />
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         {railOpen && !compact && <ConversationRail workbench={railWorkbench} workbenches={railWorkbenches}
-          tasks={tasks} agents={agents} activeId={authed ? activeChatId : tasks[0]?.id} onPick={authed ? pickChat : undefined}
+          tasks={tasks} agents={agents} activeId={authed ? activeChatId : activeLocalChatId} onPick={authed ? pickChat : pickLocalChat}
           memberIds={memberIds} onRemoveMember={(id) => setMemberIds((m) => m.filter((x) => x !== id))}
           onAddMember={() => setModal('agent')} onNewTask={() => setModal('task')} onNewWorkbench={() => setModal('table')}
           onPickWorkbench={pickWorkbench} onCollapse={() => setRailOpen(false)}
@@ -3091,7 +3275,7 @@ function App() {
             onClick={() => setRailOpen(false)}>
             <div onClick={(e) => e.stopPropagation()} style={{ width: 'min(320px, 86vw)', height: '100%' }}>
               <ConversationRail workbench={railWorkbench} workbenches={railWorkbenches}
-                tasks={tasks} agents={agents} activeId={authed ? activeChatId : tasks[0]?.id} onPick={authed ? pickChat : undefined}
+                tasks={tasks} agents={agents} activeId={authed ? activeChatId : activeLocalChatId} onPick={authed ? pickChat : pickLocalChat}
                 memberIds={memberIds} onRemoveMember={(id) => setMemberIds((m) => m.filter((x) => x !== id))}
                 onAddMember={() => setModal('agent')} onNewTask={() => setModal('task')} onNewWorkbench={() => setModal('table')}
                 onPickWorkbench={pickWorkbench} onCollapse={() => setRailOpen(false)}

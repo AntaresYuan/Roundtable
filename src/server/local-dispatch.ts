@@ -686,6 +686,7 @@ function localAgentSystemPrompt(input: {
   path: string;
 }): string {
   const isPreviewableReact = /\.(tsx|jsx)$/i.test(input.path);
+  const isHtml = /\.html?$/i.test(input.path);
   return [
     'You are a Roundtable coding agent.',
     'Produce exactly one useful file for the assigned task.',
@@ -693,6 +694,14 @@ function localAgentSystemPrompt(input: {
     'Keep the file self-contained and practical.',
     `Role: ${input.role}`,
     `Target path: ${input.path}`,
+    ...(isHtml
+      ? [
+          '',
+          'This file is rendered directly in a sandboxed iframe.',
+          'Return a complete standalone HTML document with <!doctype html>, inline CSS, and inline JavaScript when interaction is needed.',
+          'For slide decks or PPT-like requests, create an actual slide presentation with keyboard navigation, not a requirements document or prose explanation.',
+        ]
+      : []),
     ...(isPreviewableReact
       ? [
           '',
@@ -837,6 +846,9 @@ async function suggestedPath(
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
     .slice(0, 48) || 'task';
+  if (role === 'implementer' && isHtmlPresentationRequest(`${title}\n${taskBrief}`)) {
+    return `app/${slug}.html`;
+  }
   if (role === 'implementer' && /\b(test|tests|spec|unit)\b/i.test(title)) {
     return `tests/${slug}.test.ts`;
   }
@@ -853,6 +865,10 @@ async function suggestedPath(
   if (role === 'architect' || role === 'planner') return `docs/${slug}.md`;
   if (role === 'fixer') return `fixes/${slug}.md`;
   return `work/${slug}.md`;
+}
+
+function isHtmlPresentationRequest(text: string): boolean {
+  return /\b(html\s*ppt|html\s*slide|slide\s*deck|slideshow|slides?|presentation|ppt|keynote)\b/i.test(text);
 }
 
 function isFollowUpProjectRequest(text: string): boolean {
@@ -1113,6 +1129,7 @@ function templateArtifactContent(input: {
     return previewRuntimeFixTemplate(input);
   }
   if (input.path.endsWith('.tsx')) return pageTemplate(input.title);
+  if (input.path.endsWith('.html')) return htmlSlideTemplate(input.title);
   if (input.path.endsWith('.test.ts')) return testTemplate(input.title);
   if (input.path.endsWith('.ts')) return apiTemplate(input.title);
   return markdownTemplate(input);
@@ -1257,6 +1274,75 @@ export function completeTodo(id: string): TodoItem {
 
 export const generatedTaskTitle = ${JSON.stringify(title)};
 `);
+}
+
+function htmlSlideTemplate(title: string): string {
+  return ensureTrailingNewline(`<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${escapeHtml(title)}</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: linear-gradient(135deg, #fff7c7 0%, #d8f4ff 48%, #ffe0ef 100%);
+      color: #172033;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    main { min-height: 100vh; display: grid; grid-template-rows: auto 1fr auto; gap: 18px; padding: clamp(18px, 4vw, 44px); }
+    header, footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; color: #526174; font-size: 14px; font-weight: 750; }
+    .deck { position: relative; min-height: 520px; overflow: hidden; border: 1px solid rgba(23, 32, 51, 0.1); border-radius: 28px; background: rgba(255, 255, 255, 0.86); box-shadow: 0 24px 70px rgba(30, 64, 175, 0.16); }
+    .slide { position: absolute; inset: 0; display: grid; align-content: center; gap: 24px; padding: clamp(28px, 6vw, 76px); opacity: 0; transform: translateX(24px); pointer-events: none; transition: opacity 220ms ease, transform 220ms ease; }
+    .slide.active { opacity: 1; transform: translateX(0); pointer-events: auto; }
+    .eyebrow { width: max-content; padding: 7px 12px; border-radius: 999px; background: #e8f5ff; color: #2368a2; font-size: 13px; font-weight: 850; letter-spacing: 0.04em; text-transform: uppercase; }
+    h1 { max-width: 880px; margin: 0; color: #12213a; font-size: clamp(44px, 8vw, 86px); line-height: 0.95; }
+    h2 { max-width: 760px; margin: 0; color: #172033; font-size: clamp(34px, 6vw, 64px); line-height: 1.02; }
+    p, li { max-width: 760px; color: #3b4a60; font-size: clamp(18px, 2.4vw, 25px); line-height: 1.45; }
+    ul { display: grid; gap: 14px; margin: 0; padding-left: 1.2em; }
+    .visual-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; max-width: 760px; }
+    .tile { min-height: 132px; border-radius: 20px; padding: 18px; display: grid; align-content: end; background: linear-gradient(135deg, #fff4c7, #c7f3ff); color: #19314f; font-weight: 850; box-shadow: inset 0 0 0 1px rgba(23, 32, 51, 0.08); }
+    .controls { display: flex; align-items: center; gap: 10px; }
+    button { width: 42px; height: 42px; border: 1px solid rgba(23, 32, 51, 0.12); border-radius: 50%; background: #fff; color: #172033; font: inherit; font-size: 22px; cursor: pointer; box-shadow: 0 8px 24px rgba(30, 64, 175, 0.12); }
+    .progress { height: 8px; flex: 1; min-width: 160px; border-radius: 999px; background: rgba(35, 104, 162, 0.14); overflow: hidden; }
+    .bar { height: 100%; width: 20%; border-radius: inherit; background: linear-gradient(90deg, #39a7ff, #ffbd4a); transition: width 220ms ease; }
+    @media (max-width: 720px) { main { padding: 16px; } .deck { min-height: 580px; border-radius: 20px; } .visual-grid { grid-template-columns: 1fr; } header, footer { align-items: flex-start; flex-direction: column; } .progress { width: 100%; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header><span>Generated HTML slide deck</span><span>Use arrow keys or buttons</span></header>
+    <section class="deck" aria-live="polite">
+      <article class="slide active"><span class="eyebrow">Slide 1</span><h1>${escapeHtml(title)}</h1><p>A bright, keyboard-friendly HTML presentation generated as a real artifact.</p></article>
+      <article class="slide"><span class="eyebrow">Slide 2</span><h2>Overview</h2><p>Use this slide for the main idea, audience, and desired takeaway.</p></article>
+      <article class="slide"><span class="eyebrow">Slide 3</span><h2>Key Points</h2><ul><li>Clear structure with readable typography.</li><li>Bright visual system suitable for a presentation.</li><li>Self-contained HTML, CSS, and JavaScript.</li></ul></article>
+      <article class="slide"><span class="eyebrow">Slide 4</span><h2>Visual Placeholders</h2><div class="visual-grid"><div class="tile">Image / chart</div><div class="tile">Example</div><div class="tile">Highlight</div></div></article>
+      <article class="slide"><span class="eyebrow">Slide 5</span><h2>Closing</h2><p>End with a concise summary, next step, or call to action.</p></article>
+    </section>
+    <footer><div class="controls"><button type="button" aria-label="Previous slide" data-prev>‹</button><button type="button" aria-label="Next slide" data-next>›</button><span data-count>1 / 5</span></div><div class="progress" aria-hidden="true"><div class="bar"></div></div></footer>
+  </main>
+  <script>
+    const slides = Array.from(document.querySelectorAll('.slide'));
+    const count = document.querySelector('[data-count]');
+    const bar = document.querySelector('.bar');
+    let index = 0;
+    function show(next) {
+      index = (next + slides.length) % slides.length;
+      slides.forEach((slide, i) => slide.classList.toggle('active', i === index));
+      count.textContent = String(index + 1) + ' / ' + String(slides.length);
+      bar.style.width = String(((index + 1) / slides.length) * 100) + '%';
+    }
+    document.querySelector('[data-prev]').addEventListener('click', () => show(index - 1));
+    document.querySelector('[data-next]').addEventListener('click', () => show(index + 1));
+    window.addEventListener('keydown', (event) => {
+      if (event.key === 'ArrowLeft') show(index - 1);
+      if (event.key === 'ArrowRight' || event.key === ' ') show(index + 1);
+    });
+  </script>
+</body>
+</html>`);
 }
 
 function testTemplate(title: string): string {

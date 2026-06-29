@@ -125,7 +125,9 @@ function ScopeBadge({ children }) {
 function MemoryPanel({ memory }) {
   const profile = memory?.profile;
   const pins = memory?.pins || [];
-  const derivedSuggestions = derivePreferenceSuggestions(memory?.recentMessages || []);
+  const canLearnSuggestions = memory?.settings?.learnPreferenceSuggestions !== false;
+  const canUsePreferences = memory?.settings?.useSavedPreferencesInHandoffs !== false;
+  const derivedSuggestions = canLearnSuggestions ? derivePreferenceSuggestions(memory?.recentMessages || []) : [];
   const [preferences, setPreferences] = useState([]);
   const [dismissedSuggestions, setDismissedSuggestions] = useState([]);
   const [manualOpen, setManualOpen] = useState(false);
@@ -201,6 +203,7 @@ function MemoryPanel({ memory }) {
         <div style={{ fontSize: 12, color: 'var(--text-faint)', lineHeight: 1.45 }}>
           Roundtable suggests preferences from how you work. Save the ones you want future agents to remember.
           Saved preferences affect future hand-offs only.
+          {!canUsePreferences && ' Saved preferences are currently disabled in Profile.'}
         </div>
         <div style={{ display: 'grid', gap: 7 }}>
           <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-muted)' }}>Saved preferences</div>
@@ -245,7 +248,11 @@ function MemoryPanel({ memory }) {
 
         <div style={{ display: 'grid', gap: 7 }}>
           <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-muted)' }}>Suggested preferences</div>
-          {visibleSuggestions.length === 0 ? (
+          {!canLearnSuggestions ? (
+            <div style={{ ...cardStyle, fontSize: 12.5, color: 'var(--text-faint)', fontStyle: 'italic' }}>
+              Preference suggestions are turned off in Profile.
+            </div>
+          ) : visibleSuggestions.length === 0 ? (
             <div style={{ ...cardStyle, fontSize: 12.5, color: 'var(--text-faint)', fontStyle: 'italic' }}>
               No new suggestions right now.
             </div>

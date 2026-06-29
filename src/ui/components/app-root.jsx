@@ -13,7 +13,7 @@ import { RoundtableScene, WhiteboardZoom, sceneAt, meetingNotes } from './roundt
 import { WorkflowView, WorkflowStrip } from './workflow';
 import { Modal, NewTaskModal, NewWorkbenchModal, AddAgentModal, EditHandoffModal } from './modals';
 import { MemoryPanel } from './memory-panel';
-import { useSession } from 'next-auth/react';
+import { signIn, signOut, useSession } from 'next-auth/react';
 import { trpc } from '@/ui/lib/trpc';
 
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
@@ -1300,7 +1300,8 @@ function MiniSeg({ value, options, onChange }) {
 }
 
 /* ---- TopBar --------------------------------------------------------------- */
-function TopBar({ t, setTweak, view, setView }) {
+function TopBar({ t, setTweak, view, setView, authStatus, userEmail, onOpenProfile }) {
+  const authed = authStatus === 'authenticated';
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '0 18px', height: 54,
       borderBottom: '1px solid var(--border)', background: 'var(--surface)', flexShrink: 0 }}>
@@ -1308,11 +1309,154 @@ function TopBar({ t, setTweak, view, setView }) {
         { v: 'roundtable', label: 'Roundtable', icon: 'layers' },
         { v: 'workflow', label: 'Workflow', icon: 'sparkle' }]} />
       <div style={{ flex: 1 }} />
+      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+        {authed && (
+          <button
+            onClick={onOpenProfile}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 11px',
+              borderRadius: 'var(--r-sm)', border: '1px solid var(--border)', cursor: 'pointer',
+              background: 'var(--surface-2)', color: 'var(--text)', font: 'inherit', fontSize: 12.5, fontWeight: 500 }}
+          >
+            <Icon name="layers" size={14} />
+            <span style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {userEmail || 'Profile'}
+            </span>
+          </button>
+        )}
+        <button
+          onClick={() => authed ? signOut() : signIn()}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 11px',
+            borderRadius: 'var(--r-sm)', border: '1px solid var(--border)', cursor: 'pointer',
+            background: authed ? 'var(--surface-2)' : 'var(--accent)', color: authed ? 'var(--text-muted)' : '#fff',
+            font: 'inherit', fontSize: 12.5, fontWeight: 500 }}
+        >
+          <Icon name={authed ? 'door' : 'sparkle'} size={14} />
+          {authed ? 'Sign out' : 'Sign in'}
+        </button>
+      </div>
       <button onClick={() => setTweak('theme', t.theme === 'light' ? 'dark' : 'light')} title="Toggle theme"
         style={{ ...iconBtn, background: 'var(--surface-2)' }}>
         <Icon name={t.theme === 'light' ? 'moon' : 'sun'} size={16} />
       </button>
     </div>
+  );
+}
+
+function preferenceCount(profile) {
+  return String(profile?.defaultBrief || '')
+    .split(/\n+/)
+    .map((item) => item.trim())
+    .filter(Boolean).length;
+}
+
+function ProfileRow({ label, value, muted }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center',
+      padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
+      <span style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>{label}</span>
+      <span style={{ minWidth: 0, textAlign: 'right', fontSize: 12.5, color: muted ? 'var(--text-faint)' : 'var(--text)',
+        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{value}</span>
+    </div>
+  );
+}
+
+function ProfileSection({ title, children }) {
+  return (
+    <section style={{ display: 'grid', gap: 9 }}>
+      <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase',
+        letterSpacing: '.04em' }}>{title}</div>
+      <div style={{ padding: '4px 12px 2px', borderRadius: 'var(--r-sm)', background: 'var(--surface-2)',
+        border: '1px solid var(--border)' }}>
+        {children}
+      </div>
+    </section>
+  );
+}
+
+function ProfileToggle({ label, sub, checked, onChange }) {
+  return (
+    <button onClick={() => onChange(!checked)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      gap: 12, width: '100%', padding: '9px 0', border: 'none', borderBottom: '1px solid var(--border)',
+      background: 'transparent', color: 'var(--text)', cursor: 'pointer', textAlign: 'left', font: 'inherit' }}>
+      <span style={{ minWidth: 0 }}>
+        <span style={{ display: 'block', fontSize: 12.5, fontWeight: 600 }}>{label}</span>
+        {sub && <span style={{ display: 'block', fontSize: 11, color: 'var(--text-faint)', lineHeight: 1.4, marginTop: 2 }}>{sub}</span>}
+      </span>
+      <span style={{ width: 34, height: 20, borderRadius: 99, padding: 2, boxSizing: 'border-box',
+        background: checked ? 'var(--accent)' : 'var(--surface-3)', transition: 'background .15s' }}>
+        <span style={{ display: 'block', width: 16, height: 16, borderRadius: 99, background: '#fff',
+          transform: checked ? 'translateX(14px)' : 'translateX(0)', transition: 'transform .15s' }} />
+      </span>
+    </button>
+  );
+}
+
+function ProfileModal({ session, profile, workflow, agents, onClose, onOpenMemory, onClearPreferences }) {
+  const [learnPrefs, setLearnPrefs] = useState(true);
+  const [usePrefs, setUsePrefs] = useState(true);
+  const savedPreferenceCount = preferenceCount(profile);
+  const agentRows = [
+    ['Roundtable local', 'Available'],
+    ['Claude Code', 'Configurable'],
+    ['Codex', 'Configurable'],
+    ['Custom agents', `${Object.keys(agents || {}).length} in roster`],
+  ];
+  return (
+    <Modal title="Profile" sub="Account, defaults, connections, and memory controls." icon="layers"
+      onClose={onClose} width={620}>
+      <div style={{ display: 'grid', gap: 16 }}>
+        <ProfileSection title="Account">
+          <ProfileRow label="Name" value={session?.user?.name || 'Not set'} />
+          <ProfileRow label="Email" value={session?.user?.email || 'Unknown'} />
+          <div style={{ padding: '10px 0 6px' }}>
+            <button onClick={() => signOut()} style={{ display: 'inline-flex', alignItems: 'center', gap: 7,
+              padding: '7px 11px', borderRadius: 'var(--r-sm)', border: '1px solid var(--border)', background: 'var(--surface)',
+              color: 'var(--text-muted)', font: 'inherit', fontSize: 12.5, fontWeight: 500, cursor: 'pointer' }}>
+              <Icon name="door" size={14} /> Sign out
+            </button>
+          </div>
+        </ProfileSection>
+
+        <ProfileSection title="Defaults">
+          <ProfileRow label="Language" value="Auto" />
+          <ProfileRow label="Workflow" value={workflow?.name || 'Ship a PR-ready feature'} />
+          <ProfileRow label="Approval mode" value="Always ask before dispatch" />
+          <ProfileRow label="Run style" value="Balanced" />
+        </ProfileSection>
+
+        <ProfileSection title="Memory">
+          <ProfileRow label="Saved preferences" value={`${savedPreferenceCount} saved`} />
+          <ProfileRow label="Suggested preferences" value="Review in Memory" muted />
+          <div style={{ padding: '10px 0 6px' }}>
+            <button onClick={onOpenMemory} style={{ display: 'inline-flex', alignItems: 'center', gap: 7,
+              padding: '7px 11px', borderRadius: 'var(--r-sm)', border: '1px solid var(--border)', background: 'var(--surface)',
+              color: 'var(--text)', font: 'inherit', fontSize: 12.5, fontWeight: 500, cursor: 'pointer' }}>
+              <Icon name="sparkle" size={14} /> Manage Memory
+            </button>
+          </div>
+        </ProfileSection>
+
+        <ProfileSection title="Connected agents">
+          {agentRows.map(([label, value]) => <ProfileRow key={label} label={label} value={value} />)}
+        </ProfileSection>
+
+        <ProfileSection title="Privacy">
+          <ProfileToggle label="Learn preference suggestions" checked={learnPrefs} onChange={setLearnPrefs}
+            sub="Roundtable can suggest preferences from repeated collaboration patterns." />
+          <ProfileToggle label="Use saved preferences in hand-offs" checked={usePrefs} onChange={setUsePrefs}
+            sub="Saved preferences affect future hand-offs only." />
+          <div style={{ padding: '10px 0 6px', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button onClick={onClearPreferences} disabled={savedPreferenceCount === 0}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 11px',
+                borderRadius: 'var(--r-sm)', border: '1px solid var(--border)', background: 'var(--surface)',
+                color: savedPreferenceCount === 0 ? 'var(--text-faint)' : 'var(--text-muted)', font: 'inherit',
+                fontSize: 12.5, fontWeight: 500, cursor: savedPreferenceCount === 0 ? 'default' : 'pointer' }}>
+              <Icon name="x" size={14} /> Clear saved preferences
+            </button>
+          </div>
+        </ProfileSection>
+      </div>
+    </Modal>
   );
 }
 
@@ -2829,7 +2973,7 @@ function App() {
     }
   });
   // P3.2: live chats when signed in; fall back to fixtures for the logged-out demo.
-  const { status: authStatus } = useSession();
+  const { data: session, status: authStatus } = useSession();
   const authed = authStatus === 'authenticated';
   const chatsQ = trpc.chats.list.useQuery(undefined, { enabled: authed });
   const workbenchesQ = trpc.workbenches.list.useQuery(undefined, { enabled: authed });
@@ -2947,6 +3091,10 @@ function App() {
   const projectedWorkflow = projectLocalWorkflowRun(latestTurn, scene.clock);
   const liveWorkflow = projectedWorkflow.workflow;
   const liveWorkflowRun = projectedWorkflow.workflowRun;
+  const profileWorkflow = liveWorkflow
+    || RT.BUILTIN_WORKFLOWS.find((workflow) => workflow.id === activeWorkbench?.activeWorkflowId)
+    || RT.BUILTIN_WORKFLOWS.find((workflow) => workflow.id === RT.WORKBENCH.workflowId)
+    || RT.BUILTIN_WORKFLOWS[0];
   // Local dispatch runs in the background. Replay once when the run is approved
   // so the UI walks to Build, then again when dispatch completes so the strip
   // can continue through the post-build stages instead of racing to Ship early.
@@ -3440,7 +3588,15 @@ function App() {
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <TopBar t={t} setTweak={setTweak} view={view} setView={setView} />
+      <TopBar
+        t={t}
+        setTweak={setTweak}
+        view={view}
+        setView={setView}
+        authStatus={authStatus}
+        userEmail={session?.user?.email}
+        onOpenProfile={() => setModal('profile')}
+      />
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         {railOpen && !compact && <ConversationRail workbench={railWorkbench} workbenches={railWorkbenches}
           tasks={tasks} agents={agents} activeId={authed ? activeChatId : activeLocalChatId} onPick={authed ? pickChat : pickLocalChat}
@@ -3597,6 +3753,19 @@ function App() {
         }
         setModal(null);
       }} />}
+      {modal === 'profile' && <ProfileModal
+        session={session}
+        profile={profileQ.data}
+        workflow={profileWorkflow}
+        agents={agents}
+        onClose={() => setModal(null)}
+        onOpenMemory={() => {
+          setModal(null);
+          setInspectorTab('memory');
+          setNotesOpen(true);
+        }}
+        onClearPreferences={() => updateProfile.mutate({ defaultBrief: '' })}
+      />}
       {/* dev tweaks panel removed in port */}
     </div>
   );

@@ -16,6 +16,7 @@ import {
   messages,
   pinnedMessages,
   userProfiles,
+  userSettings,
   userSkills,
   workbenchPinnedMessages,
 } from '../db/index.js';
@@ -132,11 +133,14 @@ async function userProfileCandidates(
     .select({
       userId: chats.ownerUserId,
       defaultBrief: userProfiles.defaultBrief,
+      useSavedPreferencesInHandoffs: userSettings.useSavedPreferencesInHandoffs,
     })
     .from(chats)
     .leftJoin(userProfiles, eq(userProfiles.userId, chats.ownerUserId))
+    .leftJoin(userSettings, eq(userSettings.userId, chats.ownerUserId))
     .where(eq(chats.id, input.state.chatId));
 
+  if (row?.useSavedPreferencesInHandoffs === false) return [];
   const defaultBrief = row?.defaultBrief?.trim();
   if (!row || !defaultBrief) return [];
 

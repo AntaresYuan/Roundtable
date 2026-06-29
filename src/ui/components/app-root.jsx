@@ -1391,9 +1391,17 @@ function ProfileToggle({ label, sub, checked, onChange }) {
   );
 }
 
-function ProfileModal({ session, profile, workflow, agents, onClose, onOpenMemory, onClearPreferences }) {
-  const [learnPrefs, setLearnPrefs] = useState(true);
-  const [usePrefs, setUsePrefs] = useState(true);
+const LANGUAGE_LABELS = { auto: 'Auto', zh: 'Chinese', en: 'English' };
+const APPROVAL_LABELS = {
+  always_ask: 'Always ask before dispatch',
+  auto_safe_fixes: 'Auto-approve safe fixes',
+  run_until_blocked: 'Run until blocked',
+};
+const RUN_STYLE_LABELS = { fast: 'Fast', balanced: 'Balanced', careful: 'Careful' };
+
+function ProfileModal({ session, profile, settings, workflow, agents, onClose, onOpenMemory, onClearPreferences, onUpdateSettings }) {
+  const learnPrefs = settings?.learnPreferenceSuggestions ?? true;
+  const usePrefs = settings?.useSavedPreferencesInHandoffs ?? true;
   const savedPreferenceCount = preferenceCount(profile);
   const agentRows = [
     ['Roundtable local', 'Available'],
@@ -1418,10 +1426,10 @@ function ProfileModal({ session, profile, workflow, agents, onClose, onOpenMemor
         </ProfileSection>
 
         <ProfileSection title="Defaults">
-          <ProfileRow label="Language" value="Auto" />
+          <ProfileRow label="Language" value={LANGUAGE_LABELS[settings?.defaultLanguage] || 'Auto'} />
           <ProfileRow label="Workflow" value={workflow?.name || 'Ship a PR-ready feature'} />
-          <ProfileRow label="Approval mode" value="Always ask before dispatch" />
-          <ProfileRow label="Run style" value="Balanced" />
+          <ProfileRow label="Approval mode" value={APPROVAL_LABELS[settings?.approvalMode] || APPROVAL_LABELS.always_ask} />
+          <ProfileRow label="Run style" value={RUN_STYLE_LABELS[settings?.runStyle] || 'Balanced'} />
         </ProfileSection>
 
         <ProfileSection title="Memory">
@@ -1441,9 +1449,11 @@ function ProfileModal({ session, profile, workflow, agents, onClose, onOpenMemor
         </ProfileSection>
 
         <ProfileSection title="Privacy">
-          <ProfileToggle label="Learn preference suggestions" checked={learnPrefs} onChange={setLearnPrefs}
+          <ProfileToggle label="Learn preference suggestions" checked={learnPrefs}
+            onChange={(checked) => onUpdateSettings({ learnPreferenceSuggestions: checked })}
             sub="Roundtable can suggest preferences from repeated collaboration patterns." />
-          <ProfileToggle label="Use saved preferences in hand-offs" checked={usePrefs} onChange={setUsePrefs}
+          <ProfileToggle label="Use saved preferences in hand-offs" checked={usePrefs}
+            onChange={(checked) => onUpdateSettings({ useSavedPreferencesInHandoffs: checked })}
             sub="Saved preferences affect future hand-offs only." />
           <div style={{ padding: '10px 0 6px', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button onClick={onClearPreferences} disabled={savedPreferenceCount === 0}
@@ -3006,6 +3016,9 @@ function App() {
   const updateProfile = trpc.userProfile.update.useMutation({
     onSuccess: () => trpcUtils.userProfile.get.invalidate(),
   });
+  const updateSettings = trpc.userSettings.update.useMutation({
+    onSuccess: () => trpcUtils.userSettings.get.invalidate(),
+  });
   const pinWorkbench = trpc.workbenchPinned.pin.useMutation({
     onSuccess: () => trpcUtils.workbenchPinned.list.invalidate(),
   });
@@ -3043,6 +3056,7 @@ function App() {
         ? localTasks
         : RT.TASKS;
   const profileQ = trpc.userProfile.get.useQuery(undefined, { enabled: authed });
+  const userSettingsQ = trpc.userSettings.get.useQuery(undefined, { enabled: authed });
   const pinsQ = trpc.workbenchPinned.list.useQuery(
     { workbenchId: activeWorkbenchId ?? '' },
     { enabled: authed && !!activeWorkbenchId },
@@ -3568,6 +3582,7 @@ function App() {
     live: authed,
     workbench: activeWorkbench,
     profile: profileQ.data,
+    settings: userSettingsQ.data,
     recentMessages: liveMessages ?? [],
     pins: pinsQ.data ?? [],
     profileSaving: updateProfile.isPending,
@@ -3756,6 +3771,7 @@ function App() {
       {modal === 'profile' && <ProfileModal
         session={session}
         profile={profileQ.data}
+        settings={userSettingsQ.data}
         workflow={profileWorkflow}
         agents={agents}
         onClose={() => setModal(null)}
@@ -3765,6 +3781,7 @@ function App() {
           setNotesOpen(true);
         }}
         onClearPreferences={() => updateProfile.mutate({ defaultBrief: '' })}
+        onUpdateSettings={(patch) => updateSettings.mutate(patch)}
       />}
       {/* dev tweaks panel removed in port */}
     </div>

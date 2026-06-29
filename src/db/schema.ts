@@ -138,6 +138,25 @@ export const userProfiles = pgTable('user_profiles', {
     .defaultNow(),
 });
 
+export const userSettings = pgTable('user_settings', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  defaultLanguage: text('default_language').notNull().default('auto'),
+  defaultWorkflowId: uuid('default_workflow_id'),
+  approvalMode: text('approval_mode').notNull().default('always_ask'),
+  runStyle: text('run_style').notNull().default('balanced'),
+  learnPreferenceSuggestions: boolean('learn_preference_suggestions')
+    .notNull()
+    .default(true),
+  useSavedPreferencesInHandoffs: boolean('use_saved_preferences_in_handoffs')
+    .notNull()
+    .default(true),
+  updatedAt: timestamp('updated_at', { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 export const workbenches = pgTable(
   'workbenches',
   {

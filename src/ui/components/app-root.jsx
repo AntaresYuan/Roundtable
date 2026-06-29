@@ -13,7 +13,7 @@ import { RoundtableScene, WhiteboardZoom, sceneAt, meetingNotes } from './roundt
 import { WorkflowView, WorkflowStrip } from './workflow';
 import { Modal, NewTaskModal, NewWorkbenchModal, AddAgentModal, EditHandoffModal } from './modals';
 import { MemoryPanel } from './memory-panel';
-import { useSession } from 'next-auth/react';
+import { signIn, signOut, useSession } from 'next-auth/react';
 import { trpc } from '@/ui/lib/trpc';
 
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
@@ -1300,7 +1300,8 @@ function MiniSeg({ value, options, onChange }) {
 }
 
 /* ---- TopBar --------------------------------------------------------------- */
-function TopBar({ t, setTweak, view, setView }) {
+function TopBar({ t, setTweak, view, setView, authStatus, userEmail }) {
+  const authed = authStatus === 'authenticated';
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '0 18px', height: 54,
       borderBottom: '1px solid var(--border)', background: 'var(--surface)', flexShrink: 0 }}>
@@ -1308,6 +1309,24 @@ function TopBar({ t, setTweak, view, setView }) {
         { v: 'roundtable', label: 'Roundtable', icon: 'layers' },
         { v: 'workflow', label: 'Workflow', icon: 'sparkle' }]} />
       <div style={{ flex: 1 }} />
+      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+        {authed && userEmail && (
+          <span style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            fontSize: 12.5, color: 'var(--text-muted)' }}>
+            {userEmail}
+          </span>
+        )}
+        <button
+          onClick={() => authed ? signOut() : signIn()}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 11px',
+            borderRadius: 'var(--r-sm)', border: '1px solid var(--border)', cursor: 'pointer',
+            background: authed ? 'var(--surface-2)' : 'var(--accent)', color: authed ? 'var(--text-muted)' : '#fff',
+            font: 'inherit', fontSize: 12.5, fontWeight: 500 }}
+        >
+          <Icon name={authed ? 'door' : 'sparkle'} size={14} />
+          {authed ? 'Sign out' : 'Sign in'}
+        </button>
+      </div>
       <button onClick={() => setTweak('theme', t.theme === 'light' ? 'dark' : 'light')} title="Toggle theme"
         style={{ ...iconBtn, background: 'var(--surface-2)' }}>
         <Icon name={t.theme === 'light' ? 'moon' : 'sun'} size={16} />
@@ -2829,7 +2848,7 @@ function App() {
     }
   });
   // P3.2: live chats when signed in; fall back to fixtures for the logged-out demo.
-  const { status: authStatus } = useSession();
+  const { data: session, status: authStatus } = useSession();
   const authed = authStatus === 'authenticated';
   const chatsQ = trpc.chats.list.useQuery(undefined, { enabled: authed });
   const workbenchesQ = trpc.workbenches.list.useQuery(undefined, { enabled: authed });
@@ -3439,7 +3458,14 @@ function App() {
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <TopBar t={t} setTweak={setTweak} view={view} setView={setView} />
+      <TopBar
+        t={t}
+        setTweak={setTweak}
+        view={view}
+        setView={setView}
+        authStatus={authStatus}
+        userEmail={session?.user?.email}
+      />
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         {railOpen && !compact && <ConversationRail workbench={railWorkbench} workbenches={railWorkbenches}
           tasks={tasks} agents={agents} activeId={authed ? activeChatId : activeLocalChatId} onPick={authed ? pickChat : pickLocalChat}

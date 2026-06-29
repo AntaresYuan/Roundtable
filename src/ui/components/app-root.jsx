@@ -3439,6 +3439,7 @@ function App() {
     live: authed,
     workbench: activeWorkbench,
     profile: profileQ.data,
+    recentMessages: liveMessages ?? [],
     pins: pinsQ.data ?? [],
     profileSaving: updateProfile.isPending,
     pinSaving: pinWorkbench.isPending || unpinWorkbench.isPending,

@@ -1391,13 +1391,43 @@ function ProfileToggle({ label, sub, checked, onChange }) {
   );
 }
 
-const LANGUAGE_LABELS = { auto: 'Auto', zh: 'Chinese', en: 'English' };
-const APPROVAL_LABELS = {
-  always_ask: 'Always ask before dispatch',
-  auto_safe_fixes: 'Auto-approve safe fixes',
-  run_until_blocked: 'Run until blocked',
-};
-const RUN_STYLE_LABELS = { fast: 'Fast', balanced: 'Balanced', careful: 'Careful' };
+function ProfileOptionGroup({ label, value, options, onChange }) {
+  return (
+    <div style={{ display: 'grid', gap: 7, padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
+      <div style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>{label}</div>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        {options.map((option) => {
+          const active = value === option.value;
+          return (
+            <button key={option.value} onClick={() => onChange(option.value)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 10px',
+                borderRadius: 'var(--r-sm)', border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
+                background: active ? tint('var(--accent)', 10) : 'var(--surface)', color: active ? 'var(--accent)' : 'var(--text-muted)',
+                cursor: 'pointer', font: 'inherit', fontSize: 12, fontWeight: 600 }}>
+              {option.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+const LANGUAGE_OPTIONS = [
+  { value: 'auto', label: 'Auto' },
+  { value: 'zh', label: 'Chinese' },
+  { value: 'en', label: 'English' },
+];
+const APPROVAL_OPTIONS = [
+  { value: 'always_ask', label: 'Always ask' },
+  { value: 'auto_safe_fixes', label: 'Safe fixes' },
+  { value: 'run_until_blocked', label: 'Until blocked' },
+];
+const RUN_STYLE_OPTIONS = [
+  { value: 'fast', label: 'Fast' },
+  { value: 'balanced', label: 'Balanced' },
+  { value: 'careful', label: 'Careful' },
+];
 
 function ProfileModal({ session, profile, settings, workflow, agents, onClose, onOpenMemory, onClearPreferences, onUpdateSettings }) {
   const learnPrefs = settings?.learnPreferenceSuggestions ?? true;
@@ -1426,10 +1456,13 @@ function ProfileModal({ session, profile, settings, workflow, agents, onClose, o
         </ProfileSection>
 
         <ProfileSection title="Defaults">
-          <ProfileRow label="Language" value={LANGUAGE_LABELS[settings?.defaultLanguage] || 'Auto'} />
+          <ProfileOptionGroup label="Language" value={settings?.defaultLanguage || 'auto'}
+            options={LANGUAGE_OPTIONS} onChange={(defaultLanguage) => onUpdateSettings({ defaultLanguage })} />
           <ProfileRow label="Workflow" value={workflow?.name || 'Ship a PR-ready feature'} />
-          <ProfileRow label="Approval mode" value={APPROVAL_LABELS[settings?.approvalMode] || APPROVAL_LABELS.always_ask} />
-          <ProfileRow label="Run style" value={RUN_STYLE_LABELS[settings?.runStyle] || 'Balanced'} />
+          <ProfileOptionGroup label="Approval mode" value={settings?.approvalMode || 'always_ask'}
+            options={APPROVAL_OPTIONS} onChange={(approvalMode) => onUpdateSettings({ approvalMode })} />
+          <ProfileOptionGroup label="Run style" value={settings?.runStyle || 'balanced'}
+            options={RUN_STYLE_OPTIONS} onChange={(runStyle) => onUpdateSettings({ runStyle })} />
         </ProfileSection>
 
         <ProfileSection title="Memory">
